@@ -26,8 +26,9 @@ class GreetingScreenshotTest {
         ValuationSummaryCard(
           totalNetInvest = 1200000.0,
           totalEvaluation = 1482450.0,
-          overallProfit = 282450.0,
-          overallGrowthPercent = 23.53
+          totalNetGain = 282450.0,
+          overallGrowthPercent = 23.53,
+          overallProfitPercent = 23.53
         )
       }
     }

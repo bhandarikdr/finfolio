@@ -52,4 +52,11 @@ interface PortfolioDao {
 
     @Query("UPDATE ExternalLtp SET isInMeroshareCsv = 0")
     suspend fun resetMeroshareCsvFlag()
+
+    // --- USER PROFILE ---
+    @Query("SELECT * FROM UserProfile WHERE id = 0 LIMIT 1")
+    fun getUserProfile(): Flow<UserEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveUserProfile(user: UserEntity)
 }

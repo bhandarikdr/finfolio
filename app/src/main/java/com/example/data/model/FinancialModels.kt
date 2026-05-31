@@ -3,6 +3,17 @@ package com.example.data.model
 import com.example.data.db.ExternalLtp
 import com.example.data.db.TransactionRecord
 
+data class UserProfile(val name: String, val email: String)
+
+data class NepseStatus(
+    val index: String = "0.00",
+    val change: String = "0.00",
+    val percentChange: String = "0.00%",
+    val date: String = "",
+    val status: String = "Market Closed",
+    val isPositive: Boolean = true,
+)
+
 data class ItemMetrics(
     val item: String,
     val type: String,
@@ -85,44 +96,51 @@ object FinancialEngines {
             val saleQty = saleRecords.sumOf { it.qty }
 
             // "Returns" now covers everything that was previously "Bonus"
-            val returnRecords = txs.filter { it.action == "Returns" || it.action == "Bonus" }
+            val returnRecords = txs.filter { (it.action == "Returns") || (it.action == "Bonus") }
             val returnCash = returnRecords.sumOf { it.amount }
             val returnCount = returnRecords.size
             val returnQty = returnRecords.sumOf { it.qty }
 
             // Intermediate Matrix Computations
-            val balanceQty = buyQty + returnQty - saleQty
+            val balanceQty = (buyQty + returnQty - saleQty).coerceAtLeast(0.0)
             val avgCp = if (buyQty + returnQty == 0.0) 0.0 else buyAmount / (buyQty + returnQty)
             val avgSp = if (saleQty == 0.0) 0.0 else saleAmount / saleQty
-            val netInvest = (buyAmount - saleAmount).coerceAtLeast(0.0)
+            
+            // Net Investment: Capital still tied up in this scrip (Cost Recovery Model)
+            // If balanceQty is 0, we have no investment left in this scrip.
+            val netInvest = if (balanceQty <= 0.0) 0.0 else (buyAmount - saleAmount - returnCash).coerceAtLeast(0.0)
 
             // Fetching LTP Value
             val ltpValRecord = ltpMap[symbol]
             val ltp = ltpValRecord?.ltp ?: 0.0
             val isInMs = meroshareFlags[symbol] ?: false
 
-            // Derivative Valuations & Safety Checks
-            val evaluation = if (balanceQty != 0.0 || avgCp != 0.0) {
-                balanceQty * ltp
-            } else {
-                buyAmount - saleAmount
-            }
+            // Evaluation: Current Market Value of holdings
+            val evaluation = balanceQty * ltp
 
+            // Realized Gain: Profit/Loss from recovered capital and returns
             val realizedGain = (saleAmount - buyAmount) + returnCash + netInvest
+            
+            // Unrealized Gain: Market Value - Remaining Capital
             val unrealizedGain = evaluation - netInvest
+            
+            // Estimated Deductions (Commission, DP Fee, and CGT on profit)
             val deductions = if (unrealizedGain > 0.0) {
                 (evaluation * 0.0038) + 25.0 + (unrealizedGain * 0.075)
             } else {
                 (evaluation * 0.0038) + 25.0
             }
+            
             val netGain = realizedGain + unrealizedGain - deductions
             val growth = if (buyAmount == 0.0) 0.0 else (netGain / buyAmount) * 100.0
-            val receivableAmount = evaluation - deductions
-            val profitAmount = receivableAmount - netInvest
+            val receivableAmount = (evaluation - deductions).coerceAtLeast(0.0)
+            
+            // Profit Amount should match the overall Net Gain for the scrip
+            val profitAmount = netGain
 
             val profitPercent = when {
                 netInvest > 0.0 -> (profitAmount / netInvest) * 100.0
-                netInvest == 0.0 && buyAmount > 0.0 -> (profitAmount / buyAmount) * 100.0
+                (netInvest == 0.0) && (buyAmount > 0.0) -> (profitAmount / buyAmount) * 100.0
                 else -> 0.0
             }
 

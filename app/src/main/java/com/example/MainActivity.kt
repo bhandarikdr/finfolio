@@ -1,28 +1,32 @@
 package com.example
 
 import android.app.DatePickerDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.*
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Input
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.automirrored.outlined.Input
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -38,7 +42,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -62,9 +67,86 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.DatasetScope
 import com.example.ui.viewmodel.PortfolioViewModel
 import com.example.ui.viewmodel.PortfolioViewModelFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
+import kotlin.math.absoluteValue
+
+@Composable
+fun NepsePillBadge(status: com.example.data.model.NepseStatus) {
+    val isPositive = status.isPositive
+    val emeraldGreen = Color(0xFF10B981)
+    val crimsonRed = Color(0xFFEF4444)
+    val baseColor = if (isPositive) emeraldGreen else crimsonRed
+    
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Surface(
+        modifier = Modifier.padding(end = 8.dp),
+        shape = RoundedCornerShape(100.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, Brush.horizontalGradient(
+            listOf(baseColor.copy(alpha = 0.5f), baseColor.copy(alpha = 0.1f))
+        ))
+    ) {
+        Row(
+            modifier = Modifier
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(baseColor.copy(alpha = 0.15f), Color.Transparent)
+                    )
+                )
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Live Status Indicator (Pulse dot)
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(baseColor.copy(alpha = pulseAlpha))
+            )
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = status.index,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = 16.sp
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (isPositive) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(10.dp),
+                        tint = baseColor
+                    )
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = status.percentChange,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = baseColor
+                    )
+                }
+            }
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,7 +159,7 @@ class MainActivity : ComponentActivity() {
             WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
                 "ScrapeLiveTrading",
                 ExistingPeriodicWorkPolicy.KEEP,
-                workRequest
+                workRequest,
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -112,7 +194,20 @@ enum class NavigationTab {
 @Composable
 fun PortfolioAppContent(viewModel: PortfolioViewModel) {
     val context = LocalContext.current
-    var currentTab by remember { mutableStateOf(NavigationTab.DASHBOARD) }
+    val tabs = listOf(NavigationTab.DASHBOARD, NavigationTab.MATRIX, NavigationTab.DATA)
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val coroutineScope = rememberCoroutineScope()
+    
+    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+    val nepseStatus by viewModel.nepseStatus.collectAsStateWithLifecycle()
+    var showRegistration by remember { mutableStateOf(false) }
+    var showDevPanel by remember { mutableStateOf(false) }
+
+    LaunchedEffect(userProfile) {
+        if (userProfile != null && userProfile!!.name.isEmpty()) {
+            showRegistration = true
+        }
+    }
     
     // SnackBar notification observer
     val snackbarHostState = remember { SnackbarHostState() }
@@ -124,56 +219,86 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.Analytics,
-                            contentDescription = "App Logo",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "FinFolio Pro",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "EXECUTIVE ANALYTICS",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Column {
+                TopAppBar(
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { showDevPanel = !showDevPanel }
+                        ) {
+                            Box(
+                                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp))
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_launcher_background),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                                    contentDescription = "App Logo",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "FinFolio Pro",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "EXECUTIVE ANALYTICS",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            
+                            // Live NEPSE Index Info
+                            if (nepseStatus.index != "0.00") {
+                                NepsePillBadge(nepseStatus)
+                            }
+                        }
+                    },
+                    actions = {
+                        val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp).padding(end = 12.dp),
+                                strokeWidth = 2.dp
                             )
                         }
-                    }
-                },
-                actions = {
-                    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp).padding(end = 12.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-                    IconButton(
-                        onClick = { viewModel.refreshLivePrices() },
-                        modifier = Modifier.testTag("refresh_live_prices_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Refresh Live Prices"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                        IconButton(
+                            onClick = { viewModel.refreshLivePrices() },
+                            modifier = Modifier.testTag("refresh_live_prices_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = "Refresh Live Prices"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
+                
+                AnimatedVisibility(
+                    visible = showDevPanel,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    DeveloperProfilePanel(
+                        userName = userProfile?.name ?: "",
+                        userEmail = userProfile?.email ?: "",
+                        onClose = { showDevPanel = false }
+                    )
+                }
+            }
         },
         bottomBar = {
             NavigationBar(
@@ -181,34 +306,34 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel) {
                 windowInsets = WindowInsets.navigationBars
             ) {
                 NavigationBarItem(
-                    selected = currentTab == NavigationTab.DASHBOARD,
-                    onClick = { currentTab = NavigationTab.DASHBOARD },
+                    selected = pagerState.currentPage == 0,
+                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
                     label = { Text("Dashboard") },
                     icon = {
                         Icon(
-                            imageVector = if (currentTab == NavigationTab.DASHBOARD) Icons.Filled.Dashboard else Icons.Outlined.Dashboard,
+                            imageVector = if (pagerState.currentPage == 0) Icons.Filled.Dashboard else Icons.Outlined.Dashboard,
                             contentDescription = "Dashboard"
                         )
                     }
                 )
                 NavigationBarItem(
-                    selected = currentTab == NavigationTab.MATRIX,
-                    onClick = { currentTab = NavigationTab.MATRIX },
+                    selected = pagerState.currentPage == 1,
+                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
                     label = { Text("Matrices") },
                     icon = {
                         Icon(
-                            imageVector = if (currentTab == NavigationTab.MATRIX) Icons.Filled.TableChart else Icons.Outlined.TableChart,
+                            imageVector = if (pagerState.currentPage == 1) Icons.Filled.TableChart else Icons.Outlined.TableChart,
                             contentDescription = "Matrices"
                         )
                     }
                 )
                 NavigationBarItem(
-                    selected = currentTab == NavigationTab.DATA,
-                    onClick = { currentTab = NavigationTab.DATA },
+                    selected = pagerState.currentPage == 2,
+                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
                     label = { Text("Data & CSV") },
                     icon = {
                         Icon(
-                            imageVector = if (currentTab == NavigationTab.DATA) Icons.AutoMirrored.Filled.Input else Icons.AutoMirrored.Outlined.Input,
+                            imageVector = if (pagerState.currentPage == 2) Icons.AutoMirrored.Filled.Input else Icons.AutoMirrored.Outlined.Input,
                             contentDescription = "Data"
                         )
                     }
@@ -218,16 +343,150 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets.safeDrawing
     ) { innerPadding ->
-        Box(
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            when (currentTab) {
+                .background(MaterialTheme.colorScheme.background),
+            beyondViewportPageCount = 1
+        ) { page ->
+            when (tabs[page]) {
                 NavigationTab.DASHBOARD -> DashboardScreen(viewModel)
                 NavigationTab.MATRIX -> MatrixScreen(viewModel)
                 NavigationTab.DATA -> DataScreen(viewModel)
+            }
+        }
+    }
+
+    if (showRegistration) {
+        RegistrationDialog(
+            onRegister = { name, email ->
+                viewModel.registerUser(name, email)
+                showRegistration = false
+            }
+        )
+    }
+}
+
+@Composable
+fun RegistrationDialog(onRegister: (String, String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = { }, // Force registration
+        title = { Text("Welcome to FinFolio", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Please register to personalize your experience.")
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Full Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email Address") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (name.isNotBlank() && email.isNotBlank()) onRegister(name, email) },
+                enabled = name.isNotBlank() && email.isNotBlank()
+            ) {
+                Text("Get Started")
+            }
+        }
+    )
+}
+
+@Composable
+fun DeveloperProfilePanel(
+    userName: String,
+    userEmail: String,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    var customMessage by remember { mutableStateOf("") }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Hi ${userName.split(" ").firstOrNull() ?: "there"}!",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = "Developer: Kedar Bhandari",
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = "Email: bhandarikdr@gmail.com",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            OutlinedTextField(
+                value = customMessage,
+                onValueChange = { customMessage = it },
+                label = { Text("Message to Developer") },
+                modifier = Modifier.fillMaxWidth().height(100.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White.copy(alpha = 0.5f),
+                    unfocusedContainerColor = Color.White.copy(alpha = 0.3f)
+                )
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Button(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_SENDTO).apply {
+                        data = Uri.parse("mailto:")
+                        putExtra(Intent.EXTRA_EMAIL, arrayOf("bhandarikdr@gmail.com"))
+                        putExtra(Intent.EXTRA_SUBJECT, "FinFolio Inquiry from $userName")
+                        val body = "User: $userName\nUser Email: $userEmail\n\nMessage:\n$customMessage"
+                        putExtra(Intent.EXTRA_TEXT, body)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Send Email"))
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Icon(Icons.Default.Email, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Contact Developer")
             }
         }
     }
@@ -265,7 +524,7 @@ fun DashboardScreen(viewModel: PortfolioViewModel) {
         val overallGrowthPercent = if (totalBuyAmt > 0.0) (totalNetGain / totalBuyAmt) * 100.0 else 0.0
         val overallProfitPercent = when {
             totalNetInvest > 0.0 -> (totalProfitAmt / totalNetInvest) * 100.0
-            totalNetInvest == 0.0 && totalBuyAmt > 0.0 -> (totalProfitAmt / totalBuyAmt) * 100.0
+            (totalNetInvest == 0.0) && (totalBuyAmt > 0.0) -> (totalProfitAmt / totalBuyAmt) * 100.0
             else -> 0.0
         }
 
@@ -763,7 +1022,7 @@ fun MatrixScreen(viewModel: PortfolioViewModel) {
     val types by viewModel.typeMetrics.collectAsStateWithLifecycle()
     val distinctTypesList by viewModel.distinctTypes.collectAsStateWithLifecycle()
 
-    var activeTabIdx by remember { mutableStateOf(0) } // 0: Items Tab, 1: Types Tab
+    var activeTabIdx by remember { mutableIntStateOf(0) } // 0: Items Tab, 1: Types Tab
     var showConfigDialog by remember { mutableStateOf(false) }
 
     val activeItemCols by viewModel.itemColumns.collectAsStateWithLifecycle()
@@ -968,7 +1227,7 @@ fun ItemMatrixTable(
                         ) {
                             Text(row.item, fontWeight = FontWeight.Bold, width = cellWidth, marginStart = 12.dp, color = MaterialTheme.colorScheme.primary)
                             if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", row.buyAmount), width = cellWidth)
-                            if (activeCols.contains("Buy_Count")) Text("${row.buyCount}", width = cellWidth)
+                            if (activeCols.contains("Buy_Count")) Text(row.buyCount.toString(), width = cellWidth)
                             if (activeCols.contains("Buy_Qty")) Text(String.format(Locale.US, "%,.2f", row.buyQty), width = cellWidth)
                             if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", row.saleAmount), width = cellWidth)
                             if (activeCols.contains("Sale_Count")) Text("${row.saleCount}", width = cellWidth)
@@ -1858,7 +2117,7 @@ fun RowEntryForm(
     // Date Dialog launcher
     val datePickerLauncher = remember {
         val calendar = Calendar.getInstance()
-        DatePickerDialog(
+        android.app.DatePickerDialog(
             context,
             { _, yr, mo, dy ->
                 dateVal = String.format(Locale.US, "%04d-%02d-%02d", yr, mo + 1, dy)

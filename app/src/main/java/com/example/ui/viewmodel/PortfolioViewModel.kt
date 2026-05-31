@@ -1,7 +1,5 @@
 package com.example.ui.viewmodel
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -10,7 +8,9 @@ import com.example.data.db.ExternalLtp
 import com.example.data.db.TransactionRecord
 import com.example.data.model.FinancialEngines
 import com.example.data.model.ItemMetrics
+import com.example.data.model.NepseStatus
 import com.example.data.model.TypeMetrics
+import com.example.data.model.UserProfile
 import com.example.data.repository.PortfolioRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +30,18 @@ enum class DatasetScope {
 }
 
 class PortfolioViewModel(private val repository: PortfolioRepository) : ViewModel() {
+
+    val userProfile: StateFlow<UserProfile?> = repository.userProfile
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val nepseStatus: StateFlow<NepseStatus> = repository.nepseStatus
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NepseStatus())
+
+    fun registerUser(name: String, email: String) {
+        viewModelScope.launch {
+            repository.saveUserProfile(name, email)
+        }
+    }
 
     val allTransactions: StateFlow<List<TransactionRecord>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -62,7 +74,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             "Buy_Amount", "Buy_Count", "Buy_Qty", "Sale_Amount", "Sale_Count", "Sale_Qty",
             "Balance_Qty", "Avg_CP", "Avg_SP", "LTP", "Net_Invest", "Return_Qty", "Return_Cash",
             "Evaluation", "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
-            "Receivable_Amount", "Profit_Amount", "Profit_Percent"
+            "Receivable_Amount", "Profit_Amount", "Profit_Percent",
         )
     )
     val itemColumns: StateFlow<Set<String>> = _itemColumns.asStateFlow()
@@ -71,7 +83,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         setOf(
             "Item_Count", "Buy_Amount", "Sale_Amount", "Return_Qty", "Return_Cash", "Balance_Qty", "Net_Invest", "Evaluation",
             "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
-            "Receivable_Amount", "Profit_Amount", "Profit_Percent"
+            "Receivable_Amount", "Profit_Amount", "Profit_Percent",
         )
     )
     val typeColumns: StateFlow<Set<String>> = _typeColumns.asStateFlow()
