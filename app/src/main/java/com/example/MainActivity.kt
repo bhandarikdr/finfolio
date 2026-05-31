@@ -135,9 +135,16 @@ fun NepsePillBadge(status: com.example.data.model.NepseStatus) {
                         modifier = Modifier.size(10.dp),
                         tint = baseColor
                     )
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(Modifier.width(4.dp))
+                    val changeText = buildString {
+                        if (status.change.isNotEmpty()) {
+                            append(status.change)
+                            append(" ")
+                        }
+                        append("(${status.percentChange})")
+                    }
                     Text(
-                        text = status.percentChange,
+                        text = changeText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = baseColor
