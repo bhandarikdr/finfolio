@@ -9,9 +9,10 @@ import androidx.room.RoomDatabase
     entities = [
         TransactionRecord::class,
         ExternalLtp::class,
-        UserEntity::class
+        UserEntity::class,
+        SectorMapping::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -208,14 +208,15 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
-    fun importTransactions(csvText: String, overwrite: Boolean) {
+    fun importTransactions(csvText: String, overwrite: Boolean, isWacc: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
-            val result = repository.importTransactionCsv(csvText.byteInputStream(), overwrite)
+            val result = repository.importTransactionCsv(csvText.byteInputStream(), overwrite, isWacc)
             result.onSuccess { count ->
-                _snackbarMessage.emit("Successfully parsed and imported $count transaction records")
+                val type = if (isWacc) "WACC" else "Standard"
+                _snackbarMessage.emit("Successfully imported $count $type records")
             }.onFailure { err ->
-                _snackbarMessage.emit("CSV Import Error: ${err.message}")
+                _snackbarMessage.emit("Import Error: ${err.message}")
             }
             _isLoading.value = false
         }
@@ -226,38 +227,9 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             _isLoading.value = true
             val result = repository.importMeroshareCsv(csvText.byteInputStream())
             result.onSuccess { count ->
-                _snackbarMessage.emit("Successfully imported $count Meroshare scrips, updated LTP, and synced flag")
+                _snackbarMessage.emit("Successfully imported $count Portfolio scrips, updated LTP, and synced flag")
             }.onFailure { err ->
-                _snackbarMessage.emit("Meroshare CSV Error: ${err.message}")
-            }
-            _isLoading.value = false
-        }
-    }
-
-    // Secondary Paste-Inputs
-    fun importTransactionsFromText(text: String, overwrite: Boolean) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            val stream = text.byteInputStream()
-            val result = repository.importTransactionCsv(stream, overwrite)
-            result.onSuccess { count ->
-                _snackbarMessage.emit("Imported $count transaction records from pasted CSV text")
-            }.onFailure { err ->
-                _snackbarMessage.emit("CSV Paste Error: ${err.message}")
-            }
-            _isLoading.value = false
-        }
-    }
-
-    fun importMeroshareFromText(text: String) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            val stream = text.byteInputStream()
-            val result = repository.importMeroshareCsv(stream)
-            result.onSuccess { count ->
-                _snackbarMessage.emit("Imported $count Meroshare scrips from pasted CSV text")
-            }.onFailure { err ->
-                _snackbarMessage.emit("Meroshare Paste Error: ${err.message}")
+                _snackbarMessage.emit("Portfolio Data Error: ${err.message}")
             }
             _isLoading.value = false
         }

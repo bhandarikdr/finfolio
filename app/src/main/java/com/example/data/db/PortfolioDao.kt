@@ -59,4 +59,14 @@ interface PortfolioDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveUserProfile(user: UserEntity)
+
+    // --- SECTOR MAPPINGS ---
+    @Query("SELECT * FROM SectorMapping")
+    suspend fun getAllSectorMappings(): List<SectorMapping>
+
+    @Query("SELECT sector FROM SectorMapping WHERE symbol = :symbol LIMIT 1")
+    suspend fun getSectorBySymbol(symbol: String): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSectorMappings(mappings: List<SectorMapping>)
 }

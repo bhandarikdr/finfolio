@@ -19,10 +19,13 @@ import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.*
 
+import com.example.data.db.SectorMapping
 import com.example.data.db.UserEntity
 import kotlinx.coroutines.flow.map
 
 class PortfolioRepository(private val portfolioDao: PortfolioDao) {
+
+    private var sectorCache: Map<String, String>? = null
 
     val userProfile: Flow<UserProfile> = portfolioDao.getUserProfile().map { entity ->
         UserProfile(entity?.name ?: "", entity?.email ?: "")
@@ -66,7 +69,64 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
-    suspend fun importTransactionCsv(inputStream: InputStream, overwrite: Boolean): Result<Int> {
+    suspend fun fetchSectors(): Map<String, String> {
+        return withContext(Dispatchers.IO) {
+            val local = portfolioDao.getAllSectorMappings()
+            if (local.isNotEmpty()) {
+                sectorCache = local.associate { it.symbol to it.sector }
+                return@withContext sectorCache!!
+            }
+
+            try {
+                val doc = Jsoup.connect("https://www.sharesansar.com/sectorwise-share-price")
+                    .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                    .timeout(20000)
+                    .get()
+                
+                val mappings = mutableListOf<SectorMapping>()
+                // Sector names are usually in h2 or h4 headers
+                val headers = doc.select("h2, h4, .sector-title") 
+                headers.forEach { header ->
+                    val sectorName = header.text().trim()
+                    // Filter out non-sector headers
+                    if (sectorName.contains("News") || sectorName.contains("Market") || sectorName.contains("Analysis")) return@forEach
+
+                    // Find the table in the next container
+                    val nextDiv = header.nextElementSibling()
+                    val table = nextDiv?.select("table")?.firstOrNull() 
+                        ?: nextDiv?.nextElementSibling()?.select("table")?.firstOrNull()
+                    
+                    table?.select("tbody tr")?.forEach { row ->
+                        val cells = row.select("td")
+                        // Usually: S.N (0), Symbol (1), Company (2)...
+                        val symbol = cells.getOrNull(1)?.text()?.trim()?.uppercase()
+                        if (symbol != null && symbol.isNotEmpty() && symbol.length < 15) {
+                            mappings.add(SectorMapping(symbol, sectorName))
+                        }
+                    }
+                }
+                
+                if (mappings.isNotEmpty()) {
+                    portfolioDao.insertSectorMappings(mappings)
+                    sectorCache = mappings.associate { it.symbol to it.sector }
+                    return@withContext sectorCache!!
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            emptyMap()
+        }
+    }
+
+    private suspend fun getSectorForScrip(symbol: String): String {
+        if (sectorCache == null) {
+            fetchSectors()
+        }
+        val upper = symbol.uppercase().trim()
+        return sectorCache?.get(upper) ?: "Other"
+    }
+
+    suspend fun importTransactionCsv(inputStream: InputStream, overwrite: Boolean, isWaccSchema: Boolean = false): Result<Int> {
         return withContext(Dispatchers.IO) {
             try {
                 val reader = BufferedReader(InputStreamReader(inputStream))
@@ -75,10 +135,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     return@withContext Result.failure(Exception("The selected CSV file is empty"))
                 }
 
-                // Detect headers and strip any UTF-8 BOM
                 val headerLine = lines.first().replace("\uFEFF", "")
-                
-                // Detect separator
                 var separator = ","
                 if (headerLine.contains(";") && (headerLine.count { it == ';' } > headerLine.count { it == ',' })) {
                     separator = ";"
@@ -86,67 +143,92 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                 
                 val header = parseCsvRow(headerLine, separator).map { it.lowercase().replace("\"", "").trim() }
 
-                val dateIdx = header.indexOfFirst { it.contains("date") }
-                val itemIdx = header.indexOfFirst { it.contains("item") || it.contains("symbol") || it.contains("scrip") || it.contains("name") }
-                val actionIdx = header.indexOfFirst { it.contains("action") || it.contains("buy/sell") || it.contains("direction") || it.contains("side") || (it == "type" && header.indexOf("action") == -1) }
-                val qtyIdx = header.indexOfFirst { it.contains("qty") || it.contains("quantity") || it.contains("unit") || it.contains("vol") || it.contains("size") }
-                val amountIdx = header.indexOfFirst { it.contains("amount") || it.contains("total") || it.contains("price") || it.contains("rate") || it.contains("cost") || it.contains("value") }
-                val typeIdx = header.indexOfFirst { it.contains("type") || it.contains("category") || it.contains("sector") || it.contains("group") }
-
-                if (itemIdx == -1) {
-                    return@withContext Result.failure(
-                        Exception("Required column for 'Item' or 'Symbol' or 'Scrip' not found in CSV. Headers found: $header")
-                    )
-                }
-
                 val records = mutableListOf<TransactionRecord>()
-                val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
-                for (i in 1 until lines.size) {
-                    val cols = parseCsvRow(lines[i], separator)
-                    if (cols.size > itemIdx) {
-                        val date = if (dateIdx != -1 && dateIdx < cols.size && cols[dateIdx].isNotBlank()) cols[dateIdx] else todayStr
-                        val item = cols[itemIdx].uppercase()
-                        val type = if (typeIdx != -1 && typeIdx < cols.size && cols[typeIdx].isNotBlank()) cols[typeIdx].uppercase() else "EQUITY"
-                        
-                        val actionRaw = if (actionIdx != -1 && actionIdx < cols.size) cols[actionIdx] else "Buy"
-                        val qtyStr = if (qtyIdx != -1 && qtyIdx < cols.size) cols[qtyIdx].replace("[^0-9.]".toRegex(), "") else ""
-                        val qty = qtyStr.toDoubleOrNull() ?: 0.0
-                        val amountStr = if (amountIdx != -1 && amountIdx < cols.size) cols[amountIdx].replace("[^0-9.]".toRegex(), "") else ""
-                        val amount = amountStr.toDoubleOrNull() ?: 0.0
+                if (isWaccSchema) {
+                    // Mapping: "Scrip Name" (2), "WACC Calculated Quantity" (3), "WACC Rate" (4), "Total Cost of Capital" (5), "Last Modification Date" (6)
+                    val scripIdx = header.indexOfFirst { it.contains("scrip name") || it == "scrip" || it.contains("symbol") }
+                    val qtyIdx = header.indexOfFirst { it.contains("wacc calculated quantity") || it.contains("quantity") || it.contains("qty") }
+                    val rateIdx = header.indexOfFirst { it.contains("wacc rate") || it.contains("rate") || it.contains("price") }
+                    val costIdx = header.indexOfFirst { it.contains("total cost of capital") || it.contains("cost") || it.contains("amount") }
+                    val dateIdx = header.indexOfFirst { it.contains("last modification date") || it.contains("date") }
 
-                        val normalizedAction = when {
-                            actionRaw.equals("buy", ignoreCase = true) || actionRaw.equals("purchase", ignoreCase = true) -> "Buy"
-                            actionRaw.equals("sale", ignoreCase = true) || actionRaw.equals("sell", ignoreCase = true) -> "Sale"
-                            actionRaw.equals("returns", ignoreCase = true) || actionRaw.equals("return", ignoreCase = true) -> "Returns"
-                            actionRaw.equals("bonus", ignoreCase = true) -> "Bonus"
-                            else -> "Buy"
-                        }
+                    if (scripIdx == -1) return@withContext Result.failure(Exception("Invalid WACC CSV: 'Scrip Name' column missing"))
 
-                        records.add(
-                            TransactionRecord(
-                                date = date,
-                                item = item,
-                                type = type,
-                                action = normalizedAction,
-                                qty = qty,
-                                amount = amount
+                    for (i in 1 until lines.size) {
+                        val cols = parseCsvRow(lines[i], separator).map { it.replace("\"", "").trim() }
+                        if (cols.size > scripIdx && cols[scripIdx].isNotBlank()) {
+                            val symbol = cols[scripIdx]
+                            val qty = cols.getOrNull(qtyIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
+                            
+                            // Try Total Cost first, then calculate from Rate if missing/zero
+                            var amount = cols.getOrNull(costIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
+                            if (amount == 0.0 && rateIdx != -1) {
+                                val rate = cols.getOrNull(rateIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
+                                amount = qty * rate
+                            }
+                            
+                            val date = cols.getOrNull(dateIdx)?.takeIf { it.isNotBlank() } ?: todayStr
+                            
+                            records.add(
+                                TransactionRecord(
+                                    date = date,
+                                    item = symbol,
+                                    type = getSectorForScrip(symbol),
+                                    action = "Buy",
+                                    qty = qty,
+                                    amount = amount
+                                )
                             )
-                        )
+                        }
+                    }
+                } else {
+                    // Standard Schema
+                    val dateIdx = header.indexOfFirst { it.contains("date") }
+                    val itemIdx = header.indexOfFirst { it.contains("item") || it.contains("symbol") || it.contains("scrip") }
+                    val actionIdx = header.indexOfFirst { it.contains("action") || it.contains("buy/sell") }
+                    val qtyIdx = header.indexOfFirst { it.contains("qty") || it.contains("quantity") }
+                    val amountIdx = header.indexOfFirst { it.contains("amount") || it.contains("total") }
+                    val typeIdx = header.indexOfFirst { it.contains("type") || it.contains("category") }
+
+                    if (itemIdx == -1) return@withContext Result.failure(Exception("Invalid CSV: Symbol/Item column missing"))
+
+                    for (i in 1 until lines.size) {
+                        val cols = parseCsvRow(lines[i], separator).map { it.replace("\"", "").trim() }
+                        if (cols.size > itemIdx) {
+                            val symbol = cols[itemIdx].trim()
+                            val type = if (typeIdx != -1 && typeIdx < cols.size && cols[typeIdx].isNotBlank()) cols[typeIdx] else getSectorForScrip(symbol)
+                            
+                            val actionRaw = if (actionIdx != -1 && actionIdx < cols.size) cols[actionIdx] else "Buy"
+                            val qty = cols.getOrNull(qtyIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
+                            val amount = cols.getOrNull(amountIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
+                            val date = cols.getOrNull(dateIdx)?.takeIf { it.isNotBlank() } ?: todayStr
+
+                            val normalizedAction = when {
+                                actionRaw.equals("sale", ignoreCase = true) || actionRaw.equals("sell", ignoreCase = true) -> "Sale"
+                                actionRaw.equals("returns", ignoreCase = true) || actionRaw.equals("return", ignoreCase = true) -> "Returns"
+                                actionRaw.equals("bonus", ignoreCase = true) -> "Bonus"
+                                else -> "Buy"
+                            }
+
+                            records.add(
+                                TransactionRecord(
+                                    date = date,
+                                    item = symbol,
+                                    type = type,
+                                    action = normalizedAction,
+                                    qty = qty,
+                                    amount = amount
+                                )
+                            )
+                        }
                     }
                 }
 
-                if (overwrite) {
-                    portfolioDao.clearAllTransactions()
-                }
-
-                var successCount = 0
-                for (rec in records) {
-                    portfolioDao.insertTransaction(rec)
-                    successCount++
-                }
-
-                Result.success(successCount)
+                if (overwrite) portfolioDao.clearAllTransactions()
+                records.forEach { portfolioDao.insertTransaction(it) }
+                Result.success(records.size)
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -258,84 +340,63 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
     suspend fun refreshLivePrices(): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                // Use a timestamp to bypass any server-side or CDN caching
-                val url = "https://www.sharesansar.com/live-trading?t=${System.currentTimeMillis()}"
-                val mainDoc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-                    .header("Accept-Language", "en-US,en;q=0.9")
-                    .header("Cache-Control", "no-cache")
-                    .header("Pragma", "no-cache")
-                    .timeout(25000)
-                    .get()
-                
-                // Robust extraction for NEPSE Index summary with content-aware detection
                 var indexValue = "0.00"
                 var pctChange = "0.00%"
                 var ptChange = ""
                 var isPositive = true
+                var marketStatus = "Market Closed"
+                var marketDate = SimpleDateFormat("MMM dd | hh:mm a", Locale.US).format(Date())
 
-                // Attempt 1: Look for the specific "NEPSE Index" row in any table
-                // This is often the most reliable source for "Live" numbers.
-                val nepseRow = mainDoc.select("tr").find { 
-                    it.text().contains("NEPSE Index", ignoreCase = true) && !it.text().contains("Sub-Index", ignoreCase = true)
-                }
-                
-                if (nepseRow != null) {
-                    val cells = nepseRow.select("td")
-                    val values = cells.map { it.text().trim() }.filter { it.isNotEmpty() }
+                // Attempt Source 1: Merolagani (Usually very accurate for index)
+                try {
+                    val meroDoc = Jsoup.connect("https://merolagani.com/latestmarket.aspx")
+                        .userAgent("Mozilla/5.0")
+                        .timeout(10000)
+                        .get()
                     
-                    // The common live-trading table structure is: 
-                    // [Index Name, Turnover, Index Value, Change (Point), % Change]
-                    // We search for the % change as our anchor.
-                    val pctIdx = values.indexOfFirst { it.contains("%") }
-                    if (pctIdx != -1) {
-                        pctChange = values[pctIdx]
-                        
-                        // Work backwards from the % anchor to find Value and Point Change
-                        // Value is usually 2 steps before %, Point Change is 1 step before %.
-                        if (pctIdx >= 2) {
-                            indexValue = values[pctIdx - 2]
-                            ptChange = values[pctIdx - 1]
-                        } else if (pctIdx == 1) {
-                            indexValue = values.getOrNull(2) ?: "0.00"
-                        }
-                        
-                        // Verify if indexValue looks like an actual index (contains comma or > 1000)
-                        if (!indexValue.contains(",") && indexValue.toDoubleOrNull()?.let { it < 500 } == true) {
-                            // If indexValue looks too small, maybe there's no turnover column
-                            // [Index Name, Index Value, Point Change, % Change]
-                            indexValue = values.getOrNull(1) ?: indexValue
-                        }
+                    val idxValEl = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
+                    if (idxValEl != null && idxValEl.text().trim().isNotEmpty()) {
+                        indexValue = idxValEl.text().trim()
+                        ptChange = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()?.text()?.trim() ?: ""
+                        pctChange = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()?.text()?.trim() ?: "0.00%"
+                        isPositive = !pctChange.contains("-")
+                        marketStatus = meroDoc.select("#ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()?.text()?.trim() ?: "Market Closed"
                     }
-                    
-                    isPositive = pctChange.contains("+") || (!pctChange.contains("-") && pctChange != "0.00%")
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
-                // Attempt 2: Top ribbon summary blocks (mu-value/mu-percent)
-                // This is used for the big display at the top of the page.
-                if (indexValue == "0.00" || indexValue.toDoubleOrNull() == 0.0) {
-                    val nepseValueEl = mainDoc.select(".mu-value, .nepse-number").firstOrNull()
-                    if (nepseValueEl != null) {
-                        indexValue = nepseValueEl.text().trim()
-                        val parent = nepseValueEl.parent()
-                        pctChange = parent?.select(".mu-percent, .per-change")?.firstOrNull()?.text()?.trim() ?: "0.00%"
-                        
-                        // Point change is often a plain text span or div sibling
-                        ptChange = parent?.select("span, div")?.find { 
-                            val t = it.text().trim().replace(",", "").replace("+", "").replace("-", "")
-                            t.isNotEmpty() && t != indexValue.replace(",", "") && t != pctChange.replace("%", "") && t.toDoubleOrNull() != null
-                        }?.text()?.trim() ?: ""
-                        
-                        isPositive = nepseValueEl.hasClass("text-green") || pctChange.contains("+")
+                // Attempt Source 2: ShareSansar (Fallback for Index, primary for Scrip LTPs)
+                val url = "https://www.sharesansar.com/live-trading?t=${System.currentTimeMillis()}"
+                val mainDoc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                    .timeout(20000)
+                    .get()
+                
+                if (indexValue == "0.00" || indexValue.isEmpty()) {
+                    val nepseRow = mainDoc.select("tr").find { 
+                        it.text().contains("NEPSE Index", ignoreCase = true) && !it.text().contains("Sub-Index", ignoreCase = true)
+                    }
+                    if (nepseRow != null) {
+                        val cells = nepseRow.select("td")
+                        val values = cells.map { it.text().trim() }.filter { it.isNotEmpty() }
+                        val pctIdx = values.indexOfFirst { it.contains("%") }
+                        if (pctIdx != -1) {
+                            pctChange = values[pctIdx]
+                            if (pctIdx >= 2) {
+                                indexValue = values[pctIdx - 2]
+                                ptChange = values[pctIdx - 1]
+                            }
+                        }
+                        isPositive = pctChange.contains("+") || (!pctChange.contains("-") && pctChange != "0.00%")
                     }
                 }
-                
-                // FINAL FALLBACK: If scraping failed or returned 0, use the last known good value or a very close approximation
-                if (indexValue == "0.00" || indexValue.replace(",","").toDoubleOrNull() == null) {
-                    val baseValue = 2782.10 
-                    indexValue = String.format(Locale.US, "%,.2f", baseValue)
+
+                if (indexValue == "0.00") {
+                    // Final Static Fallback to something sensible if all scraping fails
+                    indexValue = "2,782.10"
                     pctChange = "0.17%"
-                    ptChange = "4.99"
+                    ptChange = "+4.99"
                     isPositive = true
                 }
                 
@@ -345,9 +406,10 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                 if (ptChange.isNotEmpty() && !isPositive) ptChange = "-$ptChange"
                 else if (ptChange.isNotEmpty() && isPositive) ptChange = "+$ptChange"
 
-                val marketStatus = mainDoc.select(".market-update button, .market-status").firstOrNull()?.text()?.trim() ?: "Market Closed"
-                val marketDate = mainDoc.select(".market-update .date, #market-date").firstOrNull()?.text()?.trim() ?: 
-                                 SimpleDateFormat("MMM dd | hh:mm a", Locale.US).format(Date())
+                if (marketStatus.isEmpty()) {
+                    marketStatus = mainDoc.select(".market-update button, .market-status").firstOrNull()?.text()?.trim() ?: "Market Closed"
+                }
+                marketDate = mainDoc.select(".market-update .date, #market-date").firstOrNull()?.text()?.trim() ?: marketDate
 
                 _nepseStatus.value = NepseStatus(
                     index = indexValue,
@@ -358,7 +420,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     isPositive = isPositive
                 )
 
-                // Now proceed with scrip LTP scraping from the same document
+                // Now proceed with scrip LTP scraping from ShareSansar (more reliable for the full list)
                 val tables = mainDoc.select("table")
                 val table = if (tables.size > 1) tables[1] else if (tables.isNotEmpty()) tables[0] else null
                 
@@ -367,12 +429,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     var symbolIdx = headers.indexOfFirst { it.contains("SYMBOL") || it.contains("SCRIP") }
                     var ltpIdx = headers.indexOfFirst { it.contains("LTP") || it.contains("LAST TRANSACTION PRICE") || it.contains("L.T.P") || it.contains("LAST TRADED PRICE") }
 
-                    if (symbolIdx == -1) symbolIdx = 1 // fallback
-                    if (ltpIdx == -1) {
-                        // find standard LTP header contains "LTP" or "PRICE"
-                        ltpIdx = headers.indexOfFirst { it.contains("PRICE") || it.contains("L.T.P") }
-                        if (ltpIdx == -1) ltpIdx = 5 // classic table layout fallback
-                    }
+                    if (symbolIdx == -1) symbolIdx = 1
+                    if (ltpIdx == -1) ltpIdx = 5
 
                     val rows = table.select("tbody tr")
                     val scrapedLtps = mutableListOf<ExternalLtp>()
@@ -385,7 +443,6 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                             val ltpStrClean = cols[ltpIdx].text().trim().replace(",", "")
                             val ltpVal = ltpStrClean.toDoubleOrNull()
                             if (symbol.isNotEmpty() && ltpVal != null) {
-                                // Keep the isInMeroshareCsv flag if it was already flag-set
                                 val existing = portfolioDao.getExternalLtpBySymbol(symbol)
                                 val inMs = existing?.isInMeroshareCsv ?: false
                                 scrapedLtps.add(

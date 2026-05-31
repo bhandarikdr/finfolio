@@ -10,16 +10,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -35,11 +34,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -51,7 +51,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -73,7 +72,6 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
-import kotlin.math.absoluteValue
 
 @Composable
 fun NepsePillBadge(status: com.example.data.model.NepseStatus) {
@@ -377,6 +375,21 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel) {
 }
 
 @Composable
+fun SchemaReferenceItem(title: String, schema: String, color: Color) {
+    Column {
+        Text(title, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+        SelectionContainer {
+            Text(
+                schema,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                color = color
+            )
+        }
+    }
+}
+
+@Composable
 fun RegistrationDialog(onRegister: (String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -457,7 +470,7 @@ fun DeveloperProfilePanel(
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             Text(
-                text = "Email: bhandarikdr@gmail.com",
+                text = "Email: bkedarnp@gmail.com",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
             )
@@ -481,7 +494,7 @@ fun DeveloperProfilePanel(
                 onClick = {
                     val intent = Intent(Intent.ACTION_SENDTO).apply {
                         data = Uri.parse("mailto:")
-                        putExtra(Intent.EXTRA_EMAIL, arrayOf("bhandarikdr@gmail.com"))
+                        putExtra(Intent.EXTRA_EMAIL, arrayOf("bkedarnp@gmail.com"))
                         putExtra(Intent.EXTRA_SUBJECT, "FinFolio Inquiry from $userName")
                         val body = "User: $userName\nUser Email: $userEmail\n\nMessage:\n$customMessage"
                         putExtra(Intent.EXTRA_TEXT, body)
@@ -572,7 +585,7 @@ fun ExecutiveScopeSelector(
     ) {
         val scopeOptions = listOf(
             DatasetScope.OVERALL to "Overall Portfolio",
-            DatasetScope.MEROSHARE to "Meroshare Only"
+            DatasetScope.MEROSHARE to "Portfolio Data"
         )
         
         scopeOptions.forEach { (scope, label) ->
@@ -1567,11 +1580,9 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     val distinctTypes by viewModel.distinctTypes.collectAsStateWithLifecycle()
     val transactions by viewModel.allTransactions.collectAsStateWithLifecycle()
 
-    var showCsvPastDialog by remember { mutableStateOf(false) }
-    var pasteSchemaType by remember { mutableStateOf(1) } // 1: Transactions, 2: Meroshare
-
     // Since triggers outside compose lifecycle are easier, we can invoke dialogs during buttons click!
     var showImportOptionDialog by remember { mutableStateOf(false) }
+    var importIsWacc by remember { mutableStateOf(false) }
     var showWipeConfirmationDialog by remember { mutableStateOf(false) }
     var currentCsvTextToImport by remember { mutableStateOf<String?>(null) }
 
@@ -1590,6 +1601,32 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                     }
                     if (text != null) {
                         currentCsvTextToImport = text
+                        importIsWacc = false
+                        showImportOptionDialog = true
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Failed to read CSV: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val importWaccLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val text = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { stream ->
+                            stream.bufferedReader().use { it.readText() }
+                        }
+                    }
+                    if (text != null) {
+                        currentCsvTextToImport = text
+                        importIsWacc = true
                         showImportOptionDialog = true
                     }
                 } catch (e: Exception) {
@@ -1690,120 +1727,121 @@ fun DataScreen(viewModel: PortfolioViewModel) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Unified File Ingestion Module", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.SettingsSuggest, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Unified I/O Management", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text("IMPORT DATA", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    
+                    // Row 1: Standard Import
+                    Button(
+                        onClick = { importTransactionLauncher.launch("*/*") },
+                        modifier = Modifier.fillMaxWidth().height(48.dp).testTag("import_transactions_btn"),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Button(
-                            onClick = { importTransactionLauncher.launch("*/*") },
-                            modifier = Modifier.weight(1f).height(44.dp).testTag("import_transactions_btn"),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Icon(Icons.Filled.UploadFile, "CSV", modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Import Tx CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            onClick = { importMeroshareLauncher.launch("*/*") },
-                            modifier = Modifier.weight(1f).height(44.dp).testTag("import_meroshare_btn"),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                        ) {
-                            Icon(Icons.Filled.CloudUpload, "MS", modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Meroshare CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
+                        Icon(Icons.Filled.UploadFile, null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Standard Data Import (Tx CSV)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    // Row 2: WACC and Portfolio
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = { importWaccLauncher.launch("*/*") },
+                            modifier = Modifier.weight(1f).height(48.dp).testTag("import_wacc_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Filled.AccountBalance, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("WACC Import", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { importMeroshareLauncher.launch("*/*") },
+                            modifier = Modifier.weight(1f).height(48.dp).testTag("import_meroshare_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Filled.CloudUpload, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Portfolio Import", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text("EXPORT DATA", style = MaterialTheme.typography.labelLarge, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
                     Button(
                         onClick = {
                             val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
                             exportCsvLauncher.launch("finfolio_export_$timestamp.csv")
                         },
-                        modifier = Modifier.fillMaxWidth().height(44.dp).testTag("export_transactions_btn"),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)) // Forest Green
+                        modifier = Modifier.fillMaxWidth().height(48.dp).testTag("export_transactions_btn"),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Filled.Download, "Export", modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Export All Transactions (CSV)", fontWeight = FontWeight.Bold)
+                        Icon(Icons.Filled.Download, null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Export Transaction History (CSV)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Secondary direct Copy-Paste dialogs
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                pasteSchemaType = 1
-                                showCsvPastDialog = true
-                            },
-                            modifier = Modifier.weight(1f).height(40.dp).testTag("paste_transactions_txt")
-                        ) {
-                            Icon(Icons.Filled.ContentPaste, "MS", modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Paste Tx Data", fontSize = 11.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                pasteSchemaType = 2
-                                showCsvPastDialog = true
-                            },
-                            modifier = Modifier.weight(1f).height(40.dp).testTag("paste_meroshare_txt")
-                        ) {
-                            Icon(Icons.Filled.ContentPaste, "MS", modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Paste MS Data", fontSize = 11.sp)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                     
                     // CSV Schema Info
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFDC143C).copy(alpha = 0.05f)),
-                        border = BorderStroke(1.dp, Color(0xFFDC143C).copy(alpha = 0.1f))
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.03f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(
-                                "CSV Schema Reference",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = Color(0xFFDC143C)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("1. Transactions:", fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
-                            SelectionContainer {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Info, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    "Date,Item,Action,Qty,Amount,Type",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Text("2. Meroshare:", fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
-                            SelectionContainer {
-                                Text(
-                                    "S.N,Scrip,Current Balance,Last Closing Price,Value as of Last Closing Price,Last Transaction Price (LTP),Value as of LTP",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
+                                    "CSV SCHEMA SPECIFICATIONS",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.secondary
                                 )
                             }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            SchemaReferenceItem(
+                                "1. Transactions Exported (This App)", 
+                                "\"Date\", \"Item\", \"Action\", \"Qty\", \"Amount\", \"Type\"", 
+                                MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SchemaReferenceItem(
+                                "2. WACC Export", 
+                                "\"S.N\",\"Demat\",\"Scrip Name\",\"WACC Calculated Quantity\",\"WACC Rate\",\"Total Cost of Capital\",\"Last Modification Date\"", 
+                                MaterialTheme.colorScheme.tertiary
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SchemaReferenceItem(
+                                "3. Portfolio Export", 
+                                "\"S.N\",\"Scrip\",\"Current Balance\",\"Last Closing Price\",\"Value as of Last Closing Price\",\"Last Transaction Price (LTP)\",\"Value as of LTP\"", 
+                                MaterialTheme.colorScheme.secondary
+                            )
                         }
                     }
                 }
@@ -1940,7 +1978,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.importTransactions(currentCsvTextToImport!!, overwrite = false)
+                        viewModel.importTransactions(currentCsvTextToImport!!, overwrite = false, isWacc = importIsWacc)
                         showImportOptionDialog = false
                         currentCsvTextToImport = null
                     },
@@ -1952,7 +1990,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             dismissButton = {
                 TextButton(
                     onClick = {
-                        viewModel.importTransactions(currentCsvTextToImport!!, overwrite = true)
+                        viewModel.importTransactions(currentCsvTextToImport!!, overwrite = true, isWacc = importIsWacc)
                         showImportOptionDialog = false
                         currentCsvTextToImport = null
                     },
@@ -1988,108 +2026,6 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                 }
             }
         )
-    }
-
-    // Direct Copy-Paste raw text content parser dialog
-    if (showCsvPastDialog) {
-        var rawTextByInput by remember { mutableStateOf("") }
-        var inputOverwriteChoice by remember { mutableStateOf(false) }
-
-        Dialog(onDismissRequest = { showCsvPastDialog = false }) {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth().padding(8.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = if (pasteSchemaType == 1) "Paste Transaction CSV" else "Paste Meroshare CSV",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(8.dp)) {
-                            Text(
-                                text = if (pasteSchemaType == 1) "Expected Schema:" else "Expected Schema (Must contain):",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
-                            )
-                            SelectionContainer {
-                                Text(
-                                    text = if (pasteSchemaType == 1) {
-                                        "Date,Item,Action,Qty,Amount,Type"
-                                    } else {
-                                        "S.N,Scrip,Current Balance,Last Closing Price,Value as of Last Closing Price,Last Transaction Price (LTP),Value as of LTP"
-                                    },
-                                    fontFamily = FontFamily.Monospace,
-                                    color = Color(0xFFDC143C),
-                                    fontSize = 11.sp
-                                )
-                            }
-                            if (pasteSchemaType == 1) {
-                                Text(
-                                    "Example: 2024-01-01,NABIL,Buy,10,5000,Banks",
-                                    fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    
-                    Spacer(Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = rawTextByInput,
-                        onValueChange = { rawTextByInput = it },
-                        modifier = Modifier.fillMaxWidth().height(150.dp).testTag("paste_text_field"),
-                        placeholder = { Text("Paste raw CSV rows...") },
-                        maxLines = 10
-                    )
-
-                    if (pasteSchemaType == 1) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = inputOverwriteChoice, onCheckedChange = { inputOverwriteChoice = it })
-                            Text("Clear / Overwrite existing transactions", fontSize = 12.sp)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(onClick = { showCsvPastDialog = false }) {
-                            Text("Close")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (rawTextByInput.isNotBlank()) {
-                                    if (pasteSchemaType == 1) {
-                                        viewModel.importTransactionsFromText(rawTextByInput, inputOverwriteChoice)
-                                    } else {
-                                        viewModel.importMeroshareFromText(rawTextByInput)
-                                    }
-                                    showCsvPastDialog = false
-                                }
-                            },
-                            modifier = Modifier.testTag("submit_paste_btn")
-                        ) {
-                            Text("Submit Ingest")
-                        }
-                    }
-                }
-            }
-        }
     }
 
     // Historical edit dialog modifier overlay
@@ -2243,8 +2179,8 @@ fun RowEntryForm(
                         onSave(
                             TransactionRecord(
                                 date = dateVal,
-                                item = itemVal.uppercase().trim(),
-                                type = typeVal.uppercase().trim(),
+                                item = itemVal.trim(),
+                                type = typeVal.trim(),
                                 action = actionVal,
                                 qty = q,
                                 amount = amt
@@ -2380,14 +2316,14 @@ fun EditTransactionDialog(
                 AutoCompleteTextField(
                     label = "Scrip Symbol (Max 15 chars)",
                     value = itemVal,
-                    onValueChange = { if (it.length <= 15) itemVal = it.uppercase() },
+                    onValueChange = { if (it.length <= 15) itemVal = it },
                     suggestions = distinctItems
                 )
 
                 AutoCompleteTextField(
                     label = "Sector/Category (Max 15 chars)",
                     value = typeVal,
-                    onValueChange = { if (it.length <= 15) typeVal = it.uppercase() },
+                    onValueChange = { if (it.length <= 15) typeVal = it },
                     suggestions = distinctTypes
                 )
 
@@ -2457,8 +2393,8 @@ fun EditTransactionDialog(
                                 onSave(
                                     record.copy(
                                         date = dateVal,
-                                        item = itemVal.uppercase().trim(),
-                                        type = typeVal.uppercase().trim(),
+                                        item = itemVal.trim(),
+                                        type = typeVal.trim(),
                                         action = actionVal,
                                         qty = q,
                                         amount = amt
@@ -2485,6 +2421,15 @@ fun AutoCompleteTextField(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
+    
+    // We use a internal state for the TextFieldValue to manage the cursor position smoothly
+    var textFieldValue by remember(value) { 
+        mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(
+            text = value,
+            selection = androidx.compose.ui.text.TextRange(value.length)
+        )) 
+    }
+
     val filteredSuggestions = remember(value, suggestions) {
         if (value.isBlank()) suggestions
         else suggestions.filter { it.contains(value, ignoreCase = true) }
@@ -2492,9 +2437,12 @@ fun AutoCompleteTextField(
 
     Box(modifier = modifier) {
         OutlinedTextField(
-            value = value,
-            onValueChange = {
-                onValueChange(it)
+            value = textFieldValue,
+            onValueChange = { newValue ->
+                textFieldValue = newValue
+                if (newValue.text != value) {
+                    onValueChange(newValue.text)
+                }
                 expanded = true
             },
             label = { Text(label) },
@@ -2507,7 +2455,16 @@ fun AutoCompleteTextField(
                     )
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (focusState.isFocused) {
+                        if (textFieldValue.text.isNotEmpty()) {
+                            onValueChange("")
+                        }
+                        expanded = true
+                    }
+                },
             singleLine = true
         )
 
