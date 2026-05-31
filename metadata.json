@@ -1,0 +1,6 @@
+{
+  "name": "FinFolio",
+  "description": "A comprehensive portfolio tracker managing transactions, parsing live markets, importing CSVs and displaying customizable matrices.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

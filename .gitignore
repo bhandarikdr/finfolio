@@ -1,0 +1,31 @@
+# Gradle files
+.gradle/
+build/
+
+# Kotlin/JVM
+.kotlin/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Android specific
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+debug.keystore
+
+# Sensitive/Secrets
+.env
+*.key
+*.jks
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# User specific
+*.user

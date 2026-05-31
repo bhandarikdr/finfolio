@@ -1,0 +1,42 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- White snowy peaks of the Himalayas at the bottom -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.8"
+        android:pathData="M18,82 L38,48 L54,64 L76,32 L92,82 Z" />
+
+    <!-- A golden coin representing Finance and Prosperity -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M54,54 m-18,0 a18,18 0 1,1 36,0 a18,18 0 1,1 -36,0" />
+
+    <!-- Inner coin design -->
+    <path
+        android:strokeColor="#B8860B"
+        android:strokeWidth="1.2"
+        android:pathData="M54,54 m-14,0 a14,14 0 1,1 28,0 a14,14 0 1,1 -28,0" />
+
+    <!-- The "Chandra" (Moon) symbol from the Nepali flag, inside the coin -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,62 C50,62 48,60 48,56 C48,54 49,52 50,51 C48,52 47,54 47,56 C47,60 50,63 54,63 C56,63 58,62 59,61 C57,62 56,62 54,62 Z" />
+
+    <!-- A rising line graph that follows the mountain silhouette -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M24,78 L42,52 L58,68 L78,38" />
+
+    <!-- The "Surya" (Sun) symbol from the flag near the peak -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M78,32 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0" />
+
+</vector>

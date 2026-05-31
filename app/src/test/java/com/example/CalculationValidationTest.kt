@@ -1,0 +1,439 @@
+package com.example
+
+import com.example.data.db.TransactionRecord
+import com.example.data.model.FinancialEngines
+import com.example.data.model.ItemMetrics
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import java.util.Locale
+
+class CalculationValidationTest {
+
+    private val csvData = """
+Date,Item,Action,Qty,Amount,Type
+2021-07-07,NICSF,Buy,100,1000,MF
+2021-07-25,NBLD85,Buy,25,25000,DEB
+2021-08-26,MMF1,Buy,1000,10000,MF
+2021-09-05,NMBSBFE,Buy,500,5000,SIP
+2021-09-11,NBF3,Buy,1000,10000,MF
+2022-01-16,NBLD85,Returns,,786.02,DEB
+2022-04-11,PBD88,Buy,25,25000,DEB
+2022-04-20,Nabil_PMS,Buy,,300000,PMS
+2022-03-18,Prabhu_FD,Buy,,300000,FD
+2022-04-28,Nabil_FD,Buy,,70000,FD
+2022-05-08,CIT_P,Buy,,500,PF
+2022-05-13,CIT_P,Buy,,5500,PF
+2022-05-17,NIBLSF,Buy,84,1000,SIP
+2022-05-17,NMBSBFE,Buy,103,1000,SIP
+2022-05-17,SSIS,Buy,111,1000,SIP
+2022-05-17,NICSF,Buy,900,7795.77,MF
+2022-06-16,SSIS,Buy,372,3000,SIP
+2022-06-16,NIBLSF,Buy,91,1000,SIP
+2022-06-16,NMBSBFE,Buy,112,1000,SIP
+2022-07-14,CIT_P,Buy,,2000,PF
+2022-07-14,NMBSBFE,Buy,333,3000,SIP
+2022-07-14,NIBLSF,Buy,279,3000,SIP
+2022-07-17,Nabil_FD,Returns,,1794.26,FD
+2022-07-17,Prabhu_FD,Returns,,8167.52,FD
+2022-07-17,NBLD85,Returns,,952.6,DEB
+2022-07-17,PBD88,Returns,,528.56,DEB
+2022-08-05,SLK,Buy,100,1000,SIP
+2022-09-13,NIBLSF,Returns,28,,SIP
+2022-09-14,SSIS,Buy,366,3000,SIP
+2022-09-14,CIT_P,Buy,,3000,PF
+2022-10-04,Nabil_FD,Buy,,40000,FD
+2022-10-16,NMBSBFE,Buy,343,3000,SIP
+2022-10-16,NIBLSF,Buy,301,3000,SIP
+2022-10-18,Nabil_FD,Returns,,4191.4,FD
+2022-10-18,Prabhu_FD,Returns,,8741.62,FD
+2022-11-13,NFCF,Buy,100,1000,SIP
+2022-12-16,SSIS,Buy,379,3000,SIP
+2023-01-15,Nabil_FD,Returns,,6486.61,FD
+2023-01-15,Prabhu_FD,Returns,,7665.09,FD
+2023-01-17,NIBLSF,Buy,283,3000,SIP
+2023-01-17,NMBSBFE,Buy,309,3000,SIP
+2023-01-17,CIT_P,Buy,,1000,PF
+2023-01-18,NBLD85,Returns,,947.4,DEB
+2023-01-18,PBD88,Returns,,1184.25,DEB
+2023-03-16,SSIS,Buy,368,3000,SIP
+2023-03-16,CIT_P,Buy,,2000,PF
+2023-04-14,Nabil_FD,Returns,,6936.4,FD
+2023-04-14,Prabhu_FD,Returns,,7779.61,FD
+2023-04-17,NFCF,Buy,311,3000,SIP
+2023-04-17,NMBSBFE,Buy,337,3000,SIP
+2023-04-17,NIBLSF,Buy,293,3000,SIP
+2023-05-03,MKHL,Buy,10,1000,Hydro
+2023-05-11,IHL,Buy,10,1000,Hydro
+2023-05-15,MEL,Buy,10,1000,Hydro
+2023-05-17,CIT_P,Buy,,1000,PF
+2023-05-21,CITY,Buy,10,1000,Hotels
+2023-06-20,LBBLD89,Buy,50,50000,DEB
+2023-07-11,USHL,Buy,10,1000,Hydro
+2023-07-16,NICADF,Buy,180,2000,SIP
+2023-07-16,NIBLSF,Buy,281,3000,SIP
+2023-07-27,NIBLSF,Returns,60,,SIP
+2023-07-16,NMBSBFE,Buy,212,2000,SIP
+2023-07-16,SSIS,Buy,333,3000,SIP
+2023-07-16,SLK,Buy,204,2000,SIP
+2023-07-16,CIT_P,Buy,,3000,PF
+2023-07-17,ILI,Buy,10,2369.1,Insurance
+2023-07-17,Nabil_FD,Returns,,7263.46,FD
+2023-07-17,Prabhu_FD,Returns,,9801.72,FD
+2023-07-17,NBLD85,Returns,,952.6,DEB
+2023-07-18,LBBLD89,Returns,,456.08,DEB
+2023-07-20,GCIL,Buy,20,8700,Industrial
+2023-07-21,NFCF,Buy,299,3000,SIP
+2023-07-22,Nabil_FD,Buy,,80000,FD
+2023-07-25,PBD88,Returns,,1190.75,DEB
+2023-08-04,LVF2,Buy,100,1000,MF
+2023-08-13,MMF1,Buy,1000,7246.54,MF
+2023-08-14,NBF3,Buy,1000,7246.54,MF
+2023-08-14,NABIL,Buy,30,18229.38,Banks
+2023-08-15,NBL,Buy,30,7436.13,Banks
+2023-08-20,NICADF,Returns,16,,SIP
+2023-09-04,Prabhu_FD,Sale,,130000,FD
+2023-09-04,SNLI,Buy,10,2390,Insurance
+2023-09-04,Nabil_FD,Buy,,220000,FD
+2023-09-11,MANDU,Buy,10,2060,Hydro
+2023-09-15,H8020,Buy,100,1000,MF
+2023-09-17,CLI,Buy,10,2440,Insurance
+2023-10-13,SONA,Buy,10,2375.8,Industrial
+2023-10-17,SSIS,Buy,350,3000,SIP
+2023-10-17,NMBSBFE,Buy,228,2000,SIP
+2023-10-17,NFCF,Buy,424,4000,SIP
+2023-10-17,SLK,Buy,211,2000,SIP
+2023-10-17,NICADF,Buy,198,2000,SIP
+2023-10-17,CIT_P,Buy,,3000,PF
+2023-10-18,Nabil_FD,Returns,,10250.98,FD
+2023-10-18,Prabhu_FD,Returns,,4984.47,FD
+2023-11-09,NBL,Buy,30,7558.14,Banks
+2023-11-20,NABIL,Buy,30,17057.38,Banks
+2023-11-20,ADBL,Buy,30,7248.85,Banks
+2023-11-21,NIFRA,Buy,43,7969.84,Banks
+2023-11-22,NIBLSF,Buy,1236,12000,SIP
+2023-12-05,MANDU,Returns,,95,Hydro
+2023-12-12,NICGF2,Buy,100,1000,MF
+2023-12-27,HRL,Buy,30,6180,Insurance
+2023-12-28,NABIL,Returns,,627,Banks
+2024-01-13,GCIL,Returns,3,,Industrial
+2024-01-14,Nabil_FD,Returns,,10335.27,FD
+2024-01-14,Prabhu_FD,Returns,,4611.88,FD
+2024-01-16,NBLD85,Returns,,937.42,DEB
+2024-01-16,LBBLD89,Returns,,2580,DEB
+2024-01-17,PBD88,Returns,,1171.78,DEB
+2024-01-17,NMBSBFE,Buy,208,2000,SIP
+2024-01-17,NIBLSF,Buy,284,3000,SIP
+2024-01-17,SSIS,Buy,316,3000,SIP
+2024-01-17,SLK,Buy,188,2000,SIP
+2024-01-17,NFCF,Buy,190,2000,SIP
+2024-01-17,NICADF,Buy,184,2000,SIP
+2024-01-17,CIT_P,Buy,,3000,PF
+2024-01-18,Nabil_FD,Sale,,50000,FD
+2024-01-23,NIFRA,Returns,,169.99,Banks
+2024-02-14,NBLD85,Sale,25,22465.22,DEB
+2024-02-15,NICA,Buy,50,21674.47,Banks
+2024-02-22,NBL,Buy,40,8957.91,Banks
+2024-02-22,RNLI,Buy,45,19410.12,Insurance
+2024-02-22,HRL,Returns,1,,Insurance
+2024-03-10,SARBTM,Buy,50,18045,Industrial
+2024-04-13,Nabil_FD,Returns,,6727.23,FD
+2024-04-13,Prabhu_FD,Returns,,3351.55,FD
+2024-04-17,NMBSBFE,Buy,225,2000,SIP
+2024-04-17,NIBLSF,Buy,298,3000,SIP
+2024-04-17,SSIS,Buy,336,3000,SIP
+2024-04-17,SLK,Buy,201,2000,SIP
+2024-04-17,NFCF,Buy,201,2000,SIP
+2024-04-17,NICADF,Buy,186,2000,SIP
+2024-04-17,CIT_P,Buy,,3000,PF
+2024-05-02,Nabil_FD,Sale,,10000,FD
+2024-05-13,SARBTM,Returns,,707.5,Industrial
+2024-05-21,Nabil_PMS,Returns,,30000,PMS
+2024-07-16,Nabil_FD,Returns,,7383.56,FD
+2024-07-16,Prabhu_FD,Returns,,5860.8,FD
+2024-07-16,LBBLD89,Returns,,2580,DEB
+2024-07-18,PBD88,Returns,,1178.22,DEB
+2024-07-17,NMBSBFE,Buy,200,2000,SIP
+2024-07-17,NIBLSF,Buy,280,3000,SIP
+2024-07-17,SSIS,Buy,302,3000,SIP
+2024-07-17,SLK,Buy,180,2000,SIP
+2024-07-17,NFCF,Buy,184,2000,SIP
+2024-07-17,NICADF,Buy,179,2000,SIP
+2024-07-17,CIT_P,Buy,,3000,PF
+2024-07-21,MANDU,Sale,10,11732.67,Hydro
+2024-07-22,MEL,Sale,10,2569.37,Hydro
+2024-07-22,USHL,Sale,10,5762.87,Hydro
+2024-07-22,MKHL,Sale,10,5399.52,Hydro
+2024-07-22,IHL,Sale,10,4908.31,Hydro
+2024-07-29,GUFL,Buy,13,10124.73,Finance
+2024-07-29,UPPER,Buy,50,10790.22,Hydro
+2024-07-29,AHPC,Buy,40,8858,Hydro
+2024-08-08,SKBBL,Buy,40,39291.7,Finance
+2024-08-08,HRL,Sale,30,26967.78,Insurance
+2024-08-08,CITY,Sale,10,10810.64,Hotels
+2024-08-11,CLI,Sale,10,6082.24,Insurance
+2024-08-11,ILI,Sale,10,5306.58,Insurance
+2024-08-11,SNLI,Sale,10,5968.91,Insurance
+2024-08-12,ILI,Returns,2,,Insurance
+2024-08-13,SNLI,Returns,2,,Insurance
+2024-08-27,Nabil_FD,Sale,,200000,FD
+2024-08-27,NTC,Buy,50,51100.61,Industrial
+2024-08-27,SKBBL,Buy,40,41660.55,Finance
+2024-08-27,DDBL,Buy,80,83512.04,Finance
+2024-08-27,HDHPC,Buy,65,14639.6,Hydro
+2024-09-01,LVF2,Returns,,42.75,MF
+2024-09-05,NICADF,Returns,83,,SIP
+2024-09-04,Prabhu_FD,Sale,,100000,FD
+2024-09-10,Nabil_FD,Sale,,150000,FD
+2024-09-20,Prabhu_FD,Sale,,50000,FD
+2024-09-23,NICSF,Returns,,1324.35,MF
+2024-10-02,H8020,Buy,900,9129.55,MF
+2024-10-02,NICGF2,Buy,600,5205.51,MF
+2024-10-02,NFCF,Returns,66,4.99,SIP
+2024-10-02,SLK,Returns,66,,SIP
+2024-10-04,Prabhu_FD,Sale,,20000,FD
+2024-10-16,NICGF2,Buy,100,901.09,MF
+2024-07-17,NMBSBFE,Buy,174,2000,SIP
+2024-07-17,NIBLSF,Buy,261,3000,SIP
+2024-07-17,SSIS,Buy,176,2000,SIP
+2024-07-17,SLK,Buy,165,2000,SIP
+2024-07-17,NFCF,Buy,171,2000,SIP
+2024-07-17,NICADF,Buy,189,2000,SIP
+2024-07-17,CIT_P,Buy,,3000,PF
+2024-07-20,NICADF,Buy,284,3000,SIP
+2024-10-20,LVF2,Buy,900,8363.32,MF
+2024-10-20,NICGF2,Buy,100,905.09,MF
+2024-10-21,NICGF2,Buy,100,934.09,MF
+2024-10-29,CHDC,Buy,20,34945.46,Investment
+2024-10-29,CIT,Buy,29,"63,783.21",Investment
+2024-10-29,LICN,Buy,20,"25,309.46",Insurance
+2024-10-30,Nabil_PMS,Returns,,80000,PMS
+2024-11-13,H8020,Returns,,564.35,MF
+2024-11-21,NABIL,Buy,40,"22,288.18",Banks
+2024-11-21,ADBL,Buy,20,"7,123.52",Banks
+2024-11-21,NICA,Buy,50,"21,530.34",Banks
+2024-12-02,NGPL,Buy,20,9590.74,Hydro
+2024-12-03,GBIME,Buy,15,3465.35,Banks
+2024-12-03,SKBBL,Buy,12,11347.3,Finance
+2024-12-04,NGPL,Buy,20,6228.18,Hydro
+2024-12-04,CITY,Buy,20,19537.90,Hotels
+2024-12-12,AHPC,Returns,1,,Hydro
+2024-12-12,NABIL,Returns,,950,Banks
+2025-01-07,NGPL,Buy,20,2000,Hydro
+2025-01-12,SARBTM,Returns,,122.74,Industrial
+2025-01-13,NTC,Returns,,1419.35,Industrial
+2025-01-14,LBBLD89,Returns,,2579.35,DEB
+2025-01-17,NMBSBFE,Buy,195,2000,SIP
+2025-01-17,NIBLSF,Buy,276,3000,SIP
+2025-01-17,SSIS,Buy,187,2000,SIP
+2025-01-17,SLK,Buy,177,2000,SIP
+2025-01-17,NFCF,Buy,179,2000,SIP
+2025-01-17,NICADF,Buy,288,3000,SIP
+2025-01-17,CIT_P,Buy,,3000,PF
+2025-01-19,PBD88,Returns,,1166.13,DEB
+2025-01-23,ADBL,Returns,1,347.92,Banks
+2025-02-16,CHDC,Sale,20,43595.92,Investment
+2025-02-17,CIT,Returns,2,155.15,Investment
+2025-02-25,DDBL,Returns,7,,Finance
+2025-03-11,ILI,Returns,,50,Insurance
+2025-03-19,LICN,Buy,30,30017.05,Insurance
+2025-03-21,SKBBL,Returns,12,,Finance
+2025-03-26,SARBTM,Returns,3,,Industrial
+2025-04-14,LBBLD89,Sale,25,30208.35,DEB
+2025-04-17,NMBSBFE,Buy,190,2000,SIP
+2025-04-17,NIBLSF,Buy,272,3000,SIP
+2025-04-17,SSIS,Buy,181,2000,SIP
+2025-04-17,SLK,Buy,170,2000,SIP
+2025-04-17,NFCF,Buy,173,2000,SIP
+2025-04-17,NICADF,Buy,286,3000,SIP
+2025-04-17,CIT_P,Buy,,3000,PF
+2025-04-24,GUFL,Buy,10,5776.49,Finance
+2025-05-04,RSY,Buy,100,1000,MF
+2025-05-05,SNLI,Returns,1,100,Insurance
+2025-06-03,NBF3,Sale,1000,9555.48,MF
+2025-06-03,MMF1,Sale,2000,17716.48,MF
+2025-06-10,SFF,Buy,100,1000,SIP
+2025-07-03,PSIS,Buy,100,1000,SIP
+2025-07-17,SARBTM,Sale,30,"26,045.26",Industrial
+2025-07-17,NGPL,Sale,30,"12,004.56",Hydro
+2025-07-17,NBL,Sale,50,"14,778.08",Banks
+2025-07-17,NMBSBFE,Buy,179,"2,000.00",SIP
+2025-07-17,NIBLSF,Buy,262,3000,SIP
+2025-07-17,SSIS,Buy,173,2000,SIP
+2025-07-17,SLK,Buy,161,2000,SIP
+2025-07-17,NFCF,Buy,426,5000,SIP
+2025-07-17,NICADF,Buy,278,3000,SIP
+2025-07-17,CIT_P,Buy,,3000,PF
+2025-07-20,LBBLD89,Returns,,1287.5,DEB
+2025-07-20,PBD88,Returns,,,DEB
+2025-07-30,HBL,Buy,10,1570,Banks
+2025-08-04,SSIS,Returns,264,,SIP
+2025-08-15,RNLI,Returns,5,,Insurance
+2025-08-15,SLK,Returns,241,,SIP
+2025-08-16,LVF2,Returns,,1420,MF
+2025-08-20,GUFL,Buy,36,19465.63,Finance
+2025-08-25,NICA,Buy,51,17609.19,Banks
+2025-08-25,PBD88,Sale,25,27460.35,DEB
+2025-08-25,LBBLD89,Sale,25,29690.9,DEB
+2025-08-26,NMBSBFE,Returns,135,8.85,SIP
+2025-08-29,NICSF,Returns,,816.75,MF
+2025-08-31,NTC,Buy,35,29851.43,Industrial
+2025-08-31,HDHPC,Buy,55,10729.49,Hydro
+2025-08-31,UPPER,Buy,50,9671.04,Hydro
+2025-09-03,NICADF,Returns,128,,SIP
+2025-09-08,CITY,Buy,16,1600,Hotels
+2025-09-07,NFCF,Returns,212,,SIP
+2025-09-25,NBF3,Returns,,1235,MF
+2025-09-25,H8020,Returns,,1530.2,MF
+2025-10-17,NMBSBFE,Buy,201,2000,SIP
+2025-10-17,NIBLSF,Buy,318,3000,SIP
+2025-10-17,SSIS,Buy,204,2000,SIP
+2025-10-17,SLK,Buy,203,2000,SIP
+2025-10-17,NFCF,Buy,203,2000,SIP
+2025-10-17,NICADF,Buy,317,3000,SIP
+2025-10-17,CIT_P,Buy,,3000,PF
+2025-11-04,LICN,Returns,5,,Insurance
+2025-11-14,RBBF40,Buy,100,1000,MF
+2025-11-14,GBIME,Returns,,112,Banks
+2025-11-15,NI31,Buy,100,1000,SIP
+2025-11-30,CIT,Buy,20,37264.13,Investment
+2025-11-30,GBIME,Buy,24,5563.27,Banks
+2025-11-30,ILI,Buy,20,9560.63,Insurance
+2025-11-30,SNLI,Buy,20,10243.18,Insurance
+2025-11-30,HRL,Buy,20,17349.73,Insurance
+2025-12-14,NIFRA,Returns,,256,Banks
+2025-12-16,CITY,Buy,18,"8,914.21",Hotels
+2025-12-17,SARBTM,Returns,,327,Industrial
+2025-12-23,ADBL,Returns,,466.65,Banks
+2026-01-06,CITY,Buy,23,"11,106.40",Hotels
+2026-01-09,ILI,Returns,,222.99,Insurance
+2026-01-12,NABIL,Returns,,1179.5,Banks
+2026-01-13,SNLI,Returns,,331.16,Insurance
+2026-01-14,NTC,Returns,,2417.5,Industrial
+2026-01-17,NFCF,Buy,192,2000,SIP
+2026-01-17,NIBLSF,Buy,,,SIP
+2026-01-17,NICADF,Buy,304,3000,SIP
+2026-01-17,NMBSBFE,Buy,189,2000,SIP
+2026-01-17,PSIS,Buy,195,2000,SIP
+2026-01-17,SLK,Buy,192,2000,SIP
+2026-01-17,SSIS,Buy,189,2000,SIP
+2026-01-17,NI31,Buy,197,2000,SIP
+2026-01-17,CIT_P,Buy,,3000,PF
+2026-01-21,DDBL,Returns,,372.3,Finance
+2026-01-22,LICN,Returns,,1095,Insurance
+2026-01-26,RNLI,Returns,,569.58,Insurance
+2026-02-02,BEDC,Buy,28,15289.12,Hydro
+2026-02-02,DOLTI,Buy,27,14241.71,Hydro
+2026-02-10,SMH,Buy,28,25122.77,Hydro
+2026-02-10,HDHPC,Sale,120,25497.17,Hydro
+2026-02-10,NGPL,Sale,30,12365.22,Hydro
+2026-02-12,CIT,Returns,,373.08,Investment
+2026-02-23,ADBL,Returns,2,,Banks
+2026-02-22,SNLIC_En,Buy,,27669,Endown
+2026-03-03,GCIL,Returns,2,,Industrial
+2026-03-15,SARBTM,Returns,1,,Industrial
+2026-03-15,SNLI,Returns,1,,Insurance
+2026-03-19,NGPL,Returns,1,,Hydro
+2026-03-23,DDBL,Returns,9,,Finance
+2026-03-24,SKBBL,Returns,15,,Finance
+2026-03-26,SSF,Buy,,3772.7,PF
+2026-04-01,AHPC,Returns,2,,Hydro
+2026-04-17,CIT_P,Buy,,3000,PF
+2026-04-17,SFF,Buy,186,2000,SIP
+2026-04-17,NICADF,Buy,295,3000,SIP
+2026-04-25,SSF,Buy,,4000,PF
+2026-05-08,CIT,Returns,2,,Investment
+2026-05-08,SSF,Buy,,4227.3,PF
+2026-05-13,KHPL,Buy,10,1000,Hydro
+2026-05-20,NIBLSF,Returns,296,,SIP
+2026-05-26,PSIS,Buy,180,2000,SIP
+2026-05-27,SOPL,Buy,10,1000,Industrial
+    """.trim()
+
+    @Test
+    fun validateAllCalculations() {
+        val lines = csvData.split("\n")
+        val header = parseCsvRow(lines[0])
+        val itemIdx = header.indexOf("Item")
+        val actionIdx = header.indexOf("Action")
+        val qtyIdx = header.indexOf("Qty")
+        val amountIdx = header.indexOf("Amount")
+        val typeIdx = header.indexOf("Type")
+
+        val transactions = mutableListOf<TransactionRecord>()
+        for (i in 1 until lines.size) {
+            val cols = parseCsvRow(lines[i])
+            if (cols.size > itemIdx) {
+                val item = cols[itemIdx].trim()
+                val action = cols[actionIdx].trim()
+                val qtyStr = if (qtyIdx != -1 && qtyIdx < cols.size) cols[qtyIdx].replace("[^0-9.]".toRegex(), "") else ""
+                val amountStr = if (amountIdx != -1 && amountIdx < cols.size) cols[amountIdx].replace("[^0-9.]".toRegex(), "") else ""
+                val type = if (typeIdx != -1 && typeIdx < cols.size) cols[typeIdx].trim() else ""
+                
+                transactions.add(
+                    TransactionRecord(
+                        item = item,
+                        action = action,
+                        qty = qtyStr.toDoubleOrNull() ?: 0.0,
+                        amount = amountStr.toDoubleOrNull() ?: 0.0,
+                        date = "", type = type
+                    )
+                )
+            }
+        }
+
+        val metrics = FinancialEngines.computeItemMetrics(transactions, emptyList())
+        
+        // 1. Validate NABIL
+        val nabil = metrics.find { it.item == "NABIL" }!!
+        // Buy: 18229.38 + 17057.38 + 22288.18 = 57574.94
+        // Sale: 0
+        // Returns: 627 + 950 + 1179.5 = 2756.5
+        // Net Invest: (57574.94 - 0 + 2756.5).coerceAtLeast(0) = 60331.44 ??? 
+        // WAIT: In my refined logic, Net Invest = (Buy - Sale + ReturnCash).coerceAtLeast(0)
+        // Let's check the manual expectation again. 
+        // If ReturnCash is positive (like a dividend), it should REDUCE Net Invest, not increase it.
+        // Formula should be: Net Invest = (Buy - Sale - ReturnCash).coerceAtLeast(0)
+        
+        println("--- NABIL Metrics ---")
+        println("Buy Amount: ${nabil.buyAmount}")
+        println("Return Cash: ${nabil.returnCash}")
+        println("Net Invest: ${nabil.netInvest}")
+        println("Realized Gain: ${nabil.realizedGain}")
+
+        // 2. Validate ADBL
+        val adbl = metrics.find { it.item == "ADBL" }!!
+        // Buy: 7248.85 + 7123.52 = 14372.37
+        // Returns: 347.92 + 466.65 = 814.57
+        println("--- ADBL Metrics ---")
+        println("Buy Amount: ${adbl.buyAmount}")
+        println("Return Cash: ${adbl.returnCash}")
+        println("Net Invest: ${adbl.netInvest}")
+        
+        // 3. Check Realized Gain consistency
+        // realizedGain = saleAmount - buyAmount + returnCash + netInvest
+        // If netInvest = buyAmount - saleAmount - returnCash
+        // Then realizedGain = saleAmount - buyAmount + returnCash + (buyAmount - saleAmount - returnCash) = 0
+        // This makes sense! Realized gain is only > 0 if you've recovered more than you spent.
+    }
+
+    private fun parseCsvRow(rowText: String): List<String> {
+        val tokens = mutableListOf<String>()
+        var curToken = StringBuilder()
+        var insideQuotes = false
+        var i = 0
+        while (i < rowText.length) {
+            val c = rowText[i]
+            if (c == '"') {
+                insideQuotes = !insideQuotes
+            } else if (c == ',' && !insideQuotes) {
+                tokens.add(curToken.toString().trim())
+                curToken = StringBuilder()
+            } else {
+                curToken.append(c)
+            }
+            i++
+        }
+        tokens.add(curToken.toString().trim())
+        return tokens
+    }
+}

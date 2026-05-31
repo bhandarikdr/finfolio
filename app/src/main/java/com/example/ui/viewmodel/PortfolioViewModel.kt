@@ -1,0 +1,263 @@
+package com.example.ui.viewmodel
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.example.data.db.AppDatabase
+import com.example.data.db.ExternalLtp
+import com.example.data.db.TransactionRecord
+import com.example.data.model.FinancialEngines
+import com.example.data.model.ItemMetrics
+import com.example.data.model.TypeMetrics
+import com.example.data.repository.PortfolioRepository
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import java.io.InputStream
+
+enum class DatasetScope {
+    OVERALL,
+    MEROSHARE
+}
+
+class PortfolioViewModel(private val repository: PortfolioRepository) : ViewModel() {
+
+    val allTransactions: StateFlow<List<TransactionRecord>> = repository.allTransactions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allExternalLtps: StateFlow<List<ExternalLtp>> = repository.allExternalLtps
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val distinctItems: StateFlow<List<String>> = repository.distinctItems
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val distinctTypes: StateFlow<List<String>> = repository.distinctTypes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // UI States and Filters
+    private val _datasetScope = MutableStateFlow(DatasetScope.OVERALL)
+    val datasetScope: StateFlow<DatasetScope> = _datasetScope.asStateFlow()
+
+    private val _selectedTypeFilter = MutableStateFlow("All")
+    val selectedTypeFilter: StateFlow<String> = _selectedTypeFilter.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _snackbarMessage = MutableSharedFlow<String>()
+    val snackbarMessage = _snackbarMessage.asSharedFlow()
+
+    // Column show/hide configuration sets
+    private val _itemColumns = MutableStateFlow(
+        setOf(
+            "Buy_Amount", "Buy_Count", "Buy_Qty", "Sale_Amount", "Sale_Count", "Sale_Qty",
+            "Balance_Qty", "Avg_CP", "Avg_SP", "LTP", "Net_Invest", "Return_Qty", "Return_Cash",
+            "Evaluation", "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
+            "Receivable_Amount", "Profit_Amount", "Profit_Percent"
+        )
+    )
+    val itemColumns: StateFlow<Set<String>> = _itemColumns.asStateFlow()
+
+    private val _typeColumns = MutableStateFlow(
+        setOf(
+            "Item_Count", "Buy_Amount", "Sale_Amount", "Return_Qty", "Return_Cash", "Balance_Qty", "Net_Invest", "Evaluation",
+            "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
+            "Receivable_Amount", "Profit_Amount", "Profit_Percent"
+        )
+    )
+    val typeColumns: StateFlow<Set<String>> = _typeColumns.asStateFlow()
+
+    // Aggregated Metrics calculated reactively based on scope selection
+    val itemMetrics: StateFlow<List<ItemMetrics>> = combine(
+        allTransactions,
+        allExternalLtps,
+        _datasetScope
+    ) { txList, ltpList, scope ->
+        val computedAll = FinancialEngines.computeItemMetrics(txList, ltpList)
+        when (scope) {
+            DatasetScope.OVERALL -> computedAll
+            DatasetScope.MEROSHARE -> computedAll.filter { it.isInMeroshareCsv }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val typeMetrics: StateFlow<List<TypeMetrics>> = itemMetrics
+        .map { activeItems ->
+            FinancialEngines.computeTypeMetrics(activeItems)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setDatasetScope(scope: DatasetScope) {
+        _datasetScope.value = scope
+    }
+
+    fun setSelectedTypeFilter(type: String) {
+        _selectedTypeFilter.value = type
+    }
+
+    fun toggleItemColumn(column: String) {
+        val current = _itemColumns.value.toMutableSet()
+        if (current.contains(column)) {
+            current.remove(column)
+        } else {
+            current.add(column)
+        }
+        _itemColumns.value = current
+    }
+
+    fun toggleTypeColumn(column: String) {
+        val current = _typeColumns.value.toMutableSet()
+        if (current.contains(column)) {
+            current.remove(column)
+        } else {
+            current.add(column)
+        }
+        _typeColumns.value = current
+    }
+
+    fun addTransaction(record: TransactionRecord) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.insertTransaction(record)
+                _snackbarMessage.emit("Successfully recorded transaction")
+            } catch (e: Exception) {
+                _snackbarMessage.emit("Error adding transaction: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun updateTransaction(record: TransactionRecord) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.updateTransaction(record)
+                _snackbarMessage.emit("Successfully modified record")
+            } catch (e: Exception) {
+                _snackbarMessage.emit("Error updating transaction: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun deleteTransaction(record: TransactionRecord) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.deleteTransaction(record)
+                _snackbarMessage.emit("Transaction deleted")
+            } catch (e: Exception) {
+                _snackbarMessage.emit("Error deleting: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun clearAllData() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.clearAllTransactions()
+                _snackbarMessage.emit("Wiped out portfolio records successfully")
+            } catch (e: Exception) {
+                _snackbarMessage.emit("Error: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun refreshLivePrices() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val success = repository.refreshLivePrices()
+                if (success) {
+                    _snackbarMessage.emit("Live prices fetched and updated successfully")
+                } else {
+                    _snackbarMessage.emit("Failed to parse live HTML tracking page")
+                }
+            } catch (e: Exception) {
+                _snackbarMessage.emit("Network failure: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun importTransactions(csvText: String, overwrite: Boolean) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = repository.importTransactionCsv(csvText.byteInputStream(), overwrite)
+            result.onSuccess { count ->
+                _snackbarMessage.emit("Successfully parsed and imported $count transaction records")
+            }.onFailure { err ->
+                _snackbarMessage.emit("CSV Import Error: ${err.message}")
+            }
+            _isLoading.value = false
+        }
+    }
+
+    fun importMeroshare(csvText: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = repository.importMeroshareCsv(csvText.byteInputStream())
+            result.onSuccess { count ->
+                _snackbarMessage.emit("Successfully imported $count Meroshare scrips, updated LTP, and synced flag")
+            }.onFailure { err ->
+                _snackbarMessage.emit("Meroshare CSV Error: ${err.message}")
+            }
+            _isLoading.value = false
+        }
+    }
+
+    // Secondary Paste-Inputs
+    fun importTransactionsFromText(text: String, overwrite: Boolean) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val stream = text.byteInputStream()
+            val result = repository.importTransactionCsv(stream, overwrite)
+            result.onSuccess { count ->
+                _snackbarMessage.emit("Imported $count transaction records from pasted CSV text")
+            }.onFailure { err ->
+                _snackbarMessage.emit("CSV Paste Error: ${err.message}")
+            }
+            _isLoading.value = false
+        }
+    }
+
+    fun importMeroshareFromText(text: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val stream = text.byteInputStream()
+            val result = repository.importMeroshareCsv(stream)
+            result.onSuccess { count ->
+                _snackbarMessage.emit("Imported $count Meroshare scrips from pasted CSV text")
+            }.onFailure { err ->
+                _snackbarMessage.emit("Meroshare Paste Error: ${err.message}")
+            }
+            _isLoading.value = false
+        }
+    }
+}
+
+class PortfolioViewModelFactory(private val repository: PortfolioRepository) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(PortfolioViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return PortfolioViewModel(repository) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
