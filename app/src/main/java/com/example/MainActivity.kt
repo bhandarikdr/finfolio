@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Input
 import androidx.compose.material.icons.automirrored.outlined.Input
@@ -257,20 +258,24 @@ fun DashboardScreen(viewModel: PortfolioViewModel) {
         // Calculations & Valuation Summary Area
         val totalNetInvest = itemMetrics.sumOf { it.netInvest }
         val totalEvaluation = itemMetrics.sumOf { it.evaluation }
-        val overallProfit = totalEvaluation - totalNetInvest
-        val overallGrowthPercent = if (totalNetInvest > 0.0) {
-            (overallProfit / totalNetInvest) * 100.0
-        } else {
-            val totalBuy = itemMetrics.sumOf { it.buyAmount }
-            if (totalBuy > 0.0) (overallProfit / totalBuy) * 100.0 else 0.0
+        val totalBuyAmt = itemMetrics.sumOf { it.buyAmount }
+        val totalNetGain = itemMetrics.sumOf { it.netGain }
+        val totalProfitAmt = itemMetrics.sumOf { it.profitAmount }
+
+        val overallGrowthPercent = if (totalBuyAmt > 0.0) (totalNetGain / totalBuyAmt) * 100.0 else 0.0
+        val overallProfitPercent = when {
+            totalNetInvest > 0.0 -> (totalProfitAmt / totalNetInvest) * 100.0
+            totalNetInvest == 0.0 && totalBuyAmt > 0.0 -> (totalProfitAmt / totalBuyAmt) * 100.0
+            else -> 0.0
         }
 
         item {
             ValuationSummaryCard(
                 totalNetInvest = totalNetInvest,
                 totalEvaluation = totalEvaluation,
-                overallProfit = overallProfit,
-                overallGrowthPercent = overallGrowthPercent
+                totalNetGain = totalNetGain,
+                overallGrowthPercent = overallGrowthPercent,
+                overallProfitPercent = overallProfitPercent
             )
         }
 
@@ -348,10 +353,14 @@ fun ExecutiveScopeSelector(
 fun ValuationSummaryCard(
     totalNetInvest: Double,
     totalEvaluation: Double,
-    overallProfit: Double,
-    overallGrowthPercent: Double
+    totalNetGain: Double,
+    overallGrowthPercent: Double,
+    overallProfitPercent: Double
 ) {
-    val isPositive = overallProfit >= 0.0
+    val isPositiveGain = totalNetGain >= 0.0
+    val isPositiveGrowth = overallGrowthPercent >= 0.0
+    val isPositiveProfit = overallProfitPercent >= 0.0
+    
     val gradientBrush = Brush.linearGradient(
         colors = listOf(
             MaterialTheme.colorScheme.primary,
@@ -374,31 +383,51 @@ fun ValuationSummaryCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 Text(
                     text = "Total Evaluation",
                     color = Color.White.copy(alpha = 0.85f),
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
                 
-                val badgeText = String.format(Locale.US, "%s%.2f%% Growth", if (isPositive) "+" else "", overallGrowthPercent)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White.copy(alpha = 0.2f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                Column(horizontalAlignment = Alignment.End) {
+                    val growthBadgeText = String.format(Locale.US, "%s%.2f%% Growth", if (isPositiveGrowth) "+" else "", overallGrowthPercent)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isPositiveGrowth) Color(0xFF4ADE80).copy(alpha = 0.9f) else Color(0xFFF87171).copy(alpha = 0.9f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = growthBadgeText,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    
+                    Spacer(Modifier.height(4.dp))
+                    
+                    val profitBadgeText = String.format(Locale.US, "%s%.2f%% Profit", if (isPositiveProfit) "+" else "", overallProfitPercent)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isPositiveProfit) Color(0xFF4ADE80).copy(alpha = 0.9f) else Color(0xFFF87171).copy(alpha = 0.9f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = profitBadgeText,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(2.dp))
             Text(
                 text = String.format(Locale.US, "$%,.2f", totalEvaluation),
                 fontSize = 32.sp,
@@ -441,15 +470,15 @@ fun ValuationSummaryCard(
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = if (isPositive) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                            imageVector = if (isPositiveGain) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
                             contentDescription = "Gain direction",
-                            tint = if (isPositive) Color(0xFF4ADE80) else Color(0xFFF87171),
+                            tint = if (isPositiveGain) Color(0xFF4ADE80) else Color(0xFFF87171),
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            text = String.format(Locale.US, "$%,.2f", overallProfit),
-                            color = if (isPositive) Color(0xFF4ADE80) else Color(0xFFF87171),
+                            text = String.format(Locale.US, "$%,.2f", totalNetGain),
+                            color = if (isPositiveGain) Color(0xFF4ADE80) else Color(0xFFF87171),
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp
                         )
@@ -1473,6 +1502,44 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                             Text("Paste MS Data", fontSize = 11.sp)
                         }
                     }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // CSV Schema Info
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFDC143C).copy(alpha = 0.05f)),
+                        border = BorderStroke(1.dp, Color(0xFFDC143C).copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                "CSV Schema Reference",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = Color(0xFFDC143C)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("1. Transactions:", fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
+                            SelectionContainer {
+                                Text(
+                                    "Date,Item,Action,Qty,Amount,Type",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text("2. Meroshare:", fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
+                            SelectionContainer {
+                                Text(
+                                    "S.N,Scrip,Current Balance,Last Closing Price,Value as of Last Closing Price,Last Transaction Price (LTP),Value as of LTP",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1674,17 +1741,42 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = if (pasteSchemaType == 1) {
-                            "Headers: Date,Item,Action,Qty,Amount,Type"
-                        } else {
-                            "Headers contains Symbol/Scrip & LTP"
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp
-                    )
                     Spacer(Modifier.height(8.dp))
+                    
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Text(
+                                text = if (pasteSchemaType == 1) "Expected Schema:" else "Expected Schema (Must contain):",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                            SelectionContainer {
+                                Text(
+                                    text = if (pasteSchemaType == 1) {
+                                        "Date,Item,Action,Qty,Amount,Type"
+                                    } else {
+                                        "S.N,Scrip,Current Balance,Last Closing Price,Value as of Last Closing Price,Last Transaction Price (LTP),Value as of LTP"
+                                    },
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color(0xFFDC143C),
+                                    fontSize = 11.sp
+                                )
+                            }
+                            if (pasteSchemaType == 1) {
+                                Text(
+                                    "Example: 2024-01-01,NABIL,Buy,10,5000,Banks",
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(12.dp))
 
                     OutlinedTextField(
                         value = rawTextByInput,
