@@ -68,6 +68,9 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage = _snackbarMessage.asSharedFlow()
 
+    private val _pendingTypeUpdate = MutableStateFlow<TransactionRecord?>(null)
+    val pendingTypeUpdate = _pendingTypeUpdate.asStateFlow()
+
     // Column show/hide configuration sets
     private val _itemColumns = MutableStateFlow(
         setOf(
@@ -105,6 +108,14 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         .map { activeItems ->
             FinancialEngines.computeTypeMetrics(activeItems)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalInvestment: StateFlow<Double> = itemMetrics.map { items ->
+        items.sumOf { it.netInvest }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val totalEvaluation: StateFlow<Double> = itemMetrics.map { items ->
+        items.sumOf { it.evaluation }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     fun setDatasetScope(scope: DatasetScope) {
         _datasetScope.value = scope
@@ -150,15 +161,45 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     fun updateTransaction(record: TransactionRecord) {
         viewModelScope.launch {
+            val existing = allTransactions.value.find { it.id == record.id }
+            if (existing != null && existing.type != record.type) {
+                _pendingTypeUpdate.value = record
+            } else {
+                performUpdate(record)
+            }
+        }
+    }
+
+    fun confirmTypeUpdate(record: TransactionRecord, approve: Boolean) {
+        viewModelScope.launch {
+            _pendingTypeUpdate.value = null
             _isLoading.value = true
             try {
+                if (approve) {
+                    repository.updateScripSector(record.item, record.type)
+                    _snackbarMessage.emit("Sector '${record.type}' applied to all ${record.item} records.")
+                }
                 repository.updateTransaction(record)
-                _snackbarMessage.emit("Successfully modified record")
+                if (!approve) {
+                    _snackbarMessage.emit("Successfully modified record (Bulk update skipped)")
+                }
             } catch (e: Exception) {
                 _snackbarMessage.emit("Error updating transaction: ${e.message}")
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    private suspend fun performUpdate(record: TransactionRecord) {
+        _isLoading.value = true
+        try {
+            repository.updateTransaction(record)
+            _snackbarMessage.emit("Successfully modified record")
+        } catch (e: Exception) {
+            _snackbarMessage.emit("Error updating transaction: ${e.message}")
+        } finally {
+            _isLoading.value = false
         }
     }
 

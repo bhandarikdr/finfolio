@@ -25,8 +25,6 @@ import kotlinx.coroutines.flow.map
 
 class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
-    private var sectorCache: Map<String, String>? = null
-
     val userProfile: Flow<UserProfile> = portfolioDao.getUserProfile().map { entity ->
         UserProfile(entity?.name ?: "", entity?.email ?: "")
     }
@@ -69,61 +67,16 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
-    suspend fun fetchSectors(): Map<String, String> {
-        return withContext(Dispatchers.IO) {
-            val local = portfolioDao.getAllSectorMappings()
-            if (local.isNotEmpty()) {
-                sectorCache = local.associate { it.symbol to it.sector }
-                return@withContext sectorCache!!
-            }
-
-            try {
-                val doc = Jsoup.connect("https://www.sharesansar.com/sectorwise-share-price")
-                    .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-                    .timeout(20000)
-                    .get()
-                
-                val mappings = mutableListOf<SectorMapping>()
-                // Sector names are usually in h2 or h4 headers
-                val headers = doc.select("h2, h4, .sector-title") 
-                headers.forEach { header ->
-                    val sectorName = header.text().trim()
-                    // Filter out non-sector headers
-                    if (sectorName.contains("News") || sectorName.contains("Market") || sectorName.contains("Analysis")) return@forEach
-
-                    // Find the table in the next container
-                    val nextDiv = header.nextElementSibling()
-                    val table = nextDiv?.select("table")?.firstOrNull() 
-                        ?: nextDiv?.nextElementSibling()?.select("table")?.firstOrNull()
-                    
-                    table?.select("tbody tr")?.forEach { row ->
-                        val cells = row.select("td")
-                        // Usually: S.N (0), Symbol (1), Company (2)...
-                        val symbol = cells.getOrNull(1)?.text()?.trim()?.uppercase()
-                        if (symbol != null && symbol.isNotEmpty() && symbol.length < 15) {
-                            mappings.add(SectorMapping(symbol, sectorName))
-                        }
-                    }
-                }
-                
-                if (mappings.isNotEmpty()) {
-                    portfolioDao.insertSectorMappings(mappings)
-                    sectorCache = mappings.associate { it.symbol to it.sector }
-                    return@withContext sectorCache!!
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            emptyMap()
+    suspend fun updateScripSector(symbol: String, newSector: String) {
+        withContext(Dispatchers.IO) {
+            portfolioDao.updateSectorBySymbol(symbol.uppercase().trim(), newSector)
         }
     }
 
     private suspend fun getSectorForScrip(symbol: String): String {
-        if (sectorCache == null) {
-            fetchSectors()
+        return withContext(Dispatchers.IO) {
+            portfolioDao.getExistingTypeBySymbol(symbol.uppercase().trim()) ?: "Other"
         }
-        val upper = symbol.uppercase().trim()
-        return sectorCache?.get(upper) ?: "Other"
     }
 
     suspend fun importTransactionCsv(inputStream: InputStream, overwrite: Boolean, isWaccSchema: Boolean = false): Result<Int> {
@@ -255,23 +208,34 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
                 val scripIdx = header.indexOfFirst { it.contains("scrip") || it.contains("symbol") || it.contains("item") || it.contains("scrip name") || it.contains("name") }
                 val ltpIdx = header.indexOfFirst { it.contains("last transaction price") || it.contains("ltp") || it.contains("price") || it.contains("rate") || it.contains("valu") }
+                val qtyIdx = header.indexOfFirst { it.contains("current") || it.contains("balance") || it.contains("units") || it.contains("qty") || it.contains("quantity") }
 
                 if (scripIdx == -1 || ltpIdx == -1) {
                     return@withContext Result.failure(
-                        Exception("Required columns 'Scrip' and 'Last Transaction Price(LTP)' not found in CSV. Headers found: $header")
+                        Exception("Required columns 'Scrip' and 'LTP' not found in CSV.")
                     )
                 }
 
                 val newLtpRecords = mutableListOf<ExternalLtp>()
                 val timestamp = System.currentTimeMillis()
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+                // Fetch all transactions to calculate current balance and avg cost
+                val allTx = portfolioDao.getAllTransactionsSync() // Need to add this to DAO or use a flow collector
+                val groupedTx = allTx.groupBy { it.item.uppercase().trim() }
 
                 for (i in 1 until lines.size) {
                     val rowText = lines[i]
                     val cols = parseCsvRow(rowText, separator)
                     if (cols.size > maxOf(scripIdx, ltpIdx)) {
-                        val scrip = cols[scripIdx].uppercase()
+                        val scrip = cols[scripIdx].uppercase().trim()
                         val ltpValClean = cols[ltpIdx].replace("\"", "").replace(",", "").trim()
                         val ltpValue = ltpValClean.toDoubleOrNull() ?: 0.0
+                        
+                        val importedQty = if (qtyIdx != -1 && qtyIdx < cols.size) {
+                            cols[qtyIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                        } else 0.0
+
                         if (scrip.isNotEmpty()) {
                             newLtpRecords.add(
                                 ExternalLtp(
@@ -282,6 +246,57 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                                     isInMeroshareCsv = true
                                 )
                             )
+
+                            // System Adjustment Logic
+                            if (qtyIdx != -1) {
+                                val scripTx = groupedTx[scrip] ?: emptyList()
+                                val buyQty = scripTx.filter { it.action == "Buy" }.sumOf { it.qty }
+                                val returnsQty = scripTx.filter { it.action == "Returns" }.sumOf { it.qty }
+                                val saleQty = scripTx.filter { it.action == "Sale" }.sumOf { it.qty }
+                                val currentBalance = buyQty + returnsQty - saleQty
+                                
+                                if (currentBalance > importedQty) {
+                                    val diff = currentBalance - importedQty
+                                    val buyAmount = scripTx.filter { it.action == "Buy" }.sumOf { it.amount }
+                                    val avgCost = if (buyQty + returnsQty > 0) buyAmount / (buyQty + returnsQty) else 0.0
+                                    
+                                    val adjustmentSale = TransactionRecord(
+                                        date = todayStr,
+                                        item = scrip,
+                                        type = scripTx.firstOrNull()?.type ?: "Other",
+                                        action = "Sale",
+                                        qty = diff,
+                                        amount = diff * avgCost
+                                    )
+                                    portfolioDao.insertTransaction(adjustmentSale)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Additional Logic: Handle scrips in DB but missing from Meroshare CSV (Sold out)
+                val csvScrips = newLtpRecords.map { it.symbol.uppercase().trim() }.toSet()
+                for ((scrip, scripTx) in groupedTx) {
+                    if (scrip !in csvScrips) {
+                        val buyQty = scripTx.filter { it.action == "Buy" }.sumOf { it.qty }
+                        val returnsQty = scripTx.filter { it.action == "Returns" }.sumOf { it.qty }
+                        val saleQty = scripTx.filter { it.action == "Sale" }.sumOf { it.qty }
+                        val currentBalance = (buyQty + returnsQty - saleQty).coerceAtLeast(0.0)
+
+                        if (currentBalance > 0.0) {
+                            val buyAmount = scripTx.filter { it.action == "Buy" }.sumOf { it.amount }
+                            val avgCost = if (buyQty + returnsQty > 0) buyAmount / (buyQty + returnsQty) else 0.0
+
+                            val adjustmentSale = TransactionRecord(
+                                date = todayStr,
+                                item = scrip,
+                                type = scripTx.firstOrNull()?.type ?: "Other",
+                                action = "Sale",
+                                qty = currentBalance,
+                                amount = currentBalance * avgCost
+                            )
+                            portfolioDao.insertTransaction(adjustmentSale)
                         }
                     }
                 }

@@ -15,6 +15,9 @@ interface PortfolioDao {
     @Query("SELECT * FROM Data ORDER BY date DESC, id DESC")
     fun getAllTransactions(): Flow<List<TransactionRecord>>
 
+    @Query("SELECT * FROM Data ORDER BY date DESC, id DESC")
+    suspend fun getAllTransactionsSync(): List<TransactionRecord>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(record: TransactionRecord): Long
 
@@ -32,6 +35,12 @@ interface PortfolioDao {
 
     @Query("SELECT DISTINCT type FROM Data ORDER BY type ASC")
     fun getDistinctTypes(): Flow<List<String>>
+
+    @Query("SELECT type FROM Data WHERE item = :symbol LIMIT 1")
+    suspend fun getExistingTypeBySymbol(symbol: String): String?
+
+    @Query("UPDATE Data SET type = :newType WHERE item = :symbol")
+    suspend fun updateSectorBySymbol(symbol: String, newType: String)
 
 
     // --- EXTERNAL LTP RECORDS ---

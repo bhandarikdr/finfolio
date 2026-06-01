@@ -107,9 +107,8 @@ object FinancialEngines {
             val avgCp = if (buyQty + returnsQty == 0.0) 0.0 else buyAmount / (buyQty + returnsQty)
             val avgSp = if (saleQty == 0.0) 0.0 else saleAmount / saleQty
             
-            // Net Investment: Unrecovered capital (True Cost Recovery Model)
-            // Logic: Remaining capital outlay. Does NOT drop to 0 just because Qty is 0.
-            val netInvest = (buyAmount - saleAmount - returnsCash).coerceAtLeast(0.0)
+            // Net Investment: Unrecovered capital (Cost Recovery Model)
+            val netInvest = (buyAmount - saleAmount).coerceAtLeast(0.0)
 
             // Fetching LTP Value
             val ltpValRecord = ltpMap[symbol]
@@ -125,7 +124,6 @@ object FinancialEngines {
             val realizedGain = (saleAmount - buyAmount) + returnsCash + netInvest
             
             // Unrealized Gain: Paper profit/loss on unrecovered capital
-            // Note: For FDs, this captures the "Returns Cash" as gain because Eval stays at Principal level.
             val unrealizedGain = evaluation - netInvest
             
             // Estimated Deductions (Commission, DP Fee, and CGT on profit)
