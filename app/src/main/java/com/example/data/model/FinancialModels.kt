@@ -23,9 +23,9 @@ data class ItemMetrics(
     val saleAmount: Double,
     val saleCount: Int,
     val saleQty: Double,
-    val returnCash: Double,
+    val returnsCash: Double,
     val returnCount: Int,
-    val returnQty: Double,
+    val returnsQty: Double,
     val balanceQty: Double,
     val avgCp: Double,
     val avgSp: Double,
@@ -48,8 +48,8 @@ data class TypeMetrics(
     val itemCount: Int,
     val buyAmount: Double,
     val saleAmount: Double,
-    val returnCash: Double,
-    val returnQty: Double,
+    val returnsCash: Double,
+    val returnsQty: Double,
     val balanceQty: Double,
     val netInvest: Double,
     val evaluation: Double,
@@ -95,48 +95,54 @@ object FinancialEngines {
             val saleCount = saleRecords.size
             val saleQty = saleRecords.sumOf { it.qty }
 
-            // "Returns" now covers everything that was previously "Bonus"
-            val returnRecords = txs.filter { (it.action == "Returns") || (it.action == "Bonus") }
-            val returnCash = returnRecords.sumOf { it.amount }
+            // "Returns" covers everything including Dividends and Bonus shares
+            val returnRecords = txs.filter { it.action == "Returns" }
+            val returnsCash = returnRecords.sumOf { it.amount }
             val returnCount = returnRecords.size
-            val returnQty = returnRecords.sumOf { it.qty }
+            val returnsQty = returnRecords.sumOf { it.qty }
 
             // Intermediate Matrix Computations
-            val balanceQty = (buyQty + returnQty - saleQty).coerceAtLeast(0.0)
-            val avgCp = if (buyQty + returnQty == 0.0) 0.0 else buyAmount / (buyQty + returnQty)
+            // Balance Qty = Buy + Returns - Sale
+            val balanceQty = (buyQty + returnsQty - saleQty).coerceAtLeast(0.0)
+            val avgCp = if (buyQty + returnsQty == 0.0) 0.0 else buyAmount / (buyQty + returnsQty)
             val avgSp = if (saleQty == 0.0) 0.0 else saleAmount / saleQty
             
-            // Net Investment: Capital still tied up in this scrip (Cost Recovery Model)
-            // If balanceQty is 0, we have no investment left in this scrip.
-            val netInvest = if (balanceQty <= 0.0) 0.0 else (buyAmount - saleAmount - returnCash).coerceAtLeast(0.0)
+            // Net Investment: Unrecovered capital (True Cost Recovery Model)
+            // Logic: Remaining capital outlay. Does NOT drop to 0 just because Qty is 0.
+            val netInvest = (buyAmount - saleAmount - returnsCash).coerceAtLeast(0.0)
 
             // Fetching LTP Value
             val ltpValRecord = ltpMap[symbol]
             val ltp = ltpValRecord?.ltp ?: 0.0
             val isInMs = meroshareFlags[symbol] ?: false
 
-            // Evaluation: Current Market Value of holdings
-            val evaluation = balanceQty * ltp
+            // Evaluation: Current Market Value
+            // Logic: If units exist (Avg CP > 0), use Qty * LTP. 
+            // For cash-only items (Avg CP is 0), Evaluation represents Remaining Principal (Buy - Sale).
+            val evaluation = if (avgCp > 0.0) (balanceQty * ltp) else (buyAmount - saleAmount).coerceAtLeast(0.0)
 
-            // Realized Gain: Profit/Loss from recovered capital and returns
-            val realizedGain = (saleAmount - buyAmount) + returnCash + netInvest
+            // Realized Gain: Profit from recovered capital
+            val realizedGain = (saleAmount - buyAmount) + returnsCash + netInvest
             
-            // Unrealized Gain: Market Value - Remaining Capital
+            // Unrealized Gain: Paper profit/loss on unrecovered capital
+            // Note: For FDs, this captures the "Returns Cash" as gain because Eval stays at Principal level.
             val unrealizedGain = evaluation - netInvest
             
             // Estimated Deductions (Commission, DP Fee, and CGT on profit)
-            val deductions = if (unrealizedGain > 0.0) {
-                (evaluation * 0.0038) + 25.0 + (unrealizedGain * 0.075)
-            } else {
-                (evaluation * 0.0038) + 25.0
-            }
+            // Note: Only applied for unit-based (equity) investments where holdings exist.
+            val deductions = if (avgCp > 0.0 && evaluation > 0.0) {
+                if (unrealizedGain > 0.0) (evaluation * 0.0038) + 25.0 + (unrealizedGain * 0.075)
+                else (evaluation * 0.0038) + 25.0
+            } else 0.0
             
+            // Net Gain: The true "bottom line" profit (Total absolute wealth increase)
             val netGain = realizedGain + unrealizedGain - deductions
             val growth = if (buyAmount == 0.0) 0.0 else (netGain / buyAmount) * 100.0
             val receivableAmount = (evaluation - deductions).coerceAtLeast(0.0)
             
-            // Profit Amount should match the overall Net Gain for the scrip
-            val profitAmount = netGain
+            // Profit: Current gain on at-risk capital
+            // Formula: Evaluation - Net Investment
+            val profitAmount = evaluation - netInvest
 
             val profitPercent = when {
                 netInvest > 0.0 -> (profitAmount / netInvest) * 100.0
@@ -153,9 +159,9 @@ object FinancialEngines {
                 saleAmount = saleAmount,
                 saleCount = saleCount,
                 saleQty = saleQty,
-                returnCash = returnCash,
+                returnsCash = returnsCash,
                 returnCount = returnCount,
-                returnQty = returnQty,
+                returnsQty = returnsQty,
                 balanceQty = balanceQty,
                 avgCp = avgCp,
                 avgSp = avgSp,
@@ -185,8 +191,8 @@ object FinancialEngines {
             val itemCount = items.size
             val buyAmount = items.sumOf { it.buyAmount }
             val saleAmount = items.sumOf { it.saleAmount }
-            val returnCash = items.sumOf { it.returnCash }
-            val returnQty = items.sumOf { it.returnQty }
+            val returnsCash = items.sumOf { it.returnsCash }
+            val returnsQty = items.sumOf { it.returnsQty }
             val balanceQty = items.sumOf { it.balanceQty }
             val netInvest = items.sumOf { it.netInvest }
             val evaluation = items.sumOf { it.evaluation }
@@ -209,8 +215,8 @@ object FinancialEngines {
                 itemCount = itemCount,
                 buyAmount = buyAmount,
                 saleAmount = saleAmount,
-                returnCash = returnCash,
-                returnQty = returnQty,
+                returnsCash = returnsCash,
+                returnsQty = returnsQty,
                 balanceQty = balanceQty,
                 netInvest = netInvest,
                 evaluation = evaluation,

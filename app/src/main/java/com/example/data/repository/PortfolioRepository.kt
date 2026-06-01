@@ -207,8 +207,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
                             val normalizedAction = when {
                                 actionRaw.equals("sale", ignoreCase = true) || actionRaw.equals("sell", ignoreCase = true) -> "Sale"
-                                actionRaw.equals("returns", ignoreCase = true) || actionRaw.equals("return", ignoreCase = true) -> "Returns"
-                                actionRaw.equals("bonus", ignoreCase = true) -> "Bonus"
+                                actionRaw.equals("returns", ignoreCase = true) || actionRaw.equals("return", ignoreCase = true) || actionRaw.equals("bonus", ignoreCase = true) -> "Returns"
                                 else -> "Buy"
                             }
 

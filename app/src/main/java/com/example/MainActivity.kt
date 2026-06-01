@@ -634,7 +634,8 @@ fun ValuationSummaryCard(
     totalEvaluation: Double,
     totalNetGain: Double,
     overallGrowthPercent: Double,
-    overallProfitPercent: Double
+    overallProfitPercent: Double,
+    isCompact: Boolean = false
 ) {
     val isPositiveGain = totalNetGain >= 0.0
     val isPositiveGrowth = overallGrowthPercent >= 0.0
@@ -649,7 +650,7 @@ fun ValuationSummaryCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp), // rounded-3xl
+        shape = RoundedCornerShape(if (isCompact) 16.dp else 24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -657,65 +658,63 @@ fun ValuationSummaryCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(brush = gradientBrush)
-                .padding(24.dp)
+                .padding(if (isCompact) 14.dp else 24.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Text(
+                androidx.compose.material3.Text(
                     text = "Total Evaluation",
                     color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 14.sp,
+                    fontSize = if (isCompact) 12.sp else 14.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier.padding(top = 2.dp)
                 )
                 
-                Column(horizontalAlignment = Alignment.End) {
-                    val growthBadgeText = String.format(Locale.US, "%s%.2f%% Growth", if (isPositiveGrowth) "+" else "", overallGrowthPercent)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val growthBadgeText = String.format(Locale.US, "%s%.1f%% G", if (isPositiveGrowth) "+" else "", overallGrowthPercent)
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .background(if (isPositiveGrowth) Color(0xFF4ADE80).copy(alpha = 0.9f) else Color(0xFFF87171).copy(alpha = 0.9f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text(
+                        androidx.compose.material3.Text(
                             text = growthBadgeText,
                             color = Color.White,
-                            fontSize = 10.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     
-                    Spacer(Modifier.height(4.dp))
-                    
-                    val profitBadgeText = String.format(Locale.US, "%s%.2f%% Profit", if (isPositiveProfit) "+" else "", overallProfitPercent)
+                    val profitBadgeText = String.format(Locale.US, "%s%.1f%% P", if (isPositiveProfit) "+" else "", overallProfitPercent)
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .background(if (isPositiveProfit) Color(0xFF4ADE80).copy(alpha = 0.9f) else Color(0xFFF87171).copy(alpha = 0.9f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text(
+                        androidx.compose.material3.Text(
                             text = profitBadgeText,
                             color = Color.White,
-                            fontSize = 10.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
-            Spacer(Modifier.height(2.dp))
-            Text(
+            
+            androidx.compose.material3.Text(
                 text = String.format(Locale.US, "$%,.2f", totalEvaluation),
-                fontSize = 32.sp,
+                fontSize = if (isCompact) 24.sp else 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
 
             HorizontalDivider(
-                modifier = Modifier.padding(vertical = 20.dp),
+                modifier = Modifier.padding(vertical = if (isCompact) 10.dp else 20.dp),
                 color = Color.White.copy(alpha = 0.2f)
             )
 
@@ -724,42 +723,42 @@ fun ValuationSummaryCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text(
-                        text = "NET INVESTMENT",
+                    androidx.compose.material3.Text(
+                        text = "NET INVEST",
                         color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = String.format(Locale.US, "$%,.2f", totalNetInvest),
+                    Spacer(Modifier.height(2.dp))
+                    androidx.compose.material3.Text(
+                        text = String.format(Locale.US, "$%,.0f", totalNetInvest),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
+                        fontSize = if (isCompact) 15.sp else 18.sp,
                         color = Color.White
                     )
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "PORTFOLIO NET GAIN",
+                    androidx.compose.material3.Text(
+                        text = "NET GAIN",
                         color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = if (isPositiveGain) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
                             contentDescription = "Gain direction",
                             tint = if (isPositiveGain) Color(0xFF4ADE80) else Color(0xFFF87171),
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(if (isCompact) 14.dp else 16.dp)
                         )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = String.format(Locale.US, "$%,.2f", totalNetGain),
+                        Spacer(Modifier.width(2.dp))
+                        androidx.compose.material3.Text(
+                            text = String.format(Locale.US, "$%,.0f", totalNetGain),
                             color = if (isPositiveGain) Color(0xFF4ADE80) else Color(0xFFF87171),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
+                            fontSize = if (isCompact) 15.sp else 18.sp
                         )
                     }
                 }
@@ -1048,11 +1047,43 @@ fun MatrixScreen(viewModel: PortfolioViewModel) {
     val activeItemCols by viewModel.itemColumns.collectAsStateWithLifecycle()
     val activeTypeCols by viewModel.typeColumns.collectAsStateWithLifecycle()
 
+    val filteredItems = if (activeTabIdx == 0) {
+        if (typeFilter == "All") items else items.filter { it.type.equals(typeFilter, ignoreCase = true) }
+    } else emptyList()
+
+    val displayTypes = if (activeTabIdx == 1) types else emptyList()
+
+    // Calculations for the dynamic Summary Card
+    val totalNetInvest = if (activeTabIdx == 0) filteredItems.sumOf { it.netInvest } else displayTypes.sumOf { it.netInvest }
+    val totalEvaluation = if (activeTabIdx == 0) filteredItems.sumOf { it.evaluation } else displayTypes.sumOf { it.evaluation }
+    val totalNetGain = if (activeTabIdx == 0) filteredItems.sumOf { it.netGain } else displayTypes.sumOf { it.netGain }
+    val totalBuyAmt = if (activeTabIdx == 0) filteredItems.sumOf { it.buyAmount } else displayTypes.sumOf { it.buyAmount }
+    val totalProfitAmt = if (activeTabIdx == 0) filteredItems.sumOf { it.profitAmount } else displayTypes.sumOf { it.profitAmount }
+
+    val overallGrowthPercent = if (totalBuyAmt > 0.0) (totalNetGain / totalBuyAmt) * 100.0 else 0.0
+    val overallProfitPercent = when {
+        totalNetInvest > 0.0 -> (totalProfitAmt / totalNetInvest) * 100.0
+        (totalNetInvest == 0.0) && (totalBuyAmt > 0.0) -> (totalProfitAmt / totalBuyAmt) * 100.0
+        else -> 0.0
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(12.dp)
     ) {
+        // Summary Card reflecting filtered data
+        ValuationSummaryCard(
+            totalNetInvest = totalNetInvest,
+            totalEvaluation = totalEvaluation,
+            totalNetGain = totalNetGain,
+            overallGrowthPercent = overallGrowthPercent,
+            overallProfitPercent = overallProfitPercent,
+            isCompact = true
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         // Upper switcher and controls
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -1160,10 +1191,9 @@ fun MatrixScreen(viewModel: PortfolioViewModel) {
         // Large Responsive Table view
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             if (activeTabIdx == 0) {
-                val filteredItems = if (typeFilter == "All") items else items.filter { it.type.equals(typeFilter, ignoreCase = true) }
                 ItemMatrixTable(items = filteredItems, activeCols = activeItemCols)
             } else {
-                TypesMatrixTable(types = types, activeCols = activeTypeCols)
+                TypesMatrixTable(types = displayTypes, activeCols = activeTypeCols)
             }
         }
     }
@@ -1186,9 +1216,8 @@ fun ItemMatrixTable(
     activeCols: Set<String>
 ) {
     val scrollState = rememberScrollState()
-
-    // Row cell utility helper
     val cellWidth = 110.dp
+    val firstColWidth = 115.dp
 
     Column(
         modifier = Modifier
@@ -1196,40 +1225,52 @@ fun ItemMatrixTable(
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
             .clip(RoundedCornerShape(8.dp))
     ) {
-        // Sticky horizontal header
+        // Header Row
         Row(
             modifier = Modifier
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .horizontalScroll(scrollState)
                 .fillMaxWidth()
-                .padding(vertical = 12.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Scrip Symbol", fontWeight = FontWeight.Bold, width = cellWidth, marginStart = 12.dp)
-            if (activeCols.contains("Buy_Amount")) Text("Buy Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Buy_Count")) Text("Buy Count", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Buy_Qty")) Text("Buy Qty", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Sale_Amount")) Text("Sale Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Sale_Count")) Text("Sale Count", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Sale_Qty")) Text("Sale Qty", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Balance_Qty")) Text("Bal Qty", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Avg_CP")) Text("Avg CP ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Avg_SP")) Text("Avg SP ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("LTP")) Text("LTP ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Net_Invest")) Text("Net Invest ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Return_Qty")) Text("Return Qty", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Return_Cash")) Text("Return Cash ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Evaluation")) Text("Evaluation ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Realized_Gain")) Text("Realized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Unrealized_Gain")) Text("Unrealized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Deductions")) Text("Deductions ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Net_Gain")) Text("Net Gain ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Growth")) Text("Growth (%)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Receivable_Amount")) Text("Receivable ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Profit_Amount")) Text("Profit ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Profit_Percent")) Text("Profit (%)", fontWeight = FontWeight.Bold, width = cellWidth)
+            // FIXED First Column Header
+            Text(
+                text = "Scrip Symbol",
+                fontWeight = FontWeight.Bold,
+                width = firstColWidth,
+                marginStart = 12.dp
+            )
+            // Scrollable columns
+            Row(
+                modifier = Modifier
+                    .horizontalScroll(scrollState)
+                    .padding(vertical = 12.dp)
+            ) {
+                if (activeCols.contains("Buy_Amount")) Text("Buy Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Buy_Count")) Text("Buy Count", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Buy_Qty")) Text("Buy Qty", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Sale_Amount")) Text("Sale Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Sale_Count")) Text("Sale Count", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Sale_Qty")) Text("Sale Qty", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Balance_Qty")) Text("Bal Qty", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Avg_CP")) Text("Avg CP ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Avg_SP")) Text("Avg SP ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("LTP")) Text("LTP ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Net_Invest")) Text("Net Invest ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Returns_Qty")) Text("Returns Qty", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Returns_Cash")) Text("Returns Cash ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Evaluation")) Text("Evaluation ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Realized_Gain")) Text("Realized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Unrealized_Gain")) Text("Unrealized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Deductions")) Text("Deductions ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Net_Gain")) Text("Net Gain ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Growth")) Text("Growth (%)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Receivable_Amount")) Text("Receivable ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Profit_Amount")) Text("Profit ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Profit_Percent")) Text("Profit (%)", fontWeight = FontWeight.Bold, width = cellWidth)
+            }
         }
 
-        // Table Rows Body
+        // Table Body
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             if (items.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1239,93 +1280,122 @@ fun ItemMatrixTable(
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(items) { row ->
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.background)
-                                .horizontalScroll(scrollState)
-                                .padding(vertical = 10.dp)
+                            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(row.item, fontWeight = FontWeight.Bold, width = cellWidth, marginStart = 12.dp, color = MaterialTheme.colorScheme.primary)
-                            if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", row.buyAmount), width = cellWidth)
-                            if (activeCols.contains("Buy_Count")) Text(row.buyCount.toString(), width = cellWidth)
-                            if (activeCols.contains("Buy_Qty")) Text(String.format(Locale.US, "%,.2f", row.buyQty), width = cellWidth)
-                            if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", row.saleAmount), width = cellWidth)
-                            if (activeCols.contains("Sale_Count")) Text("${row.saleCount}", width = cellWidth)
-                            if (activeCols.contains("Sale_Qty")) Text(String.format(Locale.US, "%,.2f", row.saleQty), width = cellWidth)
-                            if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", row.balanceQty), width = cellWidth)
-                            if (activeCols.contains("Avg_CP")) Text(String.format(Locale.US, "%,.2f", row.avgCp), width = cellWidth)
-                            if (activeCols.contains("Avg_SP")) Text(String.format(Locale.US, "%,.2f", row.avgSp), width = cellWidth)
-                            if (activeCols.contains("LTP")) Text(String.format(Locale.US, "%,.2f", row.ltp), width = cellWidth, color = if (row.ltp > 0.0) MaterialTheme.colorScheme.onSurface else Color.Gray)
-                            if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", row.netInvest), width = cellWidth)
-                            if (activeCols.contains("Return_Qty")) Text(String.format(Locale.US, "%,.2f", row.returnQty), width = cellWidth)
-                            if (activeCols.contains("Return_Cash")) Text(String.format(Locale.US, "%,.2f", row.returnCash), width = cellWidth)
-                            if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", row.evaluation), width = cellWidth)
-                            if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", row.realizedGain), width = cellWidth, color = if (row.realizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", row.unrealizedGain), width = cellWidth, color = if (row.unrealizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", row.deductions), width = cellWidth)
-                            if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", row.netGain), width = cellWidth, color = if (row.netGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", row.growth), width = cellWidth, color = if (row.growth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
-                            if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", row.receivableAmount), width = cellWidth)
-                            if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", row.profitAmount), width = cellWidth, color = if (row.profitAmount >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", row.profitPercent), width = cellWidth, color = if (row.profitPercent >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
+                            // FIXED First Column Cell
+                            Surface(
+                                modifier = Modifier.width(firstColWidth),
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 1.dp
+                            ) {
+                                Text(
+                                    text = row.item,
+                                    fontWeight = FontWeight.Bold,
+                                    width = firstColWidth,
+                                    marginStart = 12.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            // Scrollable data cells
+                            Row(
+                                modifier = Modifier
+                                    .horizontalScroll(scrollState)
+                                    .padding(vertical = 10.dp)
+                            ) {
+                                if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", row.buyAmount), width = cellWidth)
+                                if (activeCols.contains("Buy_Count")) Text(row.buyCount.toString(), width = cellWidth)
+                                if (activeCols.contains("Buy_Qty")) Text(String.format(Locale.US, "%,.2f", row.buyQty), width = cellWidth)
+                                if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", row.saleAmount), width = cellWidth)
+                                if (activeCols.contains("Sale_Count")) Text("${row.saleCount}", width = cellWidth)
+                                if (activeCols.contains("Sale_Qty")) Text(String.format(Locale.US, "%,.2f", row.saleQty), width = cellWidth)
+                                if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", row.balanceQty), width = cellWidth)
+                                if (activeCols.contains("Avg_CP")) Text(String.format(Locale.US, "%,.2f", row.avgCp), width = cellWidth)
+                                if (activeCols.contains("Avg_SP")) Text(String.format(Locale.US, "%,.2f", row.avgSp), width = cellWidth)
+                                if (activeCols.contains("LTP")) Text(String.format(Locale.US, "%,.2f", row.ltp), width = cellWidth, color = if (row.ltp > 0.0) MaterialTheme.colorScheme.onSurface else Color.Gray)
+                                if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", row.netInvest), width = cellWidth)
+                                if (activeCols.contains("Returns_Qty")) Text(String.format(Locale.US, "%,.2f", row.returnsQty), width = cellWidth)
+                                if (activeCols.contains("Returns_Cash")) Text(String.format(Locale.US, "%,.2f", row.returnsCash), width = cellWidth)
+                                if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", row.evaluation), width = cellWidth)
+                                if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", row.realizedGain), width = cellWidth, color = if (row.realizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", row.unrealizedGain), width = cellWidth, color = if (row.unrealizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", row.deductions), width = cellWidth)
+                                if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", row.netGain), width = cellWidth, color = if (row.netGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", row.growth), width = cellWidth, color = if (row.growth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
+                                if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", row.receivableAmount), width = cellWidth)
+                                if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", row.profitAmount), width = cellWidth, color = if (row.profitAmount >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", row.profitPercent), width = cellWidth, color = if (row.profitPercent >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Horizontal Sticky Aggregate Totals (Bottom row)
+        // Bottom Totals Row
         if (items.isNotEmpty()) {
             Row(
                 modifier = Modifier
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .horizontalScroll(scrollState)
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("TOTAL SUMS", fontWeight = FontWeight.Bold, width = cellWidth, marginStart = 12.dp, color = MaterialTheme.colorScheme.primary)
-                if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.buyAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Buy_Count")) Text("${items.sumOf { it.buyCount }}", fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Buy_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.buyQty }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.saleAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Sale_Count")) Text("${items.sumOf { it.saleCount }}", fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Sale_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.saleQty }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.balanceQty }), fontWeight = FontWeight.Bold, width = cellWidth)
-                
-                // Averages generally not summed directly, display dash
-                if (activeCols.contains("Avg_CP")) Text("-", fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Avg_SP")) Text("-", fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("LTP")) Text("-", fontWeight = FontWeight.Bold, width = cellWidth)
+                // FIXED First Column Totals
+                Text(
+                    text = "TOTAL SUMS",
+                    fontWeight = FontWeight.Bold,
+                    width = firstColWidth,
+                    marginStart = 12.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                // Scrollable totals
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(scrollState)
+                        .padding(vertical = 12.dp)
+                ) {
+                    if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.buyAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Buy_Count")) Text("${items.sumOf { it.buyCount }}", fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Buy_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.buyQty }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.saleAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Sale_Count")) Text("${items.sumOf { it.saleCount }}", fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Sale_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.saleQty }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.balanceQty }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    
+                    if (activeCols.contains("Avg_CP")) Text("-", fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Avg_SP")) Text("-", fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("LTP")) Text("-", fontWeight = FontWeight.Bold, width = cellWidth)
 
-                val sumNetInvest = items.sumOf { it.netInvest }
-                val sumEvaluation = items.sumOf { it.evaluation }
-                val sumRealized = items.sumOf { it.realizedGain }
-                val sumUnrealized = items.sumOf { it.unrealizedGain }
-                val sumDeductions = items.sumOf { it.deductions }
-                val sumNetGain = items.sumOf { it.netGain }
-                val sumBuyAmt = items.sumOf { it.buyAmount }
-                val overallGrowth = if (sumBuyAmt > 0.0) (sumNetGain / sumBuyAmt) * 100.0 else 0.0
+                    val sumNetInvest = items.sumOf { it.netInvest }
+                    val sumEvaluation = items.sumOf { it.evaluation }
+                    val sumRealized = items.sumOf { it.realizedGain }
+                    val sumUnrealized = items.sumOf { it.unrealizedGain }
+                    val sumDeductions = items.sumOf { it.deductions }
+                    val sumNetGain = items.sumOf { it.netGain }
+                    val sumBuyAmt = items.sumOf { it.buyAmount }
+                    val overallGrowth = if (sumBuyAmt > 0.0) (sumNetGain / sumBuyAmt) * 100.0 else 0.0
 
-                val sumReceivable = items.sumOf { it.receivableAmount }
-                val sumProfitAmt = items.sumOf { it.profitAmount }
-                val overallProfitPct = when {
-                    sumNetInvest > 0.0 -> (sumProfitAmt / sumNetInvest) * 100.0
-                    sumNetInvest == 0.0 && sumBuyAmt > 0.0 -> (sumProfitAmt / sumBuyAmt) * 100.0
-                    else -> 0.0
+                    val sumReceivable = items.sumOf { it.receivableAmount }
+                    val sumProfitAmt = items.sumOf { it.profitAmount }
+                    val overallProfitPct = when {
+                        sumNetInvest > 0.0 -> (sumProfitAmt / sumNetInvest) * 100.0
+                        sumNetInvest == 0.0 && sumBuyAmt > 0.0 -> (sumProfitAmt / sumBuyAmt) * 100.0
+                        else -> 0.0
+                    }
+
+                    if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", sumNetInvest), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Returns_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.returnsQty }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Returns_Cash")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.returnsCash }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", sumEvaluation), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", sumRealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumRealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", sumUnrealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumUnrealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", sumDeductions), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", sumNetGain), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumNetGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", overallGrowth), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallGrowth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", sumReceivable), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", sumProfitAmt), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumProfitAmt >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", overallProfitPct), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallProfitPct >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
                 }
-
-                if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", sumNetInvest), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Return_Qty")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.returnQty }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Return_Cash")) Text(String.format(Locale.US, "%,.2f", items.sumOf { it.returnCash }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", sumEvaluation), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", sumRealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumRealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", sumUnrealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumUnrealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", sumDeductions), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", sumNetGain), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumNetGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", overallGrowth), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallGrowth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", sumReceivable), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", sumProfitAmt), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumProfitAmt >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", overallProfitPct), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallProfitPct >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
             }
         }
     }
@@ -1338,6 +1408,7 @@ fun TypesMatrixTable(
 ) {
     val scrollState = rememberScrollState()
     val cellWidth = 110.dp
+    val firstColWidth = 115.dp
 
     Column(
         modifier = Modifier
@@ -1348,28 +1419,40 @@ fun TypesMatrixTable(
         // Headers Row
         Row(
             modifier = Modifier
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .horizontalScroll(scrollState)
                 .fillMaxWidth()
-                .padding(vertical = 12.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Type Category", fontWeight = FontWeight.Bold, width = cellWidth, marginStart = 12.dp)
-            if (activeCols.contains("Item_Count")) Text("Scrip Count", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Buy_Amount")) Text("Buy Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Sale_Amount")) Text("Sale Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Balance_Qty")) Text("Bal Qty", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Net_Invest")) Text("Net Invest ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Return_Qty")) Text("Return Qty", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Return_Cash")) Text("Return Cash ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Evaluation")) Text("Evaluation ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Realized_Gain")) Text("Realized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Unrealized_Gain")) Text("Unrealized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Deductions")) Text("Deductions ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Net_Gain")) Text("Net Gain ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Growth")) Text("Growth (%)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Receivable_Amount")) Text("Receivable ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Profit_Amount")) Text("Profit ($)", fontWeight = FontWeight.Bold, width = cellWidth)
-            if (activeCols.contains("Profit_Percent")) Text("Profit (%)", fontWeight = FontWeight.Bold, width = cellWidth)
+            // FIXED Category Header
+            Text(
+                text = "Type Category",
+                fontWeight = FontWeight.Bold,
+                width = firstColWidth,
+                marginStart = 12.dp
+            )
+            // Scrollable headers
+            Row(
+                modifier = Modifier
+                    .horizontalScroll(scrollState)
+                    .padding(vertical = 12.dp)
+            ) {
+                if (activeCols.contains("Item_Count")) Text("Scrip Count", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Buy_Amount")) Text("Buy Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Sale_Amount")) Text("Sale Amt ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Balance_Qty")) Text("Bal Qty", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Net_Invest")) Text("Net Invest ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Returns_Qty")) Text("Returns Qty", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Returns_Cash")) Text("Returns Cash ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Evaluation")) Text("Evaluation ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Realized_Gain")) Text("Realized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Unrealized_Gain")) Text("Unrealized ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Deductions")) Text("Deductions ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Net_Gain")) Text("Net Gain ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Growth")) Text("Growth (%)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Receivable_Amount")) Text("Receivable ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Profit_Amount")) Text("Profit ($)", fontWeight = FontWeight.Bold, width = cellWidth)
+                if (activeCols.contains("Profit_Percent")) Text("Profit (%)", fontWeight = FontWeight.Bold, width = cellWidth)
+            }
         }
 
         // Body rows listing
@@ -1382,79 +1465,109 @@ fun TypesMatrixTable(
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(types) { row ->
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.background)
-                                .horizontalScroll(scrollState)
-                                .padding(vertical = 10.dp)
+                            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(row.type, fontWeight = FontWeight.Bold, width = cellWidth, marginStart = 12.dp, color = MaterialTheme.colorScheme.primary)
-                            if (activeCols.contains("Item_Count")) Text("${row.itemCount}", width = cellWidth)
-                            if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", row.buyAmount), width = cellWidth)
-                            if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", row.saleAmount), width = cellWidth)
-                            if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", row.balanceQty), width = cellWidth)
-                            if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", row.netInvest), width = cellWidth)
-                            if (activeCols.contains("Return_Qty")) Text(String.format(Locale.US, "%,.2f", row.returnQty), width = cellWidth)
-                            if (activeCols.contains("Return_Cash")) Text(String.format(Locale.US, "%,.2f", row.returnCash), width = cellWidth)
-                            if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", row.evaluation), width = cellWidth)
-                            if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", row.realizedGain), width = cellWidth, color = if (row.realizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", row.unrealizedGain), width = cellWidth, color = if (row.unrealizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", row.deductions), width = cellWidth)
-                            if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", row.netGain), width = cellWidth, color = if (row.netGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", row.growth), width = cellWidth, color = if (row.growth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
-                            if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", row.receivableAmount), width = cellWidth)
-                            if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", row.profitAmount), width = cellWidth, color = if (row.profitAmount >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                            if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", row.profitPercent), width = cellWidth, color = if (row.profitPercent >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
+                            // FIXED Category Cell
+                            Surface(
+                                modifier = Modifier.width(firstColWidth),
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 1.dp
+                            ) {
+                                Text(
+                                    text = row.type,
+                                    fontWeight = FontWeight.Bold,
+                                    width = firstColWidth,
+                                    marginStart = 12.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            // Scrollable data cells
+                            Row(
+                                modifier = Modifier
+                                    .horizontalScroll(scrollState)
+                                    .padding(vertical = 10.dp)
+                            ) {
+                                if (activeCols.contains("Item_Count")) Text("${row.itemCount}", width = cellWidth)
+                                if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", row.buyAmount), width = cellWidth)
+                                if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", row.saleAmount), width = cellWidth)
+                                if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", row.balanceQty), width = cellWidth)
+                                if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", row.netInvest), width = cellWidth)
+                                if (activeCols.contains("Returns_Qty")) Text(String.format(Locale.US, "%,.2f", row.returnsQty), width = cellWidth)
+                                if (activeCols.contains("Returns_Cash")) Text(String.format(Locale.US, "%,.2f", row.returnsCash), width = cellWidth)
+                                if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", row.evaluation), width = cellWidth)
+                                if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", row.realizedGain), width = cellWidth, color = if (row.realizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", row.unrealizedGain), width = cellWidth, color = if (row.unrealizedGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", row.deductions), width = cellWidth)
+                                if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", row.netGain), width = cellWidth, color = if (row.netGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", row.growth), width = cellWidth, color = if (row.growth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
+                                if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", row.receivableAmount), width = cellWidth)
+                                if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", row.profitAmount), width = cellWidth, color = if (row.profitAmount >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                                if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", row.profitPercent), width = cellWidth, color = if (row.profitPercent >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B), fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Aggregate Bottom Row
+        // Aggregate Totals Row
         if (types.isNotEmpty()) {
             Row(
                 modifier = Modifier
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .horizontalScroll(scrollState)
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("TOTAL SUMS", fontWeight = FontWeight.Bold, width = cellWidth, marginStart = 12.dp, color = MaterialTheme.colorScheme.primary)
-                if (activeCols.contains("Item_Count")) Text("${types.sumOf { it.itemCount }}", fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.buyAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.saleAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.balanceQty }), fontWeight = FontWeight.Bold, width = cellWidth)
+                // FIXED Total Label
+                Text(
+                    text = "TOTAL SUMS",
+                    fontWeight = FontWeight.Bold,
+                    width = firstColWidth,
+                    marginStart = 12.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                // Scrollable totals
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(scrollState)
+                        .padding(vertical = 12.dp)
+                ) {
+                    if (activeCols.contains("Item_Count")) Text("${types.sumOf { it.itemCount }}", fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Buy_Amount")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.buyAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Sale_Amount")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.saleAmount }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Balance_Qty")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.balanceQty }), fontWeight = FontWeight.Bold, width = cellWidth)
 
-                val sumNetInvest = types.sumOf { it.netInvest }
-                val sumEvaluation = types.sumOf { it.evaluation }
-                val sumRealized = types.sumOf { it.realizedGain }
-                val sumUnrealized = types.sumOf { it.unrealizedGain }
-                val sumDeductions = types.sumOf { it.deductions }
-                val sumNetGain = types.sumOf { it.netGain }
-                val sumBuyAmt = types.sumOf { it.buyAmount }
-                val overallGrowth = if (sumBuyAmt > 0.0) (sumNetGain / sumBuyAmt) * 100.0 else 0.0
+                    val sumNetInvest = types.sumOf { it.netInvest }
+                    val sumEvaluation = types.sumOf { it.evaluation }
+                    val sumRealized = types.sumOf { it.realizedGain }
+                    val sumUnrealized = types.sumOf { it.unrealizedGain }
+                    val sumDeductions = types.sumOf { it.deductions }
+                    val sumNetGain = types.sumOf { it.netGain }
+                    val sumBuyAmt = types.sumOf { it.buyAmount }
+                    val overallGrowth = if (sumBuyAmt > 0.0) (sumNetGain / sumBuyAmt) * 100.0 else 0.0
 
-                val sumReceivable = types.sumOf { it.receivableAmount }
-                val sumProfitAmt = types.sumOf { it.profitAmount }
-                val overallProfitPct = when {
-                    sumNetInvest > 0.0 -> (sumProfitAmt / sumNetInvest) * 100.0
-                    sumNetInvest == 0.0 && sumBuyAmt > 0.0 -> (sumProfitAmt / sumBuyAmt) * 100.0
-                    else -> 0.0
+                    val sumReceivable = types.sumOf { it.receivableAmount }
+                    val sumProfitAmt = types.sumOf { it.profitAmount }
+                    val overallProfitPct = when {
+                        sumNetInvest > 0.0 -> (sumProfitAmt / sumNetInvest) * 100.0
+                        sumNetInvest == 0.0 && sumBuyAmt > 0.0 -> (sumProfitAmt / sumBuyAmt) * 100.0
+                        else -> 0.0
+                    }
+
+                    if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", sumNetInvest), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Returns_Qty")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.returnsQty }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Returns_Cash")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.returnsCash }), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", sumEvaluation), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", sumRealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumRealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", sumUnrealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumUnrealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", sumDeductions), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", sumNetGain), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumNetGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", overallGrowth), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallGrowth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", sumReceivable), fontWeight = FontWeight.Bold, width = cellWidth)
+                    if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", sumProfitAmt), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumProfitAmt >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
+                    if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", overallProfitPct), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallProfitPct >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
                 }
-
-                if (activeCols.contains("Net_Invest")) Text(String.format(Locale.US, "%,.2f", sumNetInvest), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Return_Qty")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.returnQty }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Return_Cash")) Text(String.format(Locale.US, "%,.2f", types.sumOf { it.returnCash }), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Evaluation")) Text(String.format(Locale.US, "%,.2f", sumEvaluation), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Realized_Gain")) Text(String.format(Locale.US, "%,.2f", sumRealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumRealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Unrealized_Gain")) Text(String.format(Locale.US, "%,.2f", sumUnrealized), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumUnrealized >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Deductions")) Text(String.format(Locale.US, "%,.2f", sumDeductions), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Net_Gain")) Text(String.format(Locale.US, "%,.2f", sumNetGain), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumNetGain >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Growth")) Text(String.format(Locale.US, "%+.2f%%", overallGrowth), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallGrowth >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Receivable_Amount")) Text(String.format(Locale.US, "%,.2f", sumReceivable), fontWeight = FontWeight.Bold, width = cellWidth)
-                if (activeCols.contains("Profit_Amount")) Text(String.format(Locale.US, "%,.2f", sumProfitAmt), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumProfitAmt >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
-                if (activeCols.contains("Profit_Percent")) Text(String.format(Locale.US, "%+.2f%%", overallProfitPct), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallProfitPct >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
             }
         }
     }
@@ -1494,13 +1607,13 @@ fun ColumnConfigurationDialog(
     val optionsAll = if (isItemTable) {
         listOf(
             "Buy_Amount", "Buy_Count", "Buy_Qty", "Sale_Amount", "Sale_Count", "Sale_Qty",
-            "Balance_Qty", "Avg_CP", "Avg_SP", "LTP", "Net_Invest", "Return_Qty", "Return_Cash",
+            "Balance_Qty", "Avg_CP", "Avg_SP", "LTP", "Net_Invest", "Returns_Qty", "Returns_Cash",
             "Evaluation", "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
             "Receivable_Amount", "Profit_Amount", "Profit_Percent"
         )
     } else {
         listOf(
-            "Item_Count", "Buy_Amount", "Sale_Amount", "Return_Qty", "Return_Cash", "Balance_Qty", "Net_Invest", "Evaluation",
+            "Item_Count", "Buy_Amount", "Sale_Amount", "Returns_Qty", "Returns_Cash", "Balance_Qty", "Net_Invest", "Evaluation",
             "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
             "Receivable_Amount", "Profit_Amount", "Profit_Percent"
         )
@@ -2130,7 +2243,7 @@ fun RowEntryForm(
                         expanded = expandedAction,
                         onDismissRequest = { expandedAction = false }
                     ) {
-                        listOf("Buy", "Sale", "Returns", "Bonus").forEach { act ->
+                        listOf("Buy", "Sale", "Returns").forEach { act ->
                             DropdownMenuItem(
                                 text = { Text(act) },
                                 onClick = {
@@ -2343,7 +2456,7 @@ fun EditTransactionDialog(
                             expanded = expandedAction,
                             onDismissRequest = { expandedAction = false }
                         ) {
-                            listOf("Buy", "Sale", "Returns", "Bonus").forEach { act ->
+                            listOf("Buy", "Sale", "Returns").forEach { act ->
                                 DropdownMenuItem(
                                     text = { Text(act) },
                                     onClick = {

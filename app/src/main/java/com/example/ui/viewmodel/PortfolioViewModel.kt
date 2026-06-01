@@ -72,7 +72,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     private val _itemColumns = MutableStateFlow(
         setOf(
             "Buy_Amount", "Buy_Count", "Buy_Qty", "Sale_Amount", "Sale_Count", "Sale_Qty",
-            "Balance_Qty", "Avg_CP", "Avg_SP", "LTP", "Net_Invest", "Return_Qty", "Return_Cash",
+            "Balance_Qty", "Avg_CP", "Avg_SP", "LTP", "Net_Invest", "Returns_Qty", "Returns_Cash",
             "Evaluation", "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
             "Receivable_Amount", "Profit_Amount", "Profit_Percent",
         )
@@ -81,7 +81,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     private val _typeColumns = MutableStateFlow(
         setOf(
-            "Item_Count", "Buy_Amount", "Sale_Amount", "Return_Qty", "Return_Cash", "Balance_Qty", "Net_Invest", "Evaluation",
+            "Item_Count", "Buy_Amount", "Sale_Amount", "Returns_Qty", "Returns_Cash", "Balance_Qty", "Net_Invest", "Evaluation",
             "Realized_Gain", "Unrealized_Gain", "Deductions", "Net_Gain", "Growth",
             "Receivable_Amount", "Profit_Amount", "Profit_Percent",
         )
