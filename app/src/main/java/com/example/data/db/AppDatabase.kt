@@ -10,9 +10,10 @@ import androidx.room.RoomDatabase
         TransactionRecord::class,
         ExternalLtp::class,
         UserEntity::class,
-        SectorMapping::class
+        SectorMapping::class,
+        ScripMaster::class
     ],
-    version = 3,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

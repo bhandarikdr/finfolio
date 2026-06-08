@@ -268,7 +268,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             _isLoading.value = true
             val result = repository.importMeroshareCsv(csvText.byteInputStream())
             result.onSuccess { count ->
-                _snackbarMessage.emit("Successfully imported $count Portfolio scrips, updated LTP, and synced flag")
+                _snackbarMessage.emit("Sync Complete: $count scrips updated. Adjustment records added to match actual holdings. Please review amounts in History.")
             }.onFailure { err ->
                 _snackbarMessage.emit("Portfolio Data Error: ${err.message}")
             }

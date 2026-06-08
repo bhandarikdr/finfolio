@@ -78,4 +78,23 @@ interface PortfolioDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSectorMappings(mappings: List<SectorMapping>)
+
+    // --- SCRIP MASTER & WISHLIST ---
+    @Query("SELECT * FROM ScripMaster ORDER BY symbol ASC")
+    fun getAllScripMaster(): Flow<List<ScripMaster>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertScripMaster(scrips: List<ScripMaster>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertScripMasterSingle(scrip: ScripMaster)
+
+    @Query("UPDATE ScripMaster SET isWishlisted = :isWishlisted WHERE symbol = :symbol")
+    suspend fun updateWishlistStatus(symbol: String, isWishlisted: Boolean)
+
+    @Query("SELECT * FROM ScripMaster WHERE isWishlisted = 1")
+    fun getWishlistedScrips(): Flow<List<ScripMaster>>
+
+    @Query("SELECT sector FROM ScripMaster WHERE symbol = :symbol LIMIT 1")
+    suspend fun getSectorFromMaster(symbol: String): String?
 }

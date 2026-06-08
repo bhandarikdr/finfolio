@@ -23,7 +23,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FactCheck
+import androidx.compose.material.icons.automirrored.filled.HelpCenter
 import androidx.compose.material.icons.automirrored.filled.Input
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Message
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.automirrored.outlined.Input
@@ -35,6 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -58,14 +67,18 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.data.db.AppDatabase
 import com.example.data.db.TransactionRecord
+import com.example.data.db.ScripMaster
 import com.example.data.model.ItemMetrics
 import com.example.data.model.TypeMetrics
 import com.example.data.repository.PortfolioRepository
+import com.example.data.repository.MarketRepository
 import com.example.data.work.ScrapeWorker
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.DatasetScope
 import com.example.ui.viewmodel.PortfolioViewModel
 import com.example.ui.viewmodel.PortfolioViewModelFactory
+import com.example.ui.viewmodel.MarketViewModel
+import com.example.ui.viewmodel.MarketViewModelFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -148,10 +161,7 @@ fun NepsePillBadge(status: com.example.data.model.NepseStatus) {
                         color = baseColor
                     )
                 }
-            }
-        }
-    }
-}
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -175,31 +185,42 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 val database = remember { AppDatabase.getDatabase(context) }
                 val repository = remember { PortfolioRepository(database.portfolioDao()) }
+                val marketRepository = remember { com.example.data.repository.MarketRepository(database.portfolioDao()) }
+                
                 val factory = remember { PortfolioViewModelFactory(repository) }
                 val viewModel: PortfolioViewModel = viewModel(factory = factory)
+                
+                val marketFactory = remember { com.example.ui.viewmodel.MarketViewModelFactory(marketRepository) }
+                val marketViewModel: com.example.ui.viewmodel.MarketViewModel = viewModel(factory = marketFactory)
+
+                val ipoRepository = remember { com.example.data.repository.IpoRepository() }
+                val ipoFactory = remember { com.example.ui.viewmodel.BulkIpoViewModelFactory(ipoRepository) }
+                val ipoViewModel: com.example.ui.viewmodel.BulkIpoViewModel = viewModel(factory = ipoFactory)
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    PortfolioAppContent(viewModel)
+                    PortfolioAppContent(viewModel, marketViewModel, ipoViewModel)
                 }
-            }
-        }
-    }
-}
+
 
 enum class NavigationTab {
     DASHBOARD,
     MATRIX,
-    DATA
+    DATA,
+    MORE
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PortfolioAppContent(viewModel: PortfolioViewModel) {
+fun PortfolioAppContent(
+    viewModel: PortfolioViewModel,
+    marketViewModel: MarketViewModel,
+    ipoViewModel: com.example.ui.viewmodel.BulkIpoViewModel
+) {
     val context = LocalContext.current
-    val tabs = listOf(NavigationTab.DASHBOARD, NavigationTab.MATRIX, NavigationTab.DATA)
+    val tabs = listOf(NavigationTab.DASHBOARD, NavigationTab.MATRIX, NavigationTab.DATA, NavigationTab.MORE)
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
     
@@ -207,13 +228,22 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel) {
     val nepseStatus by viewModel.nepseStatus.collectAsStateWithLifecycle()
     val pendingTypeUpdate by viewModel.pendingTypeUpdate.collectAsStateWithLifecycle()
     var showRegistration by remember { mutableStateOf(false) }
-    var showDevPanel by remember { mutableStateOf(false) }
+    
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    val activeTab = tabs[pagerState.currentPage]
+    LaunchedEffect(activeTab) {
+        if (activeTab == NavigationTab.MORE) { // More screen contains Market data
+             marketViewModel.refreshMarketData()
+        }
+    }
 
     LaunchedEffect(userProfile) {
         if (userProfile != null && userProfile!!.name.isEmpty()) {
             showRegistration = true
         }
     }
+
     
     // SnackBar notification observer
     val snackbarHostState = remember { SnackbarHostState() }
@@ -222,6 +252,7 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel) {
             snackbarHostState.showSnackbar(msg)
         }
     }
+
 
     if (pendingTypeUpdate != null) {
         AlertDialog(
@@ -241,147 +272,173 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel) {
         )
     }
 
-    Scaffold(
-        topBar = {
-            Column {
-                TopAppBar(
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { showDevPanel = !showDevPanel }
-                        ) {
-                            Box(
-                                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp))
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_launcher_background),
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                                    contentDescription = "App Logo",
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "FinFolio Pro",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 18.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "EXECUTIVE ANALYTICS",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            // Live NEPSE Index Info
-                            if (nepseStatus.index != "0.00") {
-                                NepsePillBadge(nepseStatus)
-                            }
-                        }
-                    },
-                    actions = {
-                        val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp).padding(end = 12.dp),
-                                strokeWidth = 2.dp
-                            )
-                        }
-                        IconButton(
-                            onClick = { viewModel.refreshLivePrices() },
-                            modifier = Modifier.testTag("refresh_live_prices_btn")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Refresh Live Prices"
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-                
-                AnimatedVisibility(
-                    visible = showDevPanel,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(
+                    modifier = Modifier.fillMaxWidth(0.85f),
+                    drawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
+                    drawerContainerColor = MaterialTheme.colorScheme.surface
                 ) {
-                    DeveloperProfilePanel(
-                        userName = userProfile?.name ?: "",
-                        userEmail = userProfile?.email ?: "",
-                        onClose = { showDevPanel = false }
+                    GlobalProfileDrawer(
+                        userProfile = userProfile,
+                        onNavigateToSupport = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(3)
+                                drawerState.close()
+                            }
+                        },
+                        onClose = { coroutineScope.launch { drawerState.close() } }
                     )
                 }
             }
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                windowInsets = WindowInsets.navigationBars
-            ) {
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 0,
-                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
-                    label = { Text("Dashboard") },
-                    icon = {
-                        Icon(
-                            imageVector = if (pagerState.currentPage == 0) Icons.Filled.Dashboard else Icons.Outlined.Dashboard,
-                            contentDescription = "Dashboard"
+        ) {
+            Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { coroutineScope.launch { drawerState.open() } }
+                                ) {
+                                    Box(
+                                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp))
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = R.drawable.ic_launcher_background),
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                        Image(
+                                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                                            contentDescription = "App Logo",
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        androidx.compose.material3.Text(
+                                            text = "FinFolio Pro",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 18.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        androidx.compose.material3.Text(
+                                            text = "EXECUTIVE ANALYTICS",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            },
+                            actions = {
+                                val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+                                
+                                // Live NEPSE Index Info
+                                if (nepseStatus.index != "0.00") {
+                                    NepsePillBadge(nepseStatus)
+                                }
+
+                                IconButton(onClick = { 
+                                    viewModel.refreshLivePrices()
+                                    marketViewModel.refreshMarketData()
+                                }) {
+                                    if (isLoading) {
+                                        CircularProgressIndicator(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Update LTP",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
                         )
+                    },
+                    bottomBar = {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            windowInsets = WindowInsets.navigationBars
+                        ) {
+                            NavigationBarItem(
+                                selected = pagerState.currentPage == 0,
+                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
+                                label = { androidx.compose.material3.Text("Dashboard") },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (pagerState.currentPage == 0) Icons.Filled.Dashboard else Icons.Outlined.Dashboard,
+                                        contentDescription = "Dashboard"
+                                    )
+                                }
+                            )
+                            NavigationBarItem(
+                                selected = pagerState.currentPage == 1,
+                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
+                                label = { androidx.compose.material3.Text("Matrices") },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (pagerState.currentPage == 1) Icons.Filled.TableChart else Icons.Outlined.TableChart,
+                                        contentDescription = "Matrices"
+                                    )
+                                }
+                            )
+                            NavigationBarItem(
+                                selected = pagerState.currentPage == 2,
+                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
+                                label = { androidx.compose.material3.Text("Data & CSV") },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (pagerState.currentPage == 2) Icons.AutoMirrored.Filled.Input else Icons.AutoMirrored.Outlined.Input,
+                                        contentDescription = "Data"
+                                    )
+                                }
+                            )
+                            NavigationBarItem(
+                                selected = pagerState.currentPage == 3,
+                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(3) } },
+                                label = { androidx.compose.material3.Text("More") },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (pagerState.currentPage == 3) Icons.Filled.MoreHoriz else Icons.Outlined.MoreHoriz,
+                                        contentDescription = "More"
+                                    )
+                                }
+                            )
+                        }
+                    },
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    contentWindowInsets = WindowInsets.safeDrawing
+                ) { innerPadding ->
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .background(MaterialTheme.colorScheme.background),
+                        beyondViewportPageCount = 1,
+                        userScrollEnabled = true
+                    ) { page ->
+                        when (tabs[page]) {
+                            NavigationTab.DASHBOARD -> DashboardScreen(viewModel)
+                            NavigationTab.MATRIX -> MatrixScreen(viewModel)
+                            NavigationTab.DATA -> DataScreen(viewModel)
+                            NavigationTab.MORE -> MoreScreen(marketViewModel, viewModel, ipoViewModel)
+                        }
                     }
-                )
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 1,
-                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
-                    label = { Text("Matrices") },
-                    icon = {
-                        Icon(
-                            imageVector = if (pagerState.currentPage == 1) Icons.Filled.TableChart else Icons.Outlined.TableChart,
-                            contentDescription = "Matrices"
-                        )
-                    }
-                )
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 2,
-                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
-                    label = { Text("Data & CSV") },
-                    icon = {
-                        Icon(
-                            imageVector = if (pagerState.currentPage == 2) Icons.AutoMirrored.Filled.Input else Icons.AutoMirrored.Outlined.Input,
-                            contentDescription = "Data"
-                        )
-                    }
-                )
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        contentWindowInsets = WindowInsets.safeDrawing
-    ) { innerPadding ->
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background),
-            beyondViewportPageCount = 1
-        ) { page ->
-            when (tabs[page]) {
-                NavigationTab.DASHBOARD -> DashboardScreen(viewModel)
-                NavigationTab.MATRIX -> MatrixScreen(viewModel)
-                NavigationTab.DATA -> DataScreen(viewModel)
+                }
             }
         }
-    }
 
     if (showRegistration) {
         RegistrationDialog(
@@ -455,78 +512,132 @@ fun DeveloperProfilePanel(
 ) {
     val context = LocalContext.current
     var customMessage by remember { mutableStateOf("") }
+    var subject by remember { mutableStateOf("") }
 
-    Card(
+    // Top-aligned layout using Column and verticalScroll
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .verticalScroll(rememberScrollState())
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Hi ${userName.split(" ").firstOrNull() ?: "there"}!",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+        // Professional Header Section
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surface)
+                    )
                 )
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                .padding(24.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(80.dp),
+                    shadowElevation = 8.dp
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SupportAgent,
+                        contentDescription = null,
+                        modifier = Modifier.padding(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "Kedar Bhandari",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "Lead Developer • FinFolio Pro",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(
+                        onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/bkedarnp"))) },
+                        label = { Text("GitHub") },
+                        leadingIcon = { Icon(Icons.Default.Code, null, Modifier.size(16.dp)) }
+                    )
+                    AssistChip(
+                        onClick = { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:bkedarnp@gmail.com"))) },
+                        label = { Text("Email") },
+                        leadingIcon = { Icon(Icons.Default.AlternateEmail, null, Modifier.size(16.dp)) }
+                    )
                 }
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
+        }
+
+        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
             Text(
-                text = "Developer: Kedar Bhandari",
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                text = "Direct Support",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Email: bkedarnp@gmail.com",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                text = "We typically respond within 24 hours.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            OutlinedTextField(
+                value = subject,
+                onValueChange = { subject = it },
+                label = { Text("Subject") },
+                placeholder = { Text("What is this regarding?") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Topic, null, Modifier.size(20.dp)) }
+            )
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             OutlinedTextField(
                 value = customMessage,
                 onValueChange = { customMessage = it },
-                label = { Text("Message to Developer") },
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.White.copy(alpha = 0.5f),
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.3f)
-                )
+                label = { Text("Message") },
+                placeholder = { Text("Please describe your issue in detail...") },
+                modifier = Modifier.fillMaxWidth().height(180.dp),
+                shape = RoundedCornerShape(12.dp),
+                leadingIcon = { Box(Modifier.fillMaxHeight().padding(top = 12.dp, start = 12.dp)) { Icon(Icons.AutoMirrored.Filled.Message, null, Modifier.size(20.dp)) } }
             )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Button(
                 onClick = {
                     val intent = Intent(Intent.ACTION_SENDTO).apply {
                         data = Uri.parse("mailto:")
                         putExtra(Intent.EXTRA_EMAIL, arrayOf("bkedarnp@gmail.com"))
-                        putExtra(Intent.EXTRA_SUBJECT, "FinFolio Inquiry from $userName")
-                        val body = "User: $userName\nUser Email: $userEmail\n\nMessage:\n$customMessage"
+                        putExtra(Intent.EXTRA_SUBJECT, "[FinFolio Support] $subject")
+                        val body = "User: $userName ($userEmail)\n\nMessage:\n$customMessage\n\n---\nSystem: Android ${android.os.Build.VERSION.RELEASE}"
                         putExtra(Intent.EXTRA_TEXT, body)
                     }
-                    context.startActivity(Intent.createChooser(intent, "Send Email"))
+                    context.startActivity(Intent.createChooser(intent, "Choose Email Client"))
                 },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                enabled = customMessage.isNotBlank() && subject.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(Icons.Default.Email, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Contact Developer")
+                Icon(Icons.AutoMirrored.Filled.Send, null)
+                Spacer(Modifier.width(12.dp))
+                Text("Submit Request", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
+            
+            Spacer(modifier = Modifier.height(40.dp)) // Padding for keyboard
         }
     }
 }
@@ -642,10 +753,7 @@ fun ExecutiveScopeSelector(
                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-        }
-    }
-}
+
 
 @Composable
 fun ValuationSummaryCard(
@@ -781,10 +889,7 @@ fun ValuationSummaryCard(
                         )
                     }
                 }
-            }
-        }
-    }
-}
+
 
 @Composable
 fun SectorAllocationCard(
@@ -935,10 +1040,7 @@ fun SectorAllocationCard(
                         }
                     }
                 }
-            }
-        }
-    }
-}
+
 
 @Composable
 fun TopPerformersSection(itemMetrics: List<ItemMetrics>) {
@@ -1042,10 +1144,7 @@ fun TopPerformersSection(itemMetrics: List<ItemMetrics>) {
                         }
                     }
                 }
-            }
-        }
-    }
-}
+
 
 
 // ==========================================
@@ -1216,6 +1315,7 @@ fun MatrixScreen(viewModel: PortfolioViewModel) {
             }
         }
     }
+
 
     if (showConfigDialog) {
         ColumnConfigurationDialog(
@@ -1415,10 +1515,7 @@ fun ItemMatrixTable(
                     if (activeCols.contains("Profit_Amount")) MatrixCellText(String.format(Locale.US, "%,.2f", sumProfitAmt), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumProfitAmt >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
                     if (activeCols.contains("Profit_Percent")) MatrixCellText(String.format(Locale.US, "%+.2f%%", overallProfitPct), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallProfitPct >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
                 }
-            }
-        }
-    }
-}
+
 
 @Composable
 fun TypesMatrixTable(
@@ -1587,10 +1684,7 @@ fun TypesMatrixTable(
                     if (activeCols.contains("Profit_Amount")) MatrixCellText(String.format(Locale.US, "%,.2f", sumProfitAmt), fontWeight = FontWeight.Bold, width = cellWidth, color = if (sumProfitAmt >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
                     if (activeCols.contains("Profit_Percent")) MatrixCellText(String.format(Locale.US, "%+.2f%%", overallProfitPct), fontWeight = FontWeight.Bold, width = cellWidth, color = if (overallProfitPct >= 0.0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B))
                 }
-            }
-        }
-    }
-}
+
 
 // Compact helper to render table items alignment
 @Composable
@@ -1695,14 +1789,949 @@ fun ColumnConfigurationDialog(
                         Text("Save & Close", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
+
+
+
+// ==========================================
+// 3. MARKET INTELLIGENCE HUB
+// ==========================================
+
+@Composable
+fun MarketScreen(
+    marketViewModel: com.example.ui.viewmodel.MarketViewModel,
+    portfolioViewModel: PortfolioViewModel
+) {
+    val indices by marketViewModel.filteredIndices.collectAsStateWithLifecycle()
+    val priceChanges by marketViewModel.priceChanges.collectAsStateWithLifecycle()
+    val isLoading by marketViewModel.isLoading.collectAsStateWithLifecycle()
+    val wishlisted by marketViewModel.wishlistedScrips.collectAsStateWithLifecycle()
+    val portfolioItems by portfolioViewModel.itemMetrics.collectAsStateWithLifecycle()
+    
+    val portfolioSymbols = remember(portfolioItems) { portfolioItems.map { it.item.uppercase() }.toSet() }
+    val wishlistSymbols = remember(wishlisted) { wishlisted.map { it.symbol.uppercase() }.toSet() }
+
+    var showSearchDialog by remember { mutableStateOf(false) }
+    var showIndicesConfig by remember { mutableStateOf(false) }
+    var indicesExpanded by remember { mutableStateOf(true) }
+    var holdingsExpanded by remember { mutableStateOf(true) }
+    var wishlistExpanded by remember { mutableStateOf(true) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("NEPSE Market Pulse", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    Text("Live indices and personalized watchlist", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Row {
+                    IconButton(onClick = { showIndicesConfig = true }) {
+                        Icon(Icons.Default.Settings, "Configure Indices")
+                    }
+                    IconButton(onClick = { 
+                        marketViewModel.refreshMarketData()
+                        portfolioViewModel.refreshLivePrices()
+                    }) {
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Refresh, "Refresh")
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. NEPSE Indices Section
+        item {
+            ExpandableMarketSection(
+                title = "Nepal Stock Market Indices",
+                count = indices.size,
+                isExpanded = indicesExpanded,
+                onToggle = { indicesExpanded = !indicesExpanded },
+                accentColor = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        if (indicesExpanded) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        // Column Headers
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Index Name", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1.3f))
+                            Text("Previous", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                            Text("Current", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                            Text("Change", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.9f), textAlign = TextAlign.End)
+                        }
+                        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        
+                        if (indices.isEmpty() && isLoading) {
+                            Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            }
+                        } else if (indices.isEmpty()) {
+                            Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                                Text("No index data available. Try refreshing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                        } else {
+                            indices.forEach { idx ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        idx.index, 
+                                        fontSize = 11.sp, 
+                                        fontWeight = if (idx.index.contains("NEPSE")) FontWeight.ExtraBold else FontWeight.Medium,
+                                        modifier = Modifier.weight(1.3f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        String.format(Locale.US, "%,.2f", idx.previousValue), 
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.weight(1f),
+                                        textAlign = TextAlign.End,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        String.format(Locale.US, "%,.2f", idx.value), 
+                                        fontWeight = FontWeight.Bold, 
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.weight(1f),
+                                        textAlign = TextAlign.End
+                                    )
+                                    val color = if (idx.percentChange >= 0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B)
+                                    Text(
+                                        String.format(Locale.US, "%+.2f%%", idx.percentChange),
+                                        color = color,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(0.9f),
+                                        textAlign = TextAlign.End
+                                    )
+                                }
+                                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val holdingMovers = priceChanges.filter { it.symbol in portfolioSymbols }
+        val wishlistMovers = priceChanges.filter { it.symbol in wishlistSymbols && it.symbol !in portfolioSymbols }
+
+        // 2. Holdings Section
+        item {
+            ExpandableMarketSection(
+                title = "My Holdings",
+                count = holdingMovers.size,
+                isExpanded = holdingsExpanded,
+                onToggle = { holdingsExpanded = !holdingsExpanded },
+                accentColor = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        if (holdingsExpanded) {
+            if (holdingMovers.isEmpty()) {
+                item {
+                    Text("No holdings found in live data", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 16.dp))
+                }
+            } else {
+                items(holdingMovers) { mover ->
+                    MoverCard(mover, isHolding = true)
+                }
+            }
+        }
+
+        // 3. Wishlist Section
+        item {
+            ExpandableMarketSection(
+                title = "My Wishlist",
+                count = wishlistMovers.size,
+                isExpanded = wishlistExpanded,
+                onToggle = { wishlistExpanded = !wishlistExpanded },
+                accentColor = MaterialTheme.colorScheme.secondary,
+                action = {
+                    TextButton(onClick = { showSearchDialog = true }, contentPadding = PaddingValues(0.dp)) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add")
+                    }
+                }
+            )
+        }
+
+        if (wishlistExpanded) {
+            if (wishlistMovers.isEmpty()) {
+                item {
+                    Text("No wishlisted scrips found in live data", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 16.dp))
+                }
+            } else {
+                items(wishlistMovers) { mover ->
+                    MoverCard(mover, isHolding = false)
+                }
+            }
+        }
+    }
+
+    if (showSearchDialog) {
+        val allScrips by marketViewModel.allScrips.collectAsStateWithLifecycle(emptyList())
+        ScripSearchDialog(
+            allScrips = allScrips,
+            onToggleWishlist = { scrip ->
+                marketViewModel.updateWishlist(scrip.copy(isWishlisted = !scrip.isWishlisted))
+            },
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+    if (showIndicesConfig) {
+        IndicesConfigDialog(
+            allIndices = marketViewModel.indices.collectAsStateWithLifecycle(emptyList()).value,
+            visibleIndices = marketViewModel.visibleIndices.collectAsStateWithLifecycle(emptySet()).value,
+            onToggle = { marketViewModel.toggleIndexVisibility(it) },
+            onDismiss = { showIndicesConfig = false }
+        )
+    }
+}
+
+
+
+
+@Composable
+fun MoverCard(mover: com.example.data.repository.ScripPriceChange, isHolding: Boolean) {
+    val pltp = mover.previousLtp
+    val ultp = mover.ltp
+    val diff = ultp - pltp
+    val actualChangePercent = if (pltp > 0.0) (diff / pltp) * 100.0 else 0.0
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(mover.symbol, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    if (isHolding) {
+                        Spacer(Modifier.width(8.dp))
+                        Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                            Text("Holding", fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                Text("Previous LTP: ${String.format(Locale.US, "%,.2f", pltp)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Updated LTP: ${String.format(Locale.US, "%,.2f", ultp)}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            }
+            
+            Column(horizontalAlignment = Alignment.End) {
+                val color = if (diff >= 0) Color(0xFF2ECE7B) else Color(0xFFEB4D4B)
+                Text(
+                    String.format(Locale.US, "%+.2f", diff),
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    String.format(Locale.US, "%+.2f%%", actualChangePercent),
+                    color = color,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        }
+        }
+    }
+
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+            onDismiss = { showIndicesConfig = false }
+        )
+    }
+}
+
+
+@Composable
+fun ScripSearchDialog(
+    allScrips: List<com.example.data.db.ScripMaster>,
+    onToggleWishlist: (com.example.data.db.ScripMaster) -> Unit,
+    onManualAdd: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filtered = remember(searchQuery, allScrips) {
+        if (searchQuery.isBlank()) allScrips.take(20)
+        else allScrips.filter { it.symbol.contains(searchQuery, ignoreCase = true) || it.name.contains(searchQuery, ignoreCase = true) }.take(50)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.8f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Search Scrips", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Symbol or Name...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, null) }
+                )
+                Spacer(Modifier.height(12.dp))
+                
+                if (searchQuery.isNotEmpty() && !allScrips.any { it.symbol.equals(searchQuery, ignoreCase = true) }) {
+                    Button(
+                        onClick = { 
+                            onManualAdd(searchQuery)
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                    ) {
+                        Icon(Icons.Default.Add, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Add '${searchQuery.uppercase()}' manually")
+                    }
+                }
+
+                LazyColumn(Modifier.weight(1f)) {
+                    items(filtered) { scrip ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(scrip.symbol, fontWeight = FontWeight.Bold)
+                                Text(scrip.name, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(scrip.sector, fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+                            }
+                            IconButton(onClick = { onToggleWishlist(scrip) }) {
+                                Icon(
+                                    imageVector = if (scrip.isWishlisted) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = null,
+                                    tint = if (scrip.isWishlisted) Color.Red else MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                    Text("Close")
+                }
+            }
+        }
+        }
+        }
+    }
+
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+            onDismiss = { showIndicesConfig = false }
+        )
+    }
+}
+
+
+@Composable
+fun GlobalProfileDrawer(
+    userProfile: com.example.data.model.UserProfile?,
+    onNavigateToSupport: () -> Unit,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        // 1. User Profile Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                .padding(top = 48.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)
+        ) {
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .padding(2.dp)
+                    ) {
+                        Image(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White)
+                        )
+                    }
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.Close, "Close")
+                    }
+                }
+                
+                Spacer(Modifier.height(16.dp))
+                
+                Text(
+                    text = userProfile?.name ?: "Guest User",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = userProfile?.email ?: "Sign in to sync data",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // 2. Account Section
+        DrawerSectionHeader("Account")
+        DrawerItem(Icons.Default.Person, "My Profile") { /* Nav to profile */ }
+        DrawerItem(Icons.Default.Settings, "Profile Settings")
+        DrawerItem(Icons.Default.CardMembership, "Subscription Plan")
+        DrawerItem(Icons.Default.Lock, "Change Password")
+        DrawerItem(Icons.Default.Notifications, "Notification Settings")
+        DrawerItem(Icons.Default.Fingerprint, "Biometric Lock")
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp), thickness = 0.5.dp)
+
+        // 3. Application Section
+        DrawerSectionHeader("Application")
+        DrawerItem(Icons.Default.Palette, "Theme Settings")
+        DrawerItem(Icons.Default.Language, "Language")
+        DrawerItem(Icons.Default.CalendarToday, "Date Format")
+        DrawerItem(Icons.AutoMirrored.Filled.HelpCenter, "Help & Support") {
+            onNavigateToSupport()
+        }
+        DrawerItem(Icons.Default.Policy, "Terms & Policies")
+        DrawerItem(Icons.Default.Info, "About App")
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp), thickness = 0.5.dp)
+
+        // 4. Security Section
+        DrawerSectionHeader("Security")
+        DrawerItem(Icons.Default.Devices, "Device Sessions")
+        DrawerItem(Icons.AutoMirrored.Filled.Logout, "Logout", tint = MaterialTheme.colorScheme.error) {
+            // Confirm logout
+        }
+
+        Spacer(Modifier.weight(1f))
+        
+        Text(
+            text = "Version 2.4.0",
+            modifier = Modifier.padding(24.dp).align(Alignment.CenterHorizontally),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+    }
+}
+
+@Composable
+fun DrawerSectionHeader(title: String) {
+    Text(
+        text = title,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary
+    )
+}
+
+@Composable
+fun DrawerItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit = {}
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = tint.copy(alpha = 0.7f), modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(16.dp))
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = tint)
+        }
+    }
+}
+
+// ==========================================
+// 4. THE "MORE" UTILITY HUB
+// ==========================================
+
+@Composable
+@Composable
+fun MoreScreen(
+    marketViewModel: MarketViewModel,
+    portfolioViewModel: PortfolioViewModel,
+    ipoViewModel: com.example.ui.viewmodel.BulkIpoViewModel
+) {
+    var currentSubView by remember { mutableStateOf<String?>(null) }
+    val userProfile by portfolioViewModel.userProfile.collectAsStateWithLifecycle()
+
+    if (currentSubView == "Market") {
+        Column {
+            TextButton(
+                onClick = { currentSubView = null },
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Back to More", fontWeight = FontWeight.Bold)
+            }
+            MarketScreen(marketViewModel, portfolioViewModel)
+        }
+    } else if (currentSubView == "BulkCheck") {
+        BulkIpoCheckScreen(ipoViewModel) { currentSubView = null }
+    } else if (currentSubView == "Contact") {
+        Column {
+            TextButton(
+                onClick = { currentSubView = null },
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Back to Support", fontWeight = FontWeight.Bold)
+            }
+            
+            DeveloperProfilePanel(
+                userName = userProfile?.name ?: "Valued User",
+                userEmail = userProfile?.email ?: "",
+                onClose = { currentSubView = null }
+            )
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            item {
+                Text("More Features", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            }
+
+            // Meroshare Services
+            item {
+                MoreSection("Meroshare Services") {
+                    MoreGrid(
+                        { MoreCard("Markets", Icons.AutoMirrored.Filled.TrendingUp, Color(0xFF10B981)) { currentSubView = "Market" } },
+                        { MoreCard("Current Issues", Icons.Default.EventAvailable, Color(0xFF3B82F6)) },
+                        { MoreCard("Upcoming Issues", Icons.Default.Upcoming, Color(0xFFF59E0B)) },
+                        { MoreCard("IPO Status", Icons.Default.AssignmentInd, Color(0xFF8B5CF6)) },
+                        { MoreCard("Bulk Apply", Icons.Default.GroupAdd, Color(0xFFEC4899)) },
+                        { MoreCard("Bulk Check", Icons.AutoMirrored.Filled.FactCheck, Color(0xFFEF4444)) { currentSubView = "BulkCheck" } }
+                    )
+                }
+            }
+
+            // Utilities
+            item {
+                MoreSection("Utilities") {
+                    MoreGrid(
+                        { MoreCard("Date Converter", Icons.Default.CalendarMonth, Color(0xFF6366F1)) },
+                        { MoreCard("EMI Calculator", Icons.Default.Calculate, Color(0xFF14B8A6)) },
+                        { MoreCard("Broker List", Icons.Default.Business, Color(0xFFF43F5E)) },
+                        { MoreCard("Meroshare Web", Icons.Default.Web, Color(0xFF0EA5E9)) }
+                    )
+                }
+            }
+
+            // Support
+            item {
+                MoreSection("Support") {
+                    MoreGrid(
+                        { MoreCard("Help Center", Icons.Default.SupportAgent, Color(0xFF71717A)) },
+                        { MoreCard("Report Issue", Icons.Default.BugReport, Color(0xFF71717A)) { currentSubView = "Contact" } },
+                        { MoreCard("Policies", Icons.Default.Gavel, Color(0xFF71717A)) }
+                    )
+                }
             }
         }
     }
 }
 
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+            onDismiss = { showIndicesConfig = false }
+        )
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BulkIpoCheckScreen(viewModel: com.example.ui.viewmodel.BulkIpoViewModel, onBack: () -> Unit) {
+    val companies by viewModel.companies.collectAsStateWithLifecycle()
+    val selectedCompany by viewModel.selectedCompany.collectAsStateWithLifecycle()
+    val boids by viewModel.boids.collectAsStateWithLifecycle()
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val isChecking by viewModel.isChecking.collectAsStateWithLifecycle()
+
+    var showAddBoidDialog by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            Text("Bulk IPO Checker", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Company Selector
+        Text("Select Company", fontWeight = FontWeight.Bold)
+        var expanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded }
+        ) {
+            OutlinedTextField(
+                value = selectedCompany?.name ?: "Select a company",
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                shape = RoundedCornerShape(12.dp)
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                companies.forEach { company ->
+                    DropdownMenuItem(
+                        text = { Text(company.name) },
+                        onClick = {
+                            viewModel.selectCompany(company)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("BOIDs (${boids.size})", fontWeight = FontWeight.Bold)
+            Button(onClick = { showAddBoidDialog = true }, shape = RoundedCornerShape(8.dp)) {
+                Icon(Icons.Default.Add, null)
+                Spacer(Modifier.width(4.dp))
+                Text("Add BOID")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            items(if (results.isNotEmpty()) results.size else boids.size) { index ->
+                if (results.isNotEmpty()) {
+                    val result = results[index]
+                    IpoResultItem(result)
+                } else {
+                    val boid = boids[index]
+                    BoidItem(boid, onRemove = { viewModel.removeBoid(boid) })
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = { viewModel.startBulkCheck() },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            enabled = !isChecking && boids.isNotEmpty() && selectedCompany != null,
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            if (isChecking) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp))
+                Text("Checking...")
+            } else {
+                Text("Start Bulk Check", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+    }
+
+    if (showAddBoidDialog) {
+        AddBoidDialog(
+            onAdd = { name, boid ->
+                viewModel.addBoid(name, boid)
+                showAddBoidDialog = false
+            },
+            onDismiss = { showAddBoidDialog = false }
+        )
+    }
+}
+
+@Composable
+fun BoidItem(boid: com.example.data.model.BoidEntry, onRemove: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(boid.name, fontWeight = FontWeight.Bold)
+                Text(boid.boid, style = MaterialTheme.typography.bodySmall)
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+fun IpoResultItem(result: com.example.data.model.BulkIpoResult) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                result.result?.success == true -> Color(0xFFE8F5E9)
+                result.result?.success == false -> Color(0xFFFFEBEE)
+                else -> MaterialTheme.colorScheme.surface
+            }
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(result.boidEntry.name, fontWeight = FontWeight.Bold)
+                Text(result.boidEntry.boid, style = MaterialTheme.typography.bodySmall)
+                if (result.error != null) {
+                    Text(result.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            
+            if (result.isChecking) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else if (result.result != null) {
+                val color = if (result.result!!.success) Color(0xFF2E7D32) else Color(0xFFC62828)
+                Text(
+                    text = result.result!!.message,
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AddBoidDialog(onAdd: (String, String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var boid by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Family BOID") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name (e.g. Mom)") })
+                OutlinedTextField(
+                    value = boid, 
+                    onValueChange = { if (it.length <= 16) boid = it }, 
+                    label = { Text("BOID (16 digits)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (name.isNotBlank() && boid.length == 16) onAdd(name, boid) }) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun IndicesConfigDialog(
+    allIndices: List<com.example.data.repository.NepseIndex>,
+    visibleIndices: Set<String>,
+    onToggle: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Configure Visible Indices", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+                LazyColumn(Modifier.weight(1f, false)) {
+                    items(allIndices) { idx ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { onToggle(idx.index) }.padding(vertical = 4.dp)
+                        ) {
+                            Checkbox(checked = visibleIndices.contains(idx.index), onCheckedChange = { onToggle(idx.index) })
+                            Text(idx.index)
+                        }
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                    Text("Close")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MoreSection(title: String, content: @Composable () -> Unit) {
+    Column {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+        content()
+    }
+}
+
+@Composable
+fun MoreGrid(vararg cards: @Composable () -> Unit) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        cards.asList().chunked(2).forEach { rowItems ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                rowItems.forEach { card ->
+                    Box(modifier = Modifier.weight(1f)) {
+                        card()
+                    }
+                }
+                if (rowItems.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+        }
+        }
+    }
+
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+            onDismiss = { showIndicesConfig = false }
+        )
+    }
+}
+
+
+@Composable
+fun MoreCard(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    onClick: () -> Unit = {}
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.width(160.dp).height(100.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.1f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        }
+    }
+}
 
 // ==========================================
-// 3. INGESTION ENGINE & RECORD WRITER (DATA)
+// 5. INGESTION ENGINE & RECORD WRITER (DATA)
 // ==========================================
 
 @Composable
@@ -1718,6 +2747,11 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     var showWipeConfirmationDialog by remember { mutableStateOf(false) }
     var currentCsvTextToImport by remember { mutableStateOf<String?>(null) }
     var showMerosharePrompt by remember { mutableStateOf(false) }
+    var pendingMeroshareText by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteRecord by remember { mutableStateOf<TransactionRecord?>(null) }
+    var pendingAddRecord by remember { mutableStateOf<TransactionRecord?>(null) }
+    var pendingUpdateRecord by remember { mutableStateOf<TransactionRecord?>(null) }
+    var hideSystemAdjustmentInfo by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
 
@@ -1733,8 +2767,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                         }
                     }
                     if (text != null) {
-                        viewModel.importMeroshare(text)
-                        showMerosharePrompt = false
+                        pendingMeroshareText = text
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
@@ -1744,6 +2777,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             }
         }
     }
+
 
     val importTransactionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -1770,6 +2804,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
         }
     }
 
+
     val importWaccLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -1794,6 +2829,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             }
         }
     }
+
 
     val exportCsvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
@@ -1824,6 +2860,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
         }
     }
 
+
     // Historical record modification state
     var editingRecord by remember { mutableStateOf<TransactionRecord?>(null) }
     var selectedItemFilter by remember { mutableStateOf("All") }
@@ -1843,7 +2880,52 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // Next Step Banner
+        // Form Section (Create transactions)
+        item {
+            Text(
+                "Record Portfolio Transaction",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            RowEntryForm(
+                distinctItems = distinctItems,
+                distinctTypes = distinctTypes,
+                onSave = { record ->
+                    pendingAddRecord = record
+                }
+            )
+        }
+
+        // System Adjustment Information Message
+        val hasSystemAdjustments = transactions.any { it.isSystemAdjustment }
+        if (hasSystemAdjustments && !hideSystemAdjustmentInfo) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().animateItem()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.secondary)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            androidx.compose.material3.Text("Auto-Adjustments Detected", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            androidx.compose.material3.Text("Some records were added automatically to align your portfolio units. Please review and edit their Buy/Sale amounts for better accuracy.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
+                        IconButton(onClick = { hideSystemAdjustmentInfo = true }) {
+                            Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Next Step Banner relocated here
         if (showMerosharePrompt) {
             item {
                 Card(
@@ -1855,7 +2937,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                         modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.TrendingUp, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.AutoMirrored.Filled.TrendingUp, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Cost basis loaded.", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -1874,24 +2956,6 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                     }
                 }
             }
-        }
-
-        // Form Section (Create transactions)
-        item {
-            Text(
-                "Record Portfolio Transaction",
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            RowEntryForm(
-                distinctItems = distinctItems,
-                distinctTypes = distinctTypes,
-                onSave = { record ->
-                    viewModel.addTransaction(record)
-                }
-            )
         }
 
         // Unified CSV Ingestions Section
@@ -2146,7 +3210,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.secondary
                                 )
@@ -2170,13 +3234,14 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                         TransactionListItem(
                             tx = tx,
                             onEdit = { editingRecord = tx },
-                            onDelete = { viewModel.deleteTransaction(tx) }
+                            onDelete = { pendingDeleteRecord = tx }
                         )
                     }
                 }
             }
         }
     }
+
 
     // SCHEMA 1 APPEND vs OVERWRITE choice dialog
     if (showImportOptionDialog && currentCsvTextToImport != null) {
@@ -2249,10 +3314,102 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             distinctItems = distinctItems,
             distinctTypes = distinctTypes,
             onSave = { updated ->
-                viewModel.updateTransaction(updated)
+                pendingUpdateRecord = updated
                 editingRecord = null
             },
             onDismiss = { editingRecord = null }
+        )
+    }
+
+    // Alignment Confirmation Dialog for Meroshare Import
+    if (pendingMeroshareText != null) {
+        AlertDialog(
+            onDismissRequest = { pendingMeroshareText = null },
+            title = { Text("Align Portfolio Holdings?", fontWeight = FontWeight.Bold) },
+            text = { Text("Importing 'My Shares Values' will compare your actual Meroshare units with your recorded history. The app will automatically generate adjustment 'Sale' records at your Avg. Cost to align the database with your current portfolio. This is necessary for accurate Net Investment and Profit/Loss calculation. Do you wish to proceed?") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.importMeroshare(pendingMeroshareText!!)
+                    pendingMeroshareText = null
+                    showMerosharePrompt = false
+                }) {
+                    Text("Proceed")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingMeroshareText = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Delete Record Confirmation
+    if (pendingDeleteRecord != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteRecord = null },
+            title = { Text("Delete Record?", fontWeight = FontWeight.Bold) },
+            text = { Text("This action is permanent and will immediately recalculate your portfolio metrics. Proceed?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteTransaction(pendingDeleteRecord!!)
+                        pendingDeleteRecord = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteRecord = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Add Record Confirmation
+    if (pendingAddRecord != null) {
+        AlertDialog(
+            onDismissRequest = { pendingAddRecord = null },
+            title = { Text("Confirm Transaction?", fontWeight = FontWeight.Bold) },
+            text = { Text("Save this record of ${pendingAddRecord!!.action} ${pendingAddRecord!!.qty} units of ${pendingAddRecord!!.item} to the database?") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.addTransaction(pendingAddRecord!!)
+                    pendingAddRecord = null
+                }) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingAddRecord = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Update Record Confirmation
+    if (pendingUpdateRecord != null) {
+        AlertDialog(
+            onDismissRequest = { pendingUpdateRecord = null },
+            title = { Text("Update Record?", fontWeight = FontWeight.Bold) },
+            text = { Text("This will modify the existing transaction. Proceed?") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateTransaction(pendingUpdateRecord!!)
+                    pendingUpdateRecord = null
+                }) {
+                    Text("Update")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingUpdateRecord = null }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }
@@ -2414,8 +3571,20 @@ fun RowEntryForm(
                 Text("Add Transaction Record", fontWeight = FontWeight.Bold)
             }
         }
+        }
+        }
+    }
+
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+            onDismiss = { showIndicesConfig = false }
+        )
     }
 }
+
 
 @Composable
 fun TransactionListItem(
@@ -2450,6 +3619,15 @@ fun TransactionListItem(
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(tx.item, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                    if (tx.isSystemAdjustment) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.AutoFixHigh,
+                            contentDescription = "System Adjusted",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
                 Row {
@@ -2473,8 +3651,20 @@ fun TransactionListItem(
                 }
             }
         }
+        }
+        }
+    }
+
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+            onDismiss = { showIndicesConfig = false }
+        )
     }
 }
+
 
 @Composable
 fun EditTransactionDialog(
@@ -2623,8 +3813,20 @@ fun EditTransactionDialog(
                 }
             }
         }
+        }
+        }
+    }
+
+            onManualAdd = { /* Handled via search query eventually */ },
+            onDismiss = { showSearchDialog = false }
+        )
+    }
+
+            onDismiss = { showIndicesConfig = false }
+        )
     }
 }
+
 
 @Composable
 fun AutoCompleteTextField(

@@ -75,7 +75,11 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
     private suspend fun getSectorForScrip(symbol: String): String {
         return withContext(Dispatchers.IO) {
-            portfolioDao.getExistingTypeBySymbol(symbol.uppercase().trim()) ?: "Other"
+            val existing = portfolioDao.getExistingTypeBySymbol(symbol.uppercase().trim())
+            if (existing != null && existing != "Other") return@withContext existing
+            
+            val masterSector = portfolioDao.getSectorFromMaster(symbol.uppercase().trim())
+            masterSector ?: "Other"
         }
     }
 
@@ -255,20 +259,29 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                                 val saleQty = scripTx.filter { it.action == "Sale" }.sumOf { it.qty }
                                 val currentBalance = buyQty + returnsQty - saleQty
                                 
-                                if (currentBalance > importedQty) {
-                                    val diff = currentBalance - importedQty
+                                if (Math.abs(currentBalance - importedQty) > 0.001) {
+                                    val diff = importedQty - currentBalance
                                     val buyAmount = scripTx.filter { it.action == "Buy" }.sumOf { it.amount }
                                     val avgCost = if (buyQty + returnsQty > 0) buyAmount / (buyQty + returnsQty) else 0.0
                                     
-                                    val adjustmentSale = TransactionRecord(
+                                    val (action, adjQty, adjAmount) = if (diff < 0) {
+                                        // Surplus in DB: Need to Sell
+                                        Triple("Sale", Math.abs(diff), Math.abs(diff) * (if (avgCost > 0) avgCost else ltpValue))
+                                    } else {
+                                        // Deficit in DB: Need to Buy
+                                        Triple("Buy", diff, diff * ltpValue)
+                                    }
+
+                                    val adjustmentTx = TransactionRecord(
                                         date = todayStr,
                                         item = scrip,
                                         type = scripTx.firstOrNull()?.type ?: "Other",
-                                        action = "Sale",
-                                        qty = diff,
-                                        amount = diff * avgCost
+                                        action = action,
+                                        qty = adjQty,
+                                        amount = adjAmount,
+                                        isSystemAdjustment = true
                                     )
-                                    portfolioDao.insertTransaction(adjustmentSale)
+                                    portfolioDao.insertTransaction(adjustmentTx)
                                 }
                             }
                         }
@@ -284,7 +297,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                         val saleQty = scripTx.filter { it.action == "Sale" }.sumOf { it.qty }
                         val currentBalance = (buyQty + returnsQty - saleQty).coerceAtLeast(0.0)
 
-                        if (currentBalance > 0.0) {
+                        if (currentBalance > 0.001) {
                             val buyAmount = scripTx.filter { it.action == "Buy" }.sumOf { it.amount }
                             val avgCost = if (buyQty + returnsQty > 0) buyAmount / (buyQty + returnsQty) else 0.0
 
@@ -294,7 +307,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                                 type = scripTx.firstOrNull()?.type ?: "Other",
                                 action = "Sale",
                                 qty = currentBalance,
-                                amount = currentBalance * avgCost
+                                amount = currentBalance * avgCost,
+                                isSystemAdjustment = true
                             )
                             portfolioDao.insertTransaction(adjustmentSale)
                         }
@@ -388,21 +402,29 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     .get()
                 
                 if (indexValue == "0.00" || indexValue.isEmpty()) {
-                    val nepseRow = mainDoc.select("tr").find { 
-                        it.text().contains("NEPSE Index", ignoreCase = true) && !it.text().contains("Sub-Index", ignoreCase = true)
-                    }
-                    if (nepseRow != null) {
-                        val cells = nepseRow.select("td")
-                        val values = cells.map { it.text().trim() }.filter { it.isNotEmpty() }
-                        val pctIdx = values.indexOfFirst { it.contains("%") }
-                        if (pctIdx != -1) {
-                            pctChange = values[pctIdx]
-                            if (pctIdx >= 2) {
-                                indexValue = values[pctIdx - 2]
-                                ptChange = values[pctIdx - 1]
+                    // Search for NEPSE Index specifically in all tables
+                    val rows = mainDoc.select("table tr, .market-update-table tr, .table-indices tr")
+                    for (row in rows) {
+                        val text = row.text()
+                        if (text.contains("NEPSE Index", ignoreCase = true) && !text.contains("Sub-Index", ignoreCase = true)) {
+                            val cells = row.select("td")
+                            if (cells.size >= 3) {
+                                indexValue = cells[1].text().trim()
+                                val changeAndPct = cells[2].text().trim()
+                                // Sometimes they are in the same cell, sometimes separate
+                                if (cells.size >= 4) {
+                                    ptChange = cells[2].text().trim()
+                                    pctChange = cells[3].text().trim()
+                                } else {
+                                    // Parse " -11.34 (-0.41%)"
+                                    val parts = changeAndPct.split(" ")
+                                    ptChange = parts.firstOrNull() ?: ""
+                                    pctChange = parts.lastOrNull() ?: ""
+                                }
+                                isPositive = !pctChange.contains("-")
+                                break
                             }
                         }
-                        isPositive = pctChange.contains("+") || (!pctChange.contains("-") && pctChange != "0.00%")
                     }
                 }
 
@@ -459,10 +481,13 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                             if (symbol.isNotEmpty() && ltpVal != null) {
                                 val existing = portfolioDao.getExternalLtpBySymbol(symbol)
                                 val inMs = existing?.isInMeroshareCsv ?: false
+                                val previousVal = existing?.ltp ?: ltpVal // Use current if no previous
+                                
                                 scrapedLtps.add(
                                     ExternalLtp(
                                         symbol = symbol,
                                         ltp = ltpVal,
+                                        previousLtp = previousVal,
                                         source = "Scraped",
                                         timestamp = timestamp,
                                         isInMeroshareCsv = inMs

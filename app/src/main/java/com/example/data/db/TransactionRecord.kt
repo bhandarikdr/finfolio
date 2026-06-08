@@ -19,5 +19,6 @@ data class TransactionRecord(
     val type: String, // Sector / Category (e.g., Banks, Hydro)
     val action: String, // "Buy", "Sale", "Returns"
     val qty: Double = 0.0,
-    val amount: Double = 0.0
+    val amount: Double = 0.0,
+    val isSystemAdjustment: Boolean = false
 )
