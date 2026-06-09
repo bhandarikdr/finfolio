@@ -27,12 +27,13 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
     val indices = _indices.asStateFlow()
 
     private val _visibleIndices = MutableStateFlow<Set<String>>(
-        setOf("NEPSE Index", "Sensitive Index", "Float Index", "Banking", "HydroPower Index", "Life Insurance", "Microfinance Index")
+        setOf("NEPSE Index", "Sensitive Index", "Banking", "HydroPower", "Life Insurance", "Microfinance")
     )
     val visibleIndices = _visibleIndices.asStateFlow()
 
     val filteredIndices: StateFlow<List<NepseIndex>> = combine(_indices, _visibleIndices) { all, visible ->
-        if (visible.isEmpty()) all else all.filter { visible.contains(it.index) || it.index.contains("NEPSE", true) }
+        if (visible.isEmpty()) all.take(5) 
+        else all.filter { visible.any { v -> it.index.contains(v, true) } || it.index.contains("NEPSE", true) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _priceChanges = MutableStateFlow<List<ScripPriceChange>>(emptyList())
@@ -50,16 +51,10 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val fetchedIndices = repository.fetchNepseIndices()
-                val fetchedPriceChanges = repository.fetchPriceChanges()
-                
-                android.util.Log.d("MarketViewModel", "Fetched ${fetchedIndices.size} indices")
-                android.util.Log.d("MarketViewModel", "Fetched ${fetchedPriceChanges.size} price changes")
-                
-                _indices.value = fetchedIndices
-                _priceChanges.value = fetchedPriceChanges
+                _indices.value = repository.fetchNepseIndices()
+                _priceChanges.value = repository.fetchPriceChanges()
             } catch (e: Exception) {
-                android.util.Log.e("MarketViewModel", "Error refreshing market data", e)
+                e.printStackTrace()
             } finally {
                 _isLoading.value = false
             }
@@ -72,19 +67,15 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
         }
     }
 
-    fun toggleIndexVisibility(indexName: String) {
+    fun toggleIndexVisibility(name: String) {
         val current = _visibleIndices.value.toMutableSet()
-        if (current.contains(indexName)) {
-            current.remove(indexName)
-        } else {
-            current.add(indexName)
-        }
+        if (current.contains(name)) current.remove(name) else current.add(name)
         _visibleIndices.value = current
     }
 
     fun toggleWishlist(scrip: ScripMaster) {
         viewModelScope.launch {
-            repository.updateWishlist(scrip.copy(isWishlisted = !scrip.isWishlisted))
+            repository.updateWishlist(scrip.symbol, !scrip.isWishlisted)
         }
     }
 }

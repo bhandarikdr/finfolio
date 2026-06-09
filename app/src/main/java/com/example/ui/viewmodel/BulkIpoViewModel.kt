@@ -3,16 +3,12 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.data.model.BoidEntry
-import com.example.data.model.BulkIpoResult
-import com.example.data.model.IpoCompany
-import com.example.data.repository.IpoRepository
-import kotlinx.coroutines.delay
+import com.example.data.repository.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.delay
 
 class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
@@ -32,16 +28,13 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
     val isChecking = _isChecking.asStateFlow()
 
     init {
-        loadCompanies()
+        fetchCompanies()
     }
 
-    fun loadCompanies() {
+    private fun fetchCompanies() {
         viewModelScope.launch {
-            repository.getCompanyList().onSuccess {
+            repository.fetchIpoCompanies().onSuccess {
                 _companies.value = it
-                if (it.isNotEmpty() && _selectedCompany.value == null) {
-                    _selectedCompany.value = it.first()
-                }
             }
         }
     }
@@ -51,51 +44,42 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
     }
 
     fun addBoid(name: String, boid: String) {
-        val newBoids = _boids.value + BoidEntry(name = name, boid = boid)
-        _boids.value = newBoids
+        val current = _boids.value.toMutableList()
+        current.add(BoidEntry(name, boid))
+        _boids.value = current
     }
 
-    fun removeBoid(boidEntry: BoidEntry) {
-        _boids.value = _boids.value.filter { it.id != boidEntry.id }
+    fun removeBoid(boid: BoidEntry) {
+        val current = _boids.value.toMutableList()
+        current.remove(boid)
+        _boids.value = current
     }
 
     fun startBulkCheck() {
-        val companyId = _selectedCompany.value?.id ?: return
+        val company = _selectedCompany.value ?: return
         val currentBoids = _boids.value
         if (currentBoids.isEmpty()) return
 
-        _results.value = currentBoids.map { BulkIpoResult(it) }
-        _isChecking.value = true
-
         viewModelScope.launch {
-            val semaphore = Semaphore(3)
-            currentBoids.forEachIndexed { index, boidEntry ->
-                launch {
-                    semaphore.withPermit {
-                        updateResult(index) { it.copy(isChecking = true) }
-                        delay(200) 
-                        repository.checkResult(boidEntry.boid, companyId)
-                            .onSuccess { res ->
-                                updateResult(index) { it.copy(result = res, isChecking = false) }
-                            }
-                            .onFailure { err ->
-                                updateResult(index) { it.copy(error = err.message, isChecking = false) }
-                            }
-                    }
-                }
-            }
-        }
-    }
+            _isChecking.value = true
+            val initialResults = currentBoids.map { BulkIpoResult(it, isChecking = true) }
+            _results.value = initialResults
 
-    private fun updateResult(index: Int, transform: (BulkIpoResult) -> BulkIpoResult) {
-        val currentList = _results.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = transform(currentList[index])
-            _results.value = currentList
-            
-            if (currentList.none { it.isChecking }) {
-                _isChecking.value = false
+            initialResults.forEachIndexed { index, boidResult ->
+                val result = repository.checkIpoResult(company.id, boidResult.boidEntry.boid)
+                val updatedList = _results.value.toMutableList()
+                
+                result.onSuccess {
+                    updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
+                }
+                result.onFailure {
+                    updatedList[index] = updatedList[index].copy(error = it.message, isChecking = false)
+                }
+                
+                _results.value = updatedList
+                delay(300) // Safe delay between requests
             }
+            _isChecking.value = false
         }
     }
 }
