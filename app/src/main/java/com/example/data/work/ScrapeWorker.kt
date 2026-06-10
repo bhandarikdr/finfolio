@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.data.db.AppDatabase
 import com.example.data.repository.PortfolioRepository
+import com.example.data.repository.MarketRepository
 
 class ScrapeWorker(
     context: Context,
@@ -14,9 +15,17 @@ class ScrapeWorker(
     override suspend fun doWork(): Result {
         return try {
             val database = AppDatabase.getDatabase(applicationContext)
-            val repository = PortfolioRepository(database.portfolioDao())
-            val success = repository.refreshLivePrices()
-            if (success) {
+            val portfolioRepo = PortfolioRepository(database.portfolioDao())
+            val marketRepo = MarketRepository(database.portfolioDao())
+            
+            // 1. Refresh scrip LTPs (Standard mechanism)
+            val successLtp = portfolioRepo.refreshLivePrices()
+            
+            // 2. Refresh Market Indices (For top bar and pulse screen)
+            marketRepo.fetchNepseIndices()
+            marketRepo.fetchPriceChanges()
+            
+            if (successLtp) {
                 Result.success()
             } else {
                 Result.retry()

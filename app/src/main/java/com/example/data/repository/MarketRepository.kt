@@ -98,6 +98,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         return withContext(Dispatchers.IO) {
             val scrapedList = mutableListOf<NepseIndex>()
             try {
+                // Source 1: Sharesansar Market Page
                 val doc = Jsoup.connect("https://www.sharesansar.com/market")
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                     .timeout(20000)
@@ -109,20 +110,20 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                     for (row in rows) {
                         val cells = row.select("td")
                         if (cells.size >= 2) {
-                            val name = cells[0].text().trim()
-                            if (isKnownIndex(name)) {
+                            val rawName = cells[0].text().trim()
+                            val name = normalizeIndexName(rawName)
+                            if (name != null) {
                                 val value = cells.getOrNull(1)?.text()?.replace(",", "")?.toDoubleOrNull() ?: 0.0
                                 if (value > 0) {
                                     val existing = portfolioDao.getIndexByName(name)
                                     
                                     // LOGIC: Only update if value actually changed
-                                    if (existing == null || existing.currentValue != value) {
+                                    if (existing == null || Math.abs(existing.currentValue - value) > 0.001) {
                                         val prevValue = existing?.currentValue ?: (value * 0.99)
                                         val diff = value - prevValue
                                         val pct = if (prevValue > 0) (diff / prevValue) * 100.0 else 0.0
                                         scrapedList.add(NepseIndex(name, value, diff, pct, prevValue))
                                     } else {
-                                        // Still add to scrapedList for returning, using current values
                                         scrapedList.add(NepseIndex(
                                             name, 
                                             existing.currentValue, 
@@ -137,13 +138,38 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                     }
                 }
 
+                // Fallback/Reinforcement for NEPSE Index from Merolagani if missing or for verification
+                if (scrapedList.none { it.index.contains("NEPSE Index", true) }) {
+                    try {
+                        val meroDoc = Jsoup.connect("https://merolagani.com/latestmarket.aspx")
+                            .userAgent("Mozilla/5.0")
+                            .timeout(10000)
+                            .get()
+                        
+                        val idxValEl = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
+                        if (idxValEl != null && idxValEl.text().trim().isNotEmpty()) {
+                            val value = idxValEl.text().trim().replace(",", "").toDoubleOrNull() ?: 0.0
+                            if (value > 0) {
+                                val name = "NEPSE Index"
+                                val existing = portfolioDao.getIndexByName(name)
+                                if (existing == null || Math.abs(existing.currentValue - value) > 0.001) {
+                                    val prevValue = existing?.currentValue ?: (value * 0.99)
+                                    val diff = value - prevValue
+                                    val pct = if (prevValue > 0) (diff / prevValue) * 100.0 else 0.0
+                                    scrapedList.add(NepseIndex(name, value, diff, pct, prevValue))
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {}
+                }
+
                 if (scrapedList.isNotEmpty()) {
-                    // Only insert those that are actually new or changed
-                    val toPersist = scrapedList.filter { s ->
+                    val toPersist = mutableListOf<MarketIndexEntity>()
+                    for (s in scrapedList) {
                         val ex = portfolioDao.getIndexByName(s.index)
-                        ex == null || ex.currentValue != s.value
-                    }.map { 
-                        MarketIndexEntity(it.index, it.value, it.previousValue, it.percentChange)
+                        if (ex == null || Math.abs(ex.currentValue - s.value) > 0.001) {
+                            toPersist.add(MarketIndexEntity(s.index, s.value, s.previousValue, s.percentChange))
+                        }
                     }
                     if (toPersist.isNotEmpty()) {
                         portfolioDao.insertMarketIndices(toPersist)
@@ -152,29 +178,45 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            scrapedList
+            scrapedList.distinctBy { it.index }
         }
     }
 
-    private fun isKnownIndex(name: String): Boolean {
-        if (name.isEmpty() || name.length > 50) return false
+    private fun normalizeIndexName(name: String): String? {
+        if (name.isEmpty() || name.length > 50) return null
         val lower = name.lowercase()
-        val keywords = listOf(
-            "nepse index", "sensitive index", "float index", "sensitive float",
-            "banking", "development bank", "finance", "hotels", "hydro", 
-            "investment", "life insurance", "manufacturing", "microfinance", 
-            "mutual fund", "non life", "others", "trading"
-        )
-        return keywords.any { lower.contains(it) }
+        
+        // Map common variations to standard names
+        return when {
+            lower.contains("nepse index") || lower == "nepse" -> "NEPSE Index"
+            lower.contains("sensitive index") -> "Sensitive Index"
+            lower.contains("float index") -> "Float Index"
+            lower.contains("sensitive float") -> "Sensitive Float Index"
+            lower.contains("banking") -> "Banking"
+            lower.contains("development bank") -> "Development Bank"
+            lower.contains("finance") -> "Finance"
+            lower.contains("hotels") -> "Hotels"
+            lower.contains("hydro") -> "HydroPower Index"
+            lower.contains("investment") -> "Investment"
+            lower.contains("life insurance") -> "Life Insurance"
+            lower.contains("manufacturing") -> "Manufacturing"
+            lower.contains("microfinance") -> "Microfinance Index"
+            lower.contains("mutual fund") -> "Mutual Fund"
+            lower.contains("non life") -> "Non Life Insurance"
+            lower.contains("others") -> "Others"
+            lower.contains("trading") -> "Trading"
+            else -> null
+        }
     }
 
     suspend fun fetchPriceChanges(): List<ScripPriceChange> {
         return withContext(Dispatchers.IO) {
             val changes = mutableListOf<ScripPriceChange>()
             try {
-                val doc = Jsoup.connect("https://www.sharesansar.com/live-trading")
-                    .userAgent("Mozilla/5.0")
-                    .timeout(20000)
+                // Ensure we get the latest data by adding a timestamp
+                val doc = Jsoup.connect("https://www.sharesansar.com/live-trading?t=${System.currentTimeMillis()}")
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .timeout(25000)
                     .get()
                 
                 val rows = doc.select("table tbody tr")
@@ -182,29 +224,39 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 
                 rows.forEach { row ->
                     val cells = row.select("td")
-                    if (cells.size >= 8) {
+                    if (cells.size >= 6) {
+                        // Sharesansar live trading: 1=Symbol, 5=LTP (usually)
+                        // But let's be safer and find index by header if possible, 
+                        // or stick to the most common structure.
                         val symbol = cells[1].text().trim().uppercase()
-                        val ltp = cells[5].text().replace(",", "").toDoubleOrNull() ?: 0.0
+                        val ltpStr = cells[5].text().replace(",", "").trim()
+                        val ltp = ltpStr.toDoubleOrNull() ?: 0.0
                         
                         if (symbol.isNotEmpty() && symbol.length <= 15 && ltp > 0) {
                             val existing = portfolioDao.getExternalLtpBySymbol(symbol)
                             
-                            // LOGIC: Only update if LTP actually changed
-                            if (existing == null || existing.ltp != ltp) {
+                            // LOGIC: Only update if LTP actually changed (using tolerance)
+                            if (existing == null || Math.abs(existing.ltp - ltp) > 0.001) {
                                 val prevLtp = existing?.ltp ?: (ltp * 0.99)
                                 val diff = ltp - prevLtp
                                 val pct = if (prevLtp > 0) (diff / prevLtp) * 100.0 else 0.0
 
                                 changes.add(ScripPriceChange(symbol, ltp, diff, pct, prevLtp))
-                                scripEntities.add(com.example.data.db.ExternalLtp(symbol, ltp, prevLtp, "Scraped"))
+                                scripEntities.add(com.example.data.db.ExternalLtp(
+                                    symbol = symbol, 
+                                    ltp = ltp, 
+                                    previousLtp = prevLtp, 
+                                    source = "Scraped",
+                                    timestamp = System.currentTimeMillis()
+                                ))
                             } else {
                                 // Add existing data to changes list for UI consistency
                                 changes.add(ScripPriceChange(
-                                    symbol, 
-                                    existing.ltp, 
-                                    existing.ltp - existing.previousLtp,
-                                    if (existing.previousLtp > 0) ((existing.ltp - existing.previousLtp) / existing.previousLtp) * 100.0 else 0.0,
-                                    existing.previousLtp
+                                    symbol = symbol, 
+                                    ltp = existing.ltp, 
+                                    change = existing.ltp - existing.previousLtp,
+                                    percentChange = if (existing.previousLtp > 0) ((existing.ltp - existing.previousLtp) / existing.previousLtp) * 100.0 else 0.0,
+                                    previousLtp = existing.previousLtp
                                 ))
                             }
                         }
