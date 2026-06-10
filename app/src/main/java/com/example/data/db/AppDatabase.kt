@@ -11,9 +11,13 @@ import androidx.room.RoomDatabase
         ExternalLtp::class,
         UserEntity::class,
         SectorMapping::class,
-        ScripMaster::class
+        ScripMaster::class,
+        MarketIndexEntity::class,
+        BoidEntity::class,
+        IpoMaster::class,
+        IpoResultCache::class
     ],
-    version = 6,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

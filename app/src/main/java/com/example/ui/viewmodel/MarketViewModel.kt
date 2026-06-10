@@ -23,17 +23,18 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
     val wishlistedScrips: StateFlow<List<ScripMaster>> = repository.wishlistedScrips
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _indices = MutableStateFlow<List<NepseIndex>>(emptyList())
-    val indices = _indices.asStateFlow()
+    val indices: StateFlow<List<NepseIndex>> = repository.persistedIndices
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _visibleIndices = MutableStateFlow<Set<String>>(
-        setOf("NEPSE Index", "Sensitive Index", "Banking", "HydroPower", "Life Insurance", "Microfinance")
+        setOf("NEPSE Index", "Sensitive Index", "Float Index", "Banking", "HydroPower Index", "Life Insurance", "Microfinance Index")
     )
     val visibleIndices = _visibleIndices.asStateFlow()
 
-    val filteredIndices: StateFlow<List<NepseIndex>> = combine(_indices, _visibleIndices) { all, visible ->
-        if (visible.isEmpty()) all.take(5) 
-        else all.filter { visible.any { v -> it.index.contains(v, true) } || it.index.contains("NEPSE", true) }
+    val filteredIndices: StateFlow<List<NepseIndex>> = combine(indices, _visibleIndices) { all, visible ->
+        val fixed = all.filter { it.index.contains("NEPSE Index", true) }
+        val others = all.filter { it.index !in fixed.map { f -> f.index } && it.index in visible }
+        fixed + others
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _priceChanges = MutableStateFlow<List<ScripPriceChange>>(emptyList())
@@ -51,7 +52,7 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                _indices.value = repository.fetchNepseIndices()
+                repository.fetchNepseIndices()
                 _priceChanges.value = repository.fetchPriceChanges()
             } catch (e: Exception) {
                 e.printStackTrace()

@@ -52,8 +52,12 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     val distinctItems: StateFlow<List<String>> = repository.distinctItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val distinctTypes: StateFlow<List<String>> = repository.distinctTypes
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val distinctTypes: StateFlow<List<String>> = combine(
+        repository.distinctTypes,
+        repository.distinctSectorsFromMaster
+    ) { fromData, fromMaster ->
+        (fromData + fromMaster).filter { it.isNotBlank() }.distinct().sorted()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // UI States and Filters
     private val _datasetScope = MutableStateFlow(DatasetScope.OVERALL)
@@ -100,7 +104,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         val computedAll = FinancialEngines.computeItemMetrics(txList, ltpList)
         when (scope) {
             DatasetScope.OVERALL -> computedAll
-            DatasetScope.MEROSHARE -> computedAll.filter { it.isInMeroshareCsv }
+            DatasetScope.MEROSHARE -> computedAll.filter { it.isInMeroshareCsv || it.balanceQty > 0.0 }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -119,6 +123,10 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     fun setDatasetScope(scope: DatasetScope) {
         _datasetScope.value = scope
+    }
+
+    suspend fun getSectorForScrip(symbol: String): String {
+        return repository.getSectorForScrip(symbol)
     }
 
     fun setSelectedTypeFilter(type: String) {

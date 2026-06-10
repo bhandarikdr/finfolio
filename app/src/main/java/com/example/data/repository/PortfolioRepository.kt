@@ -42,6 +42,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
     val allExternalLtps: Flow<List<ExternalLtp>> = portfolioDao.getAllExternalLtps()
     val distinctItems: Flow<List<String>> = portfolioDao.getDistinctItems()
     val distinctTypes: Flow<List<String>> = portfolioDao.getDistinctTypes()
+    val distinctSectorsFromMaster: Flow<List<String>> = portfolioDao.getDistinctSectorsFromMaster()
 
     suspend fun insertTransaction(record: TransactionRecord): Long {
         return withContext(Dispatchers.IO) {
@@ -73,7 +74,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
-    private suspend fun getSectorForScrip(symbol: String): String {
+    suspend fun getSectorForScrip(symbol: String): String {
         return withContext(Dispatchers.IO) {
             val existing = portfolioDao.getExistingTypeBySymbol(symbol.uppercase().trim())
             if (existing != null && existing != "Other") return@withContext existing

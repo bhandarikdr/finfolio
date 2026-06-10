@@ -3,61 +3,97 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.data.db.IpoMaster
+import com.example.data.model.*
 import com.example.data.repository.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 
 class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
-    private val _companies = MutableStateFlow<List<IpoCompany>>(emptyList())
-    val companies = _companies.asStateFlow()
+    val ipos: StateFlow<List<IpoMaster>> = repository.ipoMasterList
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _selectedCompany = MutableStateFlow<IpoCompany?>(null)
-    val selectedCompany = _selectedCompany.asStateFlow()
+    private val _selectedIpo = MutableStateFlow<IpoMaster?>(null)
+    val selectedIpo = _selectedIpo.asStateFlow()
 
-    private val _boids = MutableStateFlow<List<BoidEntry>>(emptyList())
-    val boids = _boids.asStateFlow()
+    val boids: StateFlow<List<BoidEntry>> = repository.allBoids
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _results = MutableStateFlow<List<BulkIpoResult>>(emptyList())
     val results = _results.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing = _isSyncing.asStateFlow()
 
     private val _isChecking = MutableStateFlow(false)
     val isChecking = _isChecking.asStateFlow()
 
     init {
-        fetchCompanies()
-    }
-
-    private fun fetchCompanies() {
+        // Automatically select the first IPO if available
         viewModelScope.launch {
-            repository.fetchIpoCompanies().onSuccess {
-                _companies.value = it
+            ipos.collect { list ->
+                if (list.isNotEmpty() && _selectedIpo.value == null) {
+                    _selectedIpo.value = list.first()
+                }
+            }
+        }
+        
+        // Sync if empty
+        viewModelScope.launch {
+            if (ipos.value.isEmpty()) {
+                syncIpos()
             }
         }
     }
 
-    fun selectCompany(company: IpoCompany) {
-        _selectedCompany.value = company
+    fun syncIpos() {
+        viewModelScope.launch {
+            _isSyncing.value = true
+            repository.syncIpos()
+            _isSyncing.value = false
+        }
+    }
+
+    fun selectIpo(ipo: IpoMaster) {
+        _selectedIpo.value = ipo
     }
 
     fun addBoid(name: String, boid: String) {
-        val current = _boids.value.toMutableList()
-        current.add(BoidEntry(name, boid))
-        _boids.value = current
+        viewModelScope.launch {
+            repository.addBoid(name, boid)
+        }
     }
 
     fun removeBoid(boid: BoidEntry) {
-        val current = _boids.value.toMutableList()
-        current.remove(boid)
-        _boids.value = current
+        viewModelScope.launch {
+            repository.removeBoid(boid.boid)
+        }
+    }
+
+    fun addMultipleBoids(pastedText: String) {
+        viewModelScope.launch {
+            // Split by lines, commas, or spaces
+            val lines = pastedText.split(Regex("[\n, ]+"))
+            lines.forEach { line ->
+                val trimmed = line.trim()
+                if (trimmed.length == 16 && trimmed.all { it.isDigit() }) {
+                    // Check if already exists in boids
+                    if (boids.value.none { it.boid == trimmed }) {
+                        repository.addBoid("User_${trimmed.takeLast(4)}", trimmed)
+                    }
+                }
+            }
+        }
     }
 
     fun startBulkCheck() {
-        val company = _selectedCompany.value ?: return
-        val currentBoids = _boids.value
+        val ipo = _selectedIpo.value ?: return
+        val currentBoids = boids.value
         if (currentBoids.isEmpty()) return
 
         viewModelScope.launch {
@@ -65,22 +101,22 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
             val initialResults = currentBoids.map { BulkIpoResult(it, isChecking = true) }
             _results.value = initialResults
 
-            initialResults.forEachIndexed { index, boidResult ->
-                val result = repository.checkIpoResult(company.id, boidResult.boidEntry.boid)
+            repository.bulkCheckIpoResults(ipo.cdscCompanyId, currentBoids) { index, result ->
                 val updatedList = _results.value.toMutableList()
-                
                 result.onSuccess {
                     updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
                 }
                 result.onFailure {
                     updatedList[index] = updatedList[index].copy(error = it.message, isChecking = false)
                 }
-                
                 _results.value = updatedList
-                delay(300) // Safe delay between requests
             }
             _isChecking.value = false
         }
+    }
+
+    fun clearResults() {
+        _results.value = emptyList()
     }
 }
 

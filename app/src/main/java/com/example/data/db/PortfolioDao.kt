@@ -97,4 +97,53 @@ interface PortfolioDao {
 
     @Query("SELECT sector FROM ScripMaster WHERE symbol = :symbol LIMIT 1")
     suspend fun getSectorFromMaster(symbol: String): String?
+
+    @Query("SELECT DISTINCT sector FROM ScripMaster ORDER BY sector ASC")
+    fun getDistinctSectorsFromMaster(): Flow<List<String>>
+
+    // --- MARKET INDICES PERSISTENCE ---
+    @Query("SELECT * FROM MarketIndices")
+    fun getAllMarketIndices(): Flow<List<MarketIndexEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMarketIndices(indices: List<MarketIndexEntity>)
+
+    @Query("SELECT * FROM MarketIndices WHERE indexName = :name LIMIT 1")
+    suspend fun getIndexByName(name: String): MarketIndexEntity?
+
+    // --- BOIDS ---
+    @Query("SELECT * FROM Boids")
+    fun getAllBoids(): Flow<List<BoidEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBoid(boid: BoidEntity)
+
+    @Delete
+    fun deleteBoid(boid: BoidEntity)
+
+    // --- IPO MASTER ---
+    @Query("SELECT * FROM ipo_master WHERE isActive = 1 ORDER BY companyName ASC")
+    fun getAllIpos(): Flow<List<IpoMaster>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertIpoMaster(ipo: IpoMaster)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertIpoMasters(ipos: List<IpoMaster>)
+
+    @Query("SELECT * FROM ipo_master WHERE cdscCompanyId = :cdscId LIMIT 1")
+    suspend fun getIpoByCdscId(cdscId: Int): IpoMaster?
+
+    @Query("UPDATE ipo_master SET status = :status, updatedAt = :timestamp WHERE cdscCompanyId = :cdscId")
+    suspend fun updateIpoStatus(cdscId: Int, status: String, timestamp: Long = System.currentTimeMillis())
+
+    // --- IPO RESULT CACHE ---
+    @Query("SELECT * FROM ipo_result_cache WHERE ipoId = :ipoId AND boid = :boid LIMIT 1")
+    suspend fun getIpoResult(ipoId: Int, boid: String): IpoResultCache?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertIpoResult(result: IpoResultCache)
+
+    @Query("DELETE FROM ipo_result_cache WHERE checkedAt < :timestamp")
+    suspend fun clearOldCache(timestamp: Long)
 }
