@@ -40,6 +40,19 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
     private val _priceChanges = MutableStateFlow<List<ScripPriceChange>>(emptyList())
     val priceChanges = _priceChanges.asStateFlow()
 
+    val watchlistMovers: StateFlow<List<ScripPriceChange>> = combine(wishlistedScrips, _priceChanges) { wish, changes ->
+        wish.map { s ->
+            val live = changes.find { it.symbol.equals(s.symbol, true) }
+            live ?: ScripPriceChange(
+                symbol = s.symbol,
+                ltp = 0.0,
+                change = 0.0,
+                percentChange = 0.0,
+                previousLtp = 0.0
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 

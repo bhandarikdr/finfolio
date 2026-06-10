@@ -239,8 +239,8 @@ fun MoreCard(t: String, i: androidx.compose.ui.graphics.vector.ImageVector, c: C
 fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Unit) {
     val indices by vm.filteredIndices.collectAsStateWithLifecycle(); val changes by vm.priceChanges.collectAsStateWithLifecycle()
     val allIdx by vm.indices.collectAsStateWithLifecycle(); val visIdx by vm.visibleIndices.collectAsStateWithLifecycle()
-    val items by pvm.itemMetrics.collectAsStateWithLifecycle(); val wish by vm.wishlistedScrips.collectAsStateWithLifecycle()
-    val pSyms = remember(items) { items.map { it.item.uppercase() }.toSet() }; val wSyms = remember(wish) { wish.map { it.symbol.uppercase() }.toSet() }
+    val items by pvm.itemMetrics.collectAsStateWithLifecycle(); val wishMovers by vm.watchlistMovers.collectAsStateWithLifecycle()
+    val pSyms = remember(items) { items.map { it.item.uppercase() }.toSet() }
     var showSch by remember { mutableStateOf(false) }; var showCfg by remember { mutableStateOf(false) }
     var searchMode by remember { mutableStateOf("Global") } // "Global" or "ScripOnly"
 
@@ -251,7 +251,7 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
 
     val hM = changes.filter { it.symbol in pSyms }.sortedBy { m -> items.find { it.item == m.symbol }?.type ?: "Other" }
     val hMGrouped = remember(hM, items) { hM.groupBy { m -> items.find { it.item == m.symbol }?.type ?: "Other" } }
-    val wM = changes.filter { it.symbol in wSyms && it.symbol !in pSyms }
+    val wM = wishMovers.filter { it.symbol !in pSyms }
 
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { SubScreenHeader("Market Pulse", onBack) }
