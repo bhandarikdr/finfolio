@@ -7,5 +7,8 @@ import androidx.room.PrimaryKey
 data class UserEntity(
     @PrimaryKey val id: Int = 0, // Singleton row
     val name: String,
-    val email: String
+    val email: String,
+    val currencySymbol: String = "रु.",
+    val dateFormat: String = "AD", // Placeholder for BS/AD
+    val visibleIndicesJson: String = "" // JSON array of visible index names
 )

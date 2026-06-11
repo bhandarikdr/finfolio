@@ -17,12 +17,13 @@ import androidx.room.RoomDatabase
         IpoMaster::class,
         IpoResultCache::class
     ],
-    version = 9,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun portfolioDao(): PortfolioDao
+    abstract fun ipoMasterDao(): IpoMasterDao
 
     companion object {
         @Volatile

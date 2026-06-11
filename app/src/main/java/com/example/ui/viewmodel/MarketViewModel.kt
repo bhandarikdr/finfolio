@@ -6,16 +6,18 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.db.ScripMaster
 import com.example.data.repository.MarketRepository
 import com.example.data.repository.NepseIndex
+import com.example.data.repository.PortfolioRepository
 import com.example.data.repository.ScripPriceChange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
+class MarketViewModel(private val repository: MarketRepository, private val portfolioRepository: PortfolioRepository) : ViewModel() {
 
     val allScripMaster: StateFlow<List<ScripMaster>> = repository.allScripMaster
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -26,12 +28,15 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
     val indices: StateFlow<List<NepseIndex>> = repository.persistedIndices
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _visibleIndices = MutableStateFlow<Set<String>>(
-        setOf("NEPSE Index", "Sensitive Index", "Float Index", "Banking", "HydroPower Index", "Life Insurance", "Microfinance Index")
-    )
-    val visibleIndices = _visibleIndices.asStateFlow()
+    val visibleIndices: StateFlow<Set<String>> = portfolioRepository.userProfile.map { profile ->
+        if (profile.visibleIndices.isEmpty()) {
+            setOf("NEPSE Index", "Sensitive Index", "Float Index", "Banking", "HydroPower Index", "Life Insurance", "Microfinance Index")
+        } else {
+            profile.visibleIndices.toSet()
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
-    val filteredIndices: StateFlow<List<NepseIndex>> = combine(indices, _visibleIndices) { all, visible ->
+    val filteredIndices: StateFlow<List<NepseIndex>> = combine(indices, visibleIndices) { all, visible ->
         val fixed = all.filter { it.index.contains("NEPSE Index", true) }
         val others = all.filter { it.index !in fixed.map { f -> f.index } && it.index in visible }
         fixed + others
@@ -82,9 +87,11 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
     }
 
     fun toggleIndexVisibility(name: String) {
-        val current = _visibleIndices.value.toMutableSet()
-        if (current.contains(name)) current.remove(name) else current.add(name)
-        _visibleIndices.value = current
+        viewModelScope.launch {
+            val current = visibleIndices.value.toMutableSet()
+            if (current.contains(name)) current.remove(name) else current.add(name)
+            portfolioRepository.updateVisibleIndices(current.toList())
+        }
     }
 
     fun toggleWishlist(scrip: ScripMaster) {
@@ -94,11 +101,11 @@ class MarketViewModel(private val repository: MarketRepository) : ViewModel() {
     }
 }
 
-class MarketViewModelFactory(private val repository: MarketRepository) : ViewModelProvider.Factory {
+class MarketViewModelFactory(private val repository: MarketRepository, private val portfolioRepository: PortfolioRepository) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MarketViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return MarketViewModel(repository) as T
+            return MarketViewModel(repository, portfolioRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

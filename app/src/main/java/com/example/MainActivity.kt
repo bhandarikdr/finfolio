@@ -14,6 +14,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -70,15 +71,15 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 @Composable
-fun NepsePillBadge(index: String, value: Double, pct: Double) {
+fun NepsePillBadge(index: String, value: Double, pct: Double, symbol: String = "रु.") {
     val isPositive = pct >= 0
     val baseColor = if (isPositive) Color(0xFF10B981) else Color(0xFFEF4444)
     Surface(modifier = Modifier.padding(end = 8.dp), shape = RoundedCornerShape(100.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, baseColor.copy(0.3f))) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(baseColor))
             Column(horizontalAlignment = Alignment.End) {
-                Text(text = index, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
-                Text(text = String.format(Locale.US, "%,.1f (%+.2f%%)", value, pct), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = baseColor)
+                Text(text = index, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                Text(text = String.format(Locale.US, "%s%,.1f (%+.2f%%)", symbol, value, pct), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = baseColor)
             }
         }
     }
@@ -94,10 +95,10 @@ class MainActivity : ComponentActivity() {
                 val database = remember { AppDatabase.getDatabase(context) }
                 val repository = remember { PortfolioRepository(database.portfolioDao()) }
                 val marketRepo = remember { MarketRepository(database.portfolioDao()) }
-                val ipoRepo = remember { IpoRepository(database.portfolioDao()) }
+                val ipoRepo = remember { IpoRepository(database.portfolioDao(), database.ipoMasterDao()) }
 
                 val portfolioVM: PortfolioViewModel = viewModel(factory = PortfolioViewModelFactory(repository))
-                val marketVM: MarketViewModel = viewModel(factory = MarketViewModelFactory(marketRepo))
+                val marketVM: MarketViewModel = viewModel(factory = MarketViewModelFactory(marketRepo, repository))
                 val ipoVM: BulkIpoViewModel = viewModel(factory = BulkIpoViewModelFactory(ipoRepo))
 
                 PortfolioAppContent(portfolioVM, marketVM, ipoVM)
@@ -133,26 +134,33 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
         drawerState = drawerState, gesturesEnabled = false,
         drawerContent = {
             ModalDrawerSheet(Modifier.fillMaxWidth(0.8f)) { 
-                GlobalProfileDrawer(userProfile, 
+                GlobalProfileDrawer(userProfile, symbol = userProfile?.currencySymbol ?: "रु.",
                     onSupport = { 
                         cs.launch { 
                             pagerState.animateScrollToPage(3)
                             currentSubView = "Contact"
                             drawerState.close() 
                         } 
-                    }, 
+                    },
+                    onSettings = {
+                        cs.launch {
+                            pagerState.animateScrollToPage(3)
+                            currentSubView = "Settings"
+                            drawerState.close()
+                        }
+                    },
                     onClose = { cs.launch { drawerState.close() } }
                 ) 
             }
         }
     ) {
         Scaffold(
-            topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { cs.launch { drawerState.open() } }) { Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) }; Column(Modifier.padding(start = 8.dp)) { Text("FinFolio Pro", fontWeight = FontWeight.Bold); Text("EXECUTIVE ANALYTICS", fontSize = 9.sp, color = MaterialTheme.colorScheme.primary) } } }, actions = { if (nepseIndex != null) NepsePillBadge(nepseIndex.index, nepseIndex.value, nepseIndex.percentChange); IconButton(onClick = { 
+            topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { cs.launch { drawerState.open() } }) { Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) }; Column(Modifier.padding(start = 8.dp)) { Text("FinFolio Pro", fontWeight = FontWeight.Bold); Text("EXECUTIVE ANALYTICS", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary) } } }, actions = { if (nepseIndex != null) NepsePillBadge(nepseIndex.index, nepseIndex.value, nepseIndex.percentChange, symbol = userProfile?.currencySymbol ?: "रु."); IconButton(onClick = { 
                 viewModel.refreshLivePrices()
                 marketViewModel.refreshMarketData()
                 Toast.makeText(context, "Refreshing market data...", Toast.LENGTH_SHORT).show()
             }) { Icon(Icons.Default.Refresh, null) } }) },
-            bottomBar = { NavigationBar { tabs.forEachIndexed { i, tab -> NavigationBarItem(selected = pagerState.currentPage == i, onClick = { cs.launch { pagerState.animateScrollToPage(i) } }, label = { Text(tab.name.lowercase().capitalize()) }, icon = { Icon(when(tab){ NavigationTab.DASHBOARD -> Icons.Default.Dashboard; NavigationTab.MATRIX -> Icons.Default.TableChart; NavigationTab.DATA -> Icons.AutoMirrored.Filled.Input; NavigationTab.MORE -> Icons.Default.MoreHoriz }, null) }) } } }
+            bottomBar = { NavigationBar { tabs.forEachIndexed { i, tab -> NavigationBarItem(selected = pagerState.currentPage == i, onClick = { cs.launch { pagerState.animateScrollToPage(i) } }, label = { Text(tab.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }) }, icon = { Icon(when(tab){ NavigationTab.DASHBOARD -> Icons.Default.Dashboard; NavigationTab.MATRIX -> Icons.Default.TableChart; NavigationTab.DATA -> Icons.AutoMirrored.Filled.Input; NavigationTab.MORE -> Icons.Default.MoreHoriz }, null) }) } } }
         ) { inner ->
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().padding(inner), userScrollEnabled = true) { page ->
                 when (tabs[page]) {
@@ -168,17 +176,28 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
 }
 
 @Composable
-fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, onSupport: () -> Unit, onClose: () -> Unit) {
+fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: String = "रु.", onSupport: () -> Unit, onSettings: () -> Unit, onClose: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer.copy(0.3f)).padding(top = 48.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.padding(12.dp)) }
-                Spacer(Modifier.width(16.dp)); Column { Text(user?.name ?: "Guest", fontWeight = FontWeight.Bold); Text(user?.email ?: "local@finfolio.app", fontSize = 12.sp) }
+                Spacer(Modifier.width(16.dp)); Column { Text(user?.name ?: "Guest", fontWeight = FontWeight.Bold); Text(user?.email ?: "local@finfolio.app", fontSize = 14.sp) }
                 Spacer(Modifier.weight(1f)); IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close") }
             }
         }
-        DrawerItem(Icons.Default.Person, "My Profile"); DrawerItem(Icons.Default.Settings, "Settings"); DrawerItem(Icons.AutoMirrored.Filled.HelpCenter, "Support") { onSupport() }
-        Spacer(Modifier.weight(1f)); DrawerItem(Icons.AutoMirrored.Filled.Logout, "Logout", MaterialTheme.colorScheme.error); Text("Version 2.5.0", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 10.sp, color = Color.Gray)
+        DrawerItem(Icons.Default.Person, "My Profile")
+        DrawerItem(Icons.Default.Settings, "Settings") { onSettings() }
+        DrawerItem(Icons.AutoMirrored.Filled.HelpCenter, "Support") { onSupport() }
+        
+        Spacer(Modifier.weight(1f))
+        
+        // Quick Settings Info in Drawer
+        Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Currency: $symbol", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Format: ${user?.dateFormat ?: "AD"}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        
+        DrawerItem(Icons.AutoMirrored.Filled.Logout, "Logout", MaterialTheme.colorScheme.error); Text("Version 2.5.0", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -195,6 +214,7 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
         "Market" -> MarketScreen(marketVM, portfolioVM) { onSubViewChange(null) }
         "BulkCheck" -> BulkIpoCheckScreen(ipoVM) { onSubViewChange(null) }
         "IpoMaster" -> IpoMasterScreen(ipoVM) { onSubViewChange(null) }
+        "Settings" -> SettingsScreen(portfolioVM) { onSubViewChange(null) }
         "Contact" -> DeveloperProfilePanel(userProfile?.name ?: "User", userProfile?.email ?: "") { onSubViewChange(null) }
         else -> {
             LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -204,6 +224,7 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
                         { MoreCard("Markets", Icons.AutoMirrored.Filled.TrendingUp, Color(0xFF10B981)) { onSubViewChange("Market") } }, 
                         { MoreCard("Bulk IPO", Icons.AutoMirrored.Filled.FactCheck, Color(0xFFEF4444)) { onSubViewChange("BulkCheck") } }, 
                         { MoreCard("IPO Master", Icons.Default.Inventory, Color(0xFF8B5CF6)) { onSubViewChange("IpoMaster") } },
+                        { MoreCard("Settings", Icons.Default.Settings, Color(0xFF6366F1)) { onSubViewChange("Settings") } },
                         { MoreCard("Support", Icons.Default.SupportAgent, Color(0xFF3B82F6)) { onSubViewChange("Contact") } }, 
                         { MoreCard("Calculator", Icons.Default.Calculate, Color(0xFFF59E0B)) {} }
                     ) 
@@ -230,7 +251,7 @@ fun MoreCard(t: String, i: androidx.compose.ui.graphics.vector.ImageVector, c: C
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth().height(90.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.5f))) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Box(Modifier.size(36.dp).clip(CircleShape).background(c.copy(0.1f)), contentAlignment = Alignment.Center) { Icon(i, null, tint = c, modifier = Modifier.size(20.dp)) }
-            Spacer(Modifier.height(4.dp)); Text(t, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp)); Text(t, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -241,12 +262,15 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
     val allIdx by vm.indices.collectAsStateWithLifecycle(); val visIdx by vm.visibleIndices.collectAsStateWithLifecycle()
     val items by pvm.itemMetrics.collectAsStateWithLifecycle(); val wishMovers by vm.watchlistMovers.collectAsStateWithLifecycle()
     val pSyms = remember(items) { items.map { it.item.uppercase() }.toSet() }
+    val userProfile by pvm.userProfile.collectAsStateWithLifecycle()
+    val symbol = userProfile?.currencySymbol ?: "रु."
+    
     var showSch by remember { mutableStateOf(false) }; var showCfg by remember { mutableStateOf(false) }
     var searchMode by remember { mutableStateOf("Global") } // "Global" or "ScripOnly"
 
-    var expInd by remember { mutableStateOf(true) }
-    var expHol by remember { mutableStateOf(true) }
-    var expWis by remember { mutableStateOf(true) }
+    var expInd by remember { mutableStateOf(false) }
+    var expHol by remember { mutableStateOf(false) }
+    var expWis by remember { mutableStateOf(false) }
     var expandedSectors by remember { mutableStateOf(setOf<String>()) }
 
     val hM = changes.filter { it.symbol in pSyms }.sortedBy { m -> items.find { it.item == m.symbol }?.type ?: "Other" }
@@ -262,7 +286,7 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
             }
         }
         if (expInd) {
-            indices.chunked(2).forEach { row -> item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { Box(modifier = Modifier.weight(1f)) { MarketIndexCard(it) } }; if (row.size == 1) Spacer(modifier = Modifier.weight(1f)) } } }
+            indices.chunked(2).forEach { row -> item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { Box(modifier = Modifier.weight(1f)) { MarketIndexCard(it, symbol = symbol) } }; if (row.size == 1) Spacer(modifier = Modifier.weight(1f)) } } }
         }
         item { ExpandableHeader("My Holdings", hM.size, expHol, { expHol = !expHol }, Color(0xFF10B981)) }
         if (expHol) {
@@ -274,7 +298,7 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
                     }
                 }
                 if (isExp) {
-                    items(scrips) { MoverCard(it, true) }
+                    items(scrips) { MoverCard(it, true, symbol = symbol) }
                 }
             }
         }
@@ -285,7 +309,7 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
             }
         }
         if (expWis) {
-            items(wM) { MoverCard(it, false) }
+            items(wM) { MoverCard(it, false, symbol = symbol) }
         }
     }
     if (showSch) GlobalMarketSearchDialog(
@@ -318,14 +342,14 @@ fun ExpandableHeader(t: String, c: Int, ex: Boolean, onT: () -> Unit, clr: Color
 }
 
 @Composable
-fun MarketIndexCard(idx: NepseIndex) {
+fun MarketIndexCard(idx: NepseIndex, symbol: String = "रु.") {
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(12.dp)) {
-            Text(idx.index, fontSize = 10.sp, maxLines = 1, color = Color.Gray); 
+            Text(idx.index, fontSize = 12.sp, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant); 
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(String.format(Locale.US, "%,.1f", idx.value), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                Text(String.format(Locale.US, "%s%,.1f", symbol, idx.value), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                 Spacer(Modifier.width(8.dp))
-                Text(String.format(Locale.US, "Prev: %,.1f", idx.previousValue), fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 2.dp))
+                Text(String.format(Locale.US, "Prev: %,.1f", idx.previousValue), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 2.dp))
             }
             val c = if (idx.percentChange >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444)
             Text(String.format(Locale.US, "%+.2f (%+.2f%%)", idx.change, idx.percentChange), color = c, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -334,7 +358,7 @@ fun MarketIndexCard(idx: NepseIndex) {
 }
 
 @Composable
-fun MoverCard(m: ScripPriceChange, isH: Boolean) {
+fun MoverCard(m: ScripPriceChange, isH: Boolean, symbol: String = "रु.") {
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { 
@@ -345,7 +369,7 @@ fun MoverCard(m: ScripPriceChange, isH: Boolean) {
                         Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) { Text("Holding", fontSize = 8.sp) } 
                     } 
                 }
-                Text(String.format(Locale.US, "LTP: %,.1f (Prev: %,.1f)", m.ltp, m.previousLtp), fontSize = 11.sp, color = Color.Gray) 
+                Text(String.format(Locale.US, "LTP: %s%,.1f (Prev: %,.1f)", symbol, m.ltp, m.previousLtp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val c = if (m.change >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444)
             Column(horizontalAlignment = Alignment.End) { 
@@ -417,7 +441,7 @@ fun GlobalMarketSearchDialog(
                     }
                     
                     if (filteredScrips.isNotEmpty()) {
-                        item { Spacer(Modifier.height(8.dp)); Text("SCRIPS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray) }
+                        item { Spacer(Modifier.height(8.dp)); Text("SCRIPS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         items(filteredScrips) { s ->
                             val isHolding = s.symbol.uppercase() in holdingSymbols
                             val hasLtp = priceChanges.any { it.symbol.equals(s.symbol, true) }
@@ -435,16 +459,16 @@ fun GlobalMarketSearchDialog(
                                                 Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) { Text("Holding", fontSize = 8.sp) }
                                             }
                                         }
-                                        Text(s.name, fontSize = 10.sp, color = Color.Gray) 
+                                        Text(s.name, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) 
                                         if (!hasLtp) {
-                                            Text("No live data available", fontSize = 9.sp, color = Color.Red.copy(0.7f))
+                                            Text("No live data available", fontSize = 11.sp, color = MaterialTheme.colorScheme.error.copy(0.7f))
                                         }
                                     }
                                     IconButton(onClick = { onToggleWishlist(s) }) { 
                                         Icon(
                                             if (s.isWishlisted) Icons.Default.Favorite else Icons.Default.FavoriteBorder, 
                                             null, 
-                                            tint = if (s.isWishlisted) Color.Red else Color.Gray
+                                            tint = if (s.isWishlisted) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
                                         ) 
                                     }
                                 }
@@ -515,7 +539,11 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
 
     val filteredIpos = remember(searchQuery, ipos) {
         if (searchQuery.isBlank()) ipos
-        else ipos.filter { it.companyName.contains(searchQuery, true) || it.companyCode?.contains(searchQuery, true) == true }
+        else ipos.filter { 
+            it.companyName.contains(searchQuery, true) || 
+            it.companyCode?.contains(searchQuery, true) == true ||
+            it.cdscCompanyId?.toString()?.contains(searchQuery) == true
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -523,9 +551,16 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
             title = "Bulk IPO Result",
             onBack = onBack,
             trailingIcon = {
-                IconButton(onClick = { vm.syncIpos() }, enabled = !isS) { 
-                    if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Default.Refresh, null) 
+                Row {
+                    if (res.isNotEmpty()) {
+                        IconButton(onClick = { vm.clearResults() }) {
+                            Icon(Icons.Default.ClearAll, "Clear")
+                        }
+                    }
+                    IconButton(onClick = { vm.syncIpos() }, enabled = !isS) { 
+                        if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Refresh, null) 
+                    }
                 }
             }
         )
@@ -534,24 +569,32 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
         
         ExposedDropdownMenuBox(exp, { exp = it }) {
             OutlinedTextField(
-                value = searchQuery.ifBlank { sel?.companyName ?: "Select IPO" },
+                value = searchQuery.ifBlank { sel?.companyName ?: "Select IPO to check" },
                 onValueChange = { searchQuery = it; exp = true },
-                label = { Text("Search IPO") },
+                label = { Text("Select Company") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(exp) },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
-                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                singleLine = true
+                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                ),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
             )
             
-            if (filteredIpos.isNotEmpty()) {
-                ExposedDropdownMenu(exp, { exp = false }) {
-                    filteredIpos.forEach { ipo ->
+            ExposedDropdownMenu(exp, { exp = false }, modifier = Modifier.fillMaxWidth()) {
+                if (filteredIpos.isNotEmpty()) {
+                    filteredIpos.take(15).forEach { ipo ->
                         DropdownMenuItem(
                             text = { 
                                 Column {
-                                    Text(ipo.companyName, fontWeight = FontWeight.Bold)
-                                    if (!ipo.companyCode.isNullOrBlank()) {
-                                        Text(ipo.companyCode, fontSize = 10.sp, color = Color.Gray)
+                                    Text(ipo.companyName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (!ipo.companyCode.isNullOrBlank()) {
+                                            Text(ipo.companyCode, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                            Spacer(Modifier.width(8.dp))
+                                        }
+                                        Text("ID: ${ipo.cdscCompanyId}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             },
@@ -562,6 +605,11 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                             }
                         )
                     }
+                } else {
+                    DropdownMenuItem(
+                        text = { Text("No IPOs found. Click Refresh to sync.", color = Color.Gray) },
+                        onClick = { vm.syncIpos(); exp = false }
+                    )
                 }
             }
         }
@@ -630,31 +678,31 @@ fun IpoResultItem(r: BulkIpoResult) {
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { 
-                Text(r.boidEntry.name, fontWeight = FontWeight.Bold)
-                Text(r.boidEntry.boid, fontSize = 10.sp, color = Color.Gray) 
+                Text(r.boidEntry.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(r.boidEntry.boid, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) 
             }
             
             Box(contentAlignment = Alignment.CenterEnd) {
                 if (r.isChecking) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else if (r.result != null) {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             text = if (isSuccess) "ALLOTTED" else "NOT ALLOTTED",
                             color = if (isSuccess) Color(0xFF2E7D32) else Color(0xFFC62828),
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 11.sp
+                            fontSize = 13.sp
                         )
                         if (isSuccess) {
                             val unitsMatch = """(\d+)\s+units""".toRegex().find(r.result.message)
                             val units = unitsMatch?.groupValues?.get(1) ?: "Check"
-                            Text("$units Units", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                            Text("$units Units", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                         } else {
-                            Text(r.result.message, fontSize = 9.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(r.result.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 } else if (r.error != null) {
-                    Text(r.error, color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(r.error, color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -671,68 +719,295 @@ fun PasteBoidDialog(onA: (String) -> Unit, onD: () -> Unit) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onD,
-        title = { Text("Paste BOIDs") },
+        title = { Text("Paste Accounts") },
         text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("Paste BOIDs (Comma or Line separated)") },
-                modifier = Modifier.fillMaxWidth().height(200.dp),
-                placeholder = { Text("13010200000001\n13010200000002") }
-            )
+            Column {
+                Text(
+                    "Format: Name, BOID (one per line)", 
+                    style = MaterialTheme.typography.bodySmall, 
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Accounts Data") },
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                    placeholder = { Text("Ram Prasad, 1301020000000001\nShyam Lal, 1301020000000002") },
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
         },
-        confirmButton = { Button(onClick = { onA(text) }) { Text("Import") } },
+        confirmButton = { Button(onClick = { onA(text) }, enabled = text.isNotBlank()) { Text("Import List") } },
         dismissButton = { TextButton(onD) { Text("Cancel") } }
     )
 }
 
+fun formatCurrency(amount: Double, symbol: String): String {
+    return String.format(Locale.US, "%s%,.0f", symbol, amount)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
-    val ipos by vm.ipos.collectAsStateWithLifecycle()
-    val isS by vm.isSyncing.collectAsStateWithLifecycle()
-
+fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
+    val userProfile by vm.userProfile.collectAsStateWithLifecycle()
+    val currentCurrency = userProfile?.currencySymbol ?: "रु."
+    val currentDateFormat = userProfile?.dateFormat ?: "AD"
+    
+    val currencies = listOf("रु.", "$", "€", "£", "¥", "₹")
+    
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        SubScreenHeader(
-            title = "IPO Master List",
-            onBack = onBack,
-            trailingIcon = {
-                IconButton(onClick = { vm.syncIpos() }, enabled = !isS) {
-                    if (isS) CircularProgressIndicator(Modifier.size(20.dp))
-                    else Icon(Icons.Default.Refresh, null)
-                }
-            }
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        LazyColumn(Modifier.weight(1f)) {
-            items(ipos) { ipo ->
-                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(ipo.companyName, fontWeight = FontWeight.Bold)
-                            Text("ID: ${ipo.cdscCompanyId} | ${ipo.companyCode ?: "No Symbol"}", fontSize = 10.sp, color = Color.Gray)
-                        }
-                        Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                            Text(ipo.status, fontSize = 9.sp)
+        SubScreenHeader("Settings", onBack)
+        
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            item {
+                Text("Regional Preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Currency Symbol", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Select your preferred currency symbol to be used throughout the app.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        
+                        Spacer(Modifier.height(16.dp))
+                        
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            currencies.forEach { symbol ->
+                                FilterChip(
+                                    selected = currentCurrency == symbol,
+                                    onClick = { vm.updateAppSettings(symbol, currentDateFormat) },
+                                    label = { Text(symbol, fontWeight = FontWeight.Bold) },
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
-            if (ipos.isEmpty() && !isS) {
-                item {
-                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("No IPOs found.", color = Color.Gray)
-                            Button(onClick = { vm.syncIpos() }, Modifier.padding(top = 8.dp)) {
-                                Text("Sync from CDSC")
+            
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Date & Time Format", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Choose between BS (Bikram Sambat) or AD (Anno Domini) formats.", fontSize = 12.sp, color = Color.Gray)
+                        
+                        Spacer(Modifier.height(16.dp))
+                        
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf("AD", "BS").forEach { format ->
+                                OutlinedButton(
+                                    onClick = { /* To be implemented later */ },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = false, // Placeholder
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = if (currentDateFormat == format) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.outlinedButtonColors()
+                                ) {
+                                    Text(format)
+                                    if (format == "BS") {
+                                        Spacer(Modifier.width(4.dp))
+                                        Badge { Text("Soon", fontSize = 8.sp) }
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+            }
+            
+            item {
+                Text("System", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(12.dp))
+                Card(
+                    onClick = { /* Clear data logic if needed here */ },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(0.1f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(0.2f))
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DeleteForever, null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Reset Application Data", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                            Text("Wipe all transactions and local settings.", fontSize = 11.sp, color = MaterialTheme.colorScheme.error.copy(0.7f))
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
+    val ipos by vm.ipos.collectAsStateWithLifecycle()
+    val isS by vm.isSyncing.collectAsStateWithLifecycle()
+    val syncMsg by vm.syncMessage.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var searchQuery by remember { mutableStateOf("") }
+    var showAddManual by remember { mutableStateOf(false) }
+
+    LaunchedEffect(syncMsg) {
+        syncMsg?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
+
+    val filteredIpos = remember(searchQuery, ipos) {
+        if (searchQuery.isBlank()) ipos
+        else ipos.filter { 
+            it.companyName.contains(searchQuery, true) || 
+            it.companyCode?.contains(searchQuery, true) == true ||
+            it.cdscCompanyId?.toString()?.contains(searchQuery) == true
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        SubScreenHeader(
+            title = "IPO Master List",
+            onBack = onBack,
+            trailingIcon = {
+                Row {
+                    IconButton(onClick = { showAddManual = true }) { Icon(Icons.Default.Add, null) }
+                    IconButton(onClick = { vm.syncIpos() }, enabled = !isS) {
+                        if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Refresh, null)
+                    }
+                }
+            }
+        )
+
+        if (isS) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
+        }
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            placeholder = { Text("Search companies...") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, null) }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (filteredIpos.isEmpty() && !isS) {
+                item {
+                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Icon(if (searchQuery.isEmpty()) Icons.Default.Inventory else Icons.Default.SearchOff, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outlineVariant)
+                            Spacer(Modifier.height(16.dp))
+                            if (searchQuery.isEmpty()) {
+                                Text("No IPOs found in master list.", fontWeight = FontWeight.Bold)
+                                Text("Try syncing from online sources.", fontSize = 12.sp, color = Color.Gray)
+                                Spacer(Modifier.height(16.dp))
+                                Button(onClick = { vm.syncIpos() }) {
+                                    Icon(Icons.Default.Refresh, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Sync Now")
+                                }
+                            } else {
+                                Text("No results found for '$searchQuery'", fontWeight = FontWeight.Bold)
+                                Text("Try a different company name or symbol.", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+                }
+            }
+
+            items(filteredIpos) { ipo ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(ipo.companyName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(ipo.companyCode ?: "NO SYMBOL", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.width(8.dp))
+                                Text("ID: ${ipo.cdscCompanyId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        
+                        val statusColor = when (ipo.status.lowercase()) {
+                            "active", "open" -> Color(0xFF10B981)
+                            "allotted", "closed" -> Color(0xFF6B7280)
+                            "pipeline" -> Color(0xFFF59E0B)
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+
+                        IconButton(onClick = { vm.toggleIpoActive(ipo) }) {
+                            Icon(
+                                if (ipo.isActive) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                null,
+                                tint = if (ipo.isActive) MaterialTheme.colorScheme.primary else Color.Gray
+                            )
+                        }
+
+                        Badge(
+                            containerColor = statusColor.copy(alpha = 0.1f),
+                            contentColor = statusColor,
+                            modifier = Modifier.padding(start = 8.dp)
+                        ) {
+                            Text(ipo.status.uppercase(), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddManual) {
+        AddManualIpoDialog(
+            onDismiss = { showAddManual = false },
+            onAdd = { n, c, id ->
+                vm.addManualIpo(n, c, id)
+                showAddManual = false
+            }
+        )
+    }
+}
+
+@Composable
+fun AddManualIpoDialog(onDismiss: () -> Unit, onAdd: (String, String, Int) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var idText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Manual IPO") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Company Name") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(code, { code = it }, label = { Text("Symbol/Code") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    idText, 
+                    { if (it.all { c -> c.isDigit() }) idText = it }, 
+                    label = { Text("CDSC Company ID") }, 
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onAdd(name, code, idText.toIntOrNull() ?: 0) },
+                enabled = name.isNotBlank() && idText.isNotBlank()
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
@@ -767,7 +1042,12 @@ fun AddBoidDialog(onA: (String, String) -> Unit, onD: () -> Unit) {
 
 @Composable
 fun DashboardScreen(vm: PortfolioViewModel) {
-    val items by vm.itemMetrics.collectAsStateWithLifecycle(); val types by vm.typeMetrics.collectAsStateWithLifecycle(); val scope by vm.datasetScope.collectAsStateWithLifecycle()
+    val items by vm.itemMetrics.collectAsStateWithLifecycle()
+    val types by vm.typeMetrics.collectAsStateWithLifecycle()
+    val scope by vm.datasetScope.collectAsStateWithLifecycle()
+    val userProfile by vm.userProfile.collectAsStateWithLifecycle()
+    val symbol = userProfile?.currencySymbol ?: "रु."
+
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { ExecutiveScopeSelector(scope) { vm.setDatasetScope(it) } }
         val tEval = items.sumOf { it.evaluation }
@@ -778,9 +1058,9 @@ fun DashboardScreen(vm: PortfolioViewModel) {
         val tBuy = items.sumOf { it.buyAmount }
         val tGrowth = if (tBuy > 0.0) (tGain / tBuy) * 100.0 else 0.0
         val tProfitPct = if (tInv > 0.0) (tProf / tInv) * 100.0 else 0.0
-        item { ValuationSummaryCard(tEval, tInv, tRec, tGain, tGrowth, tProf, tProfitPct) }
-        item { SectorAllocationCard(types, tInv) }
-        item { PerformersSection(items) }
+        item { ValuationSummaryCard(tEval, tInv, tRec, tGain, tGrowth, tProf, tProfitPct, symbol = symbol) }
+        item { SectorAllocationCard(types, tInv, symbol) }
+        item { PerformersSection(items, symbol) }
     }
 }
 
@@ -793,24 +1073,25 @@ fun ValuationSummaryCard(
     growthPct: Double,
     profit: Double,
     profitPct: Double,
-    compact: Boolean = false
+    compact: Boolean = false,
+    symbol: String = "रु."
 ) {
     val c = Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, Color(0xFF1D4ED8)))
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(if (compact) 16.dp else 24.dp)) {
         Column(Modifier.background(c).padding(if (compact) 16.dp else 24.dp)) {
             Text("Portfolio Value", color = Color.White.copy(0.7f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text(String.format(Locale.US, "$%,.0f", portfolio), fontSize = if (compact) 24.sp else 32.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(formatCurrency(portfolio, symbol), fontSize = if (compact) 24.sp else 32.sp, fontWeight = FontWeight.Bold, color = Color.White)
             
             HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Color.White.copy(0.2f))
             
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth()) {
-                    MetricItem(Modifier.weight(1f), "INVEST", invest)
-                    MetricItem(Modifier.weight(1f), "RECEIVABLE", receivable, horizontalAlignment = Alignment.End)
+                    MetricItem(Modifier.weight(1f), "INVEST", invest, symbol = symbol)
+                    MetricItem(Modifier.weight(1f), "RECEIVABLE", receivable, horizontalAlignment = Alignment.End, symbol = symbol)
                 }
                 Row(Modifier.fillMaxWidth()) {
-                    MetricItem(Modifier.weight(1f), "NET GAIN", netGain, growthPct, isGain = true)
-                    MetricItem(Modifier.weight(1f), "PROFIT", profit, profitPct, isGain = true, horizontalAlignment = Alignment.End)
+                    MetricItem(Modifier.weight(1f), "NET GAIN", netGain, growthPct, isGain = true, symbol = symbol)
+                    MetricItem(Modifier.weight(1f), "PROFIT", profit, profitPct, isGain = true, horizontalAlignment = Alignment.End, symbol = symbol)
                 }
             }
         }
@@ -824,7 +1105,8 @@ fun MetricItem(
     value: Double,
     percent: Double? = null,
     isGain: Boolean = false,
-    horizontalAlignment: Alignment.Horizontal = Alignment.Start
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    symbol: String = "रु."
 ) {
     Column(modifier, horizontalAlignment = horizontalAlignment) {
         Text(label, color = Color.White.copy(0.7f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
@@ -832,7 +1114,7 @@ fun MetricItem(
             val color = if (isGain) {
                 if (value >= 0) Color(0xFF4ADE80) else Color(0xFFF87171)
             } else Color.White
-            Text(String.format(Locale.US, "$%,.0f", value), color = color, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(formatCurrency(value, symbol), color = color, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             if (percent != null) {
                 Text(
                     text = String.format(Locale.US, " (%+.1f%%)", percent),
@@ -847,7 +1129,7 @@ fun MetricItem(
 }
 
 @Composable
-fun SectorAllocationCard(m: List<TypeMetrics>, t: Double) {
+fun SectorAllocationCard(m: List<TypeMetrics>, t: Double, symbol: String = "रु.") {
     val sorted = remember(m) { m.sortedByDescending { it.netInvest } }
     val displayList = remember(sorted) {
         if (sorted.size > 5) {
@@ -905,7 +1187,7 @@ fun SectorAllocationCard(m: List<TypeMetrics>, t: Double) {
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("INVESTED", fontSize = 8.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                            Text(String.format(Locale.US, "$%,.0f", t), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(formatCurrency(t, symbol), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -926,7 +1208,7 @@ fun SectorAllocationCard(m: List<TypeMetrics>, t: Double) {
 }
 
 @Composable
-fun PerformersSection(m: List<ItemMetrics>) {
+fun PerformersSection(m: List<ItemMetrics>, symbol: String = "रु.") {
     val gainers = m.filter { it.netGain > 0 }.sortedByDescending { it.netGain }.take(2)
     val losers = m.filter { it.netGain < 0 }.sortedBy { it.netGain }.take(2)
 
@@ -938,12 +1220,12 @@ fun PerformersSection(m: List<ItemMetrics>) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("TOP GAINERS", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2ECE7B))
-                gainers.forEach { PerformerCard(it) }
+                gainers.forEach { PerformerCard(it, symbol) }
                 if (gainers.isEmpty()) Text("No gainers", fontSize = 10.sp, color = Color.Gray)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("TOP LOSERS", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFEF4444))
-                losers.forEach { PerformerCard(it) }
+                losers.forEach { PerformerCard(it, symbol) }
                 if (losers.isEmpty()) Text("No losers", fontSize = 10.sp, color = Color.Gray)
             }
         }
@@ -951,7 +1233,7 @@ fun PerformersSection(m: List<ItemMetrics>) {
 }
 
 @Composable
-fun PerformerCard(met: ItemMetrics) {
+fun PerformerCard(met: ItemMetrics, symbol: String = "रु.") {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -969,7 +1251,7 @@ fun PerformerCard(met: ItemMetrics) {
                 )
             }
             Text(
-                text = String.format(Locale.US, "$%,.0f", met.netGain),
+                text = formatCurrency(met.netGain, symbol),
                 color = if (met.netGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444),
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp
@@ -984,6 +1266,8 @@ fun MatrixScreen(vm: PortfolioViewModel) {
     val items by vm.itemMetrics.collectAsStateWithLifecycle(); val dTypes by vm.distinctTypes.collectAsStateWithLifecycle()
     var showCfg by remember { mutableStateOf(false) }
     val iCols by vm.itemColumns.collectAsStateWithLifecycle()
+    val userProfile by vm.userProfile.collectAsStateWithLifecycle()
+    val symbol = userProfile?.currencySymbol ?: "रु."
     
     val fItems = if (filter == "All") items else items.filter { it.type.equals(filter, true) }
     
@@ -998,7 +1282,7 @@ fun MatrixScreen(vm: PortfolioViewModel) {
     val tProfitPct = if (tInv > 0.0) (tProf / tInv) * 100.0 else 0.0
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
-        ValuationSummaryCard(tEval, tInv, tRec, tGain, tGrowth, tProf, tProfitPct, true)
+        ValuationSummaryCard(tEval, tInv, tRec, tGain, tGrowth, tProf, tProfitPct, true, symbol = symbol)
         Spacer(Modifier.height(8.dp)); ExecutiveScopeSelector(scope) { vm.setDatasetScope(it) }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             var exp by remember { mutableStateOf(false) }
@@ -1021,13 +1305,13 @@ fun MatrixScreen(vm: PortfolioViewModel) {
                 Text("Columns", fontSize = 10.sp) 
             }
         }
-        Box(Modifier.weight(1f).padding(top = 12.dp)) { ItemMatrixTable(fItems, iCols) }
+        Box(Modifier.weight(1f).padding(top = 12.dp)) { ItemMatrixTable(fItems, iCols, symbol = symbol) }
     }
     if (showCfg) ColumnConfigurationDialog(true, iCols, { vm.toggleItemColumn(it) }, { showCfg = false })
 }
 
 @Composable
-fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>) {
+fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>, symbol: String = "रु.") {
     val scroll = rememberScrollState(); val w = 90.dp
     Column(Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp))) {
         Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 8.dp)) { 
@@ -1063,28 +1347,28 @@ fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>) {
                 Row(Modifier.padding(vertical = 8.dp)) { 
                     MatrixCellText(r.item, FontWeight.Bold, 80.dp, color = MaterialTheme.colorScheme.primary)
                     Row(Modifier.horizontalScroll(scroll)) { 
-                        if (cols.contains("Buy_Amount")) MatrixCellText(String.format(Locale.US, "%,.0f", r.buyAmount), width = w)
+                        if (cols.contains("Buy_Amount")) MatrixCellText(formatCurrency(r.buyAmount, symbol), width = w)
                         if (cols.contains("Buy_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", r.buyQty), width = w)
                         if (cols.contains("Buy_Count")) MatrixCellText(r.buyCount.toString(), width = w)
-                        if (cols.contains("Sale_Amount")) MatrixCellText(String.format(Locale.US, "%,.0f", r.saleAmount), width = w)
+                        if (cols.contains("Sale_Amount")) MatrixCellText(formatCurrency(r.saleAmount, symbol), width = w)
                         if (cols.contains("Sale_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", r.saleQty), width = w)
                         if (cols.contains("Sale_Count")) MatrixCellText(r.saleCount.toString(), width = w)
-                        if (cols.contains("Returns_Cash")) MatrixCellText(String.format(Locale.US, "%,.0f", r.returnsCash), width = w)
+                        if (cols.contains("Returns_Cash")) MatrixCellText(formatCurrency(r.returnsCash, symbol), width = w)
                         if (cols.contains("Returns_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", r.returnsQty), width = w)
                         if (cols.contains("Return_Count")) MatrixCellText(r.returnCount.toString(), width = w)
                         if (cols.contains("Balance_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", r.balanceQty), width = w)
                         if (cols.contains("Avg_CP")) MatrixCellText(String.format(Locale.US, "%,.1f", r.avgCp), width = w)
                         if (cols.contains("Avg_SP")) MatrixCellText(String.format(Locale.US, "%,.1f", r.avgSp), width = w)
                         if (cols.contains("LTP")) MatrixCellText(String.format(Locale.US, "%,.1f", r.ltp), width = w)
-                        if (cols.contains("Net_Invest")) MatrixCellText(String.format(Locale.US, "%,.0f", r.netInvest), width = w)
-                        if (cols.contains("Evaluation")) MatrixCellText(String.format(Locale.US, "%,.0f", r.evaluation), width = w)
-                        if (cols.contains("Realized_Gain")) MatrixCellText(String.format(Locale.US, "%,.0f", r.realizedGain), width = w, color = if (r.realizedGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                        if (cols.contains("Unrealized_Gain")) MatrixCellText(String.format(Locale.US, "%,.0f", r.unrealizedGain), width = w, color = if (r.unrealizedGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                        if (cols.contains("Deductions")) MatrixCellText(String.format(Locale.US, "%,.0f", r.deductions), width = w, color = Color.Gray)
-                        if (cols.contains("Net_Gain")) MatrixCellText(String.format(Locale.US, "%,.0f", r.netGain), width = w, color = if (r.netGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                        if (cols.contains("Net_Invest")) MatrixCellText(formatCurrency(r.netInvest, symbol), width = w)
+                        if (cols.contains("Evaluation")) MatrixCellText(formatCurrency(r.evaluation, symbol), width = w)
+                        if (cols.contains("Realized_Gain")) MatrixCellText(formatCurrency(r.realizedGain, symbol), width = w, color = if (r.realizedGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                        if (cols.contains("Unrealized_Gain")) MatrixCellText(formatCurrency(r.unrealizedGain, symbol), width = w, color = if (r.unrealizedGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                        if (cols.contains("Deductions")) MatrixCellText(formatCurrency(r.deductions, symbol), width = w, color = Color.Gray)
+                        if (cols.contains("Net_Gain")) MatrixCellText(formatCurrency(r.netGain, symbol), width = w, color = if (r.netGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
                         if (cols.contains("Growth")) MatrixCellText(String.format(Locale.US, "%.1f%%", r.growth), width = w, color = if (r.growth >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                        if (cols.contains("Receivable_Amount")) MatrixCellText(String.format(Locale.US, "%,.0f", r.receivableAmount), width = w)
-                        if (cols.contains("Profit_Amount")) MatrixCellText(String.format(Locale.US, "%,.0f", r.profitAmount), width = w, color = if (r.profitAmount >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                        if (cols.contains("Receivable_Amount")) MatrixCellText(formatCurrency(r.receivableAmount, symbol), width = w)
+                        if (cols.contains("Profit_Amount")) MatrixCellText(formatCurrency(r.profitAmount, symbol), width = w, color = if (r.profitAmount >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
                         if (cols.contains("Profit_Percent")) MatrixCellText(String.format(Locale.US, "%.1f%%", r.profitPercent), width = w, color = if (r.profitPercent >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
                     } 
                 } 
@@ -1141,7 +1425,7 @@ fun RegistrationDialog(onR: (String, String) -> Unit) {
 }
 
 @Composable
-fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (String) -> String, onS: (TransactionRecord) -> Unit) {
+fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (String) -> String, symbol: String = "रु.", onS: (TransactionRecord) -> Unit) {
     var item by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("") }
     var action by remember { mutableStateOf("Buy") }
@@ -1167,20 +1451,20 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
                 var ex by remember { mutableStateOf(false) }; Box(Modifier.weight(1f)) { OutlinedButton({ ex = true }, Modifier.fillMaxWidth()) { Text(action); Icon(Icons.Default.ArrowDropDown, null) }; DropdownMenu(ex, { ex = false }) { listOf("Buy", "Sale", "Returns").forEach { a -> DropdownMenuItem(text = { Text(a) }, onClick = { action = a; ex = false }) } } }
                 OutlinedTextField(qty, { qty = it }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             }
-            OutlinedTextField(amt, { amt = it }, label = { Text("Amount ($)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            OutlinedTextField(amt, { amt = it }, label = { Text("Amount ($symbol)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             Button(onClick = { val q = qty.toDoubleOrNull() ?: 0.0; val a = amt.toDoubleOrNull() ?: 0.0; if (item.isNotBlank()) { onS(TransactionRecord(date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()), item = item, type = type, action = action, qty = q, amount = a)); item = ""; qty = ""; amt = "" } }, Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Text("Add Record") }
         }
     }
 }
 
 @Composable
-fun TransactionListItem(tx: TransactionRecord, onE: () -> Unit, onD: () -> Unit) {
+fun TransactionListItem(tx: TransactionRecord, symbol: String = "रु.", onE: () -> Unit, onD: () -> Unit) {
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             val clr = when(tx.action){ "Buy" -> Color(0xFF2ECE7B); "Sale" -> Color(0xFFEF4444); else -> Color(0xFF3B82F6) }
             Box(Modifier.size(36.dp).clip(CircleShape).background(clr.copy(0.1f)), contentAlignment = Alignment.Center) { Text(tx.action.take(1), color = clr, fontWeight = FontWeight.Bold) }
             Column(Modifier.weight(1f).padding(start = 12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(tx.item, fontWeight = FontWeight.Bold); if (tx.isSystemAdjustment) Icon(Icons.Default.AutoFixHigh, null, Modifier.size(12.dp), Color.Gray) }; Text("${tx.date} • ${tx.type}", fontSize = 10.sp, color = Color.Gray) }
-            Column(horizontalAlignment = Alignment.End) { Text(String.format(Locale.US, "$%,.0f", tx.amount), fontWeight = FontWeight.Bold); Text("${tx.qty} units", fontSize = 10.sp, color = Color.Gray) }
+            Column(horizontalAlignment = Alignment.End) { Text(formatCurrency(tx.amount, symbol), fontWeight = FontWeight.Bold); Text("${tx.qty} units", fontSize = 10.sp, color = Color.Gray) }
             IconButton(onClick = onE) { Icon(Icons.Default.Edit, null, Modifier.size(16.dp)) }
             IconButton(onClick = onD) { Icon(Icons.Default.Delete, null, Modifier.size(16.dp), tint = Color.Red) }
         }
@@ -1188,7 +1472,7 @@ fun TransactionListItem(tx: TransactionRecord, onE: () -> Unit, onD: () -> Unit)
 }
 
 @Composable
-fun EditTransactionDialog(r: TransactionRecord, dI: List<String>, dT: List<String>, onGetSector: suspend (String) -> String, onS: (TransactionRecord) -> Unit, onD: () -> Unit) {
+fun EditTransactionDialog(r: TransactionRecord, dI: List<String>, dT: List<String>, onGetSector: suspend (String) -> String, symbol: String = "रु.", onS: (TransactionRecord) -> Unit, onD: () -> Unit) {
     var item by remember { mutableStateOf(r.item) }
     var type by remember { mutableStateOf(r.type) }
     var qty by remember { mutableStateOf(r.qty.toString()) }
@@ -1211,7 +1495,7 @@ fun EditTransactionDialog(r: TransactionRecord, dI: List<String>, dT: List<Strin
                 }, dI)
                 AutoCompleteTextField("Sector", type, { type = it }, dT)
                 OutlinedTextField(qty, { qty = it }, label = { Text("Qty") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(amt, { amt = it }, label = { Text("Amount") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(amt, { amt = it }, label = { Text("Amount ($symbol)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 Row(Modifier.fillMaxWidth(), Arrangement.End) { 
                     TextButton(onD) { Text("Cancel") }
                     Spacer(Modifier.width(8.dp))
@@ -1260,6 +1544,9 @@ fun AutoCompleteTextField(l: String, v: String, onV: (String) -> Unit, sug: List
 @Composable
 fun DataScreen(viewModel: PortfolioViewModel) {
     val context = LocalContext.current; val transactions by viewModel.allTransactions.collectAsStateWithLifecycle(); val dItems by viewModel.distinctItems.collectAsStateWithLifecycle(); val dTypes by viewModel.distinctTypes.collectAsStateWithLifecycle()
+    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+    val symbol = userProfile?.currencySymbol ?: "रु."
+    
     var showImport by remember { mutableStateOf(false) }; var csvText by remember { mutableStateOf<String?>(null) }; var isWacc by remember { mutableStateOf(false) }; var showMS by remember { mutableStateOf(false) }
     var pMS by remember { mutableStateOf<String?>(null) }; var pDel by remember { mutableStateOf<TransactionRecord?>(null) }; var pAdd by remember { mutableStateOf<TransactionRecord?>(null) }
     var pUpd by remember { mutableStateOf<TransactionRecord?>(null) }; var editingRec by remember { mutableStateOf<TransactionRecord?>(null) }
@@ -1275,18 +1562,18 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { 
             Text("Record Transaction", fontWeight = FontWeight.Bold)
-            RowEntryForm(dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }) { pAdd = it } 
+            RowEntryForm(dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it } 
         }
         if (showMS) item { Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.AutoMirrored.Filled.TrendingUp, null); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text("WACC Loaded", fontWeight = FontWeight.Bold); Text("Sync Prices Now.", fontSize = 11.sp) }; Button(onClick = { msLauncher.launch("*/*") }) { Text("Sync") } } } }
         item { UnifiedIOCard(txLauncher, waLauncher, msLauncher, exLauncher) }
         item { Text("History (${transactions.size})", fontWeight = FontWeight.Bold); FilterDropdown(filter, dItems) { filter = it } }
         txY.forEach { (y, list) ->
             item { YearHeader(y, list.size, expY.contains(y)) { expY = if (expY.contains(y)) expY - y else expY + y } }
-            if (expY.contains(y)) items(list) { TransactionListItem(it, { editingRec = it }, { pDel = it }) }
+            if (expY.contains(y)) items(list) { TransactionListItem(it, symbol = symbol, onE = { editingRec = it }, onD = { pDel = it }) }
         }
     }
     if (showImport) AlertDialog({ showImport = false }, title = { Text("Import Mode") }, text = { Text("Append or Overwrite existing?") }, confirmButton = { Button({ viewModel.importTransactions(csvText!!, false, isWacc); showImport = false; showMS = true }) { Text("Append") } }, dismissButton = { TextButton({ viewModel.importTransactions(csvText!!, true, isWacc); showImport = false; showMS = true }) { Text("Overwrite") } })
-    if (editingRec != null) EditTransactionDialog(editingRec!!, dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, onS = { pUpd = it; editingRec = null }, onD = { editingRec = null })
+    if (editingRec != null) EditTransactionDialog(editingRec!!, dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol, onS = { pUpd = it; editingRec = null }, onD = { editingRec = null })
     if (pMS != null) AlertDialog({ pMS = null }, title = { Text("Align Portfolio?") }, confirmButton = { Button({ viewModel.importMeroshare(pMS!!); pMS = null; showMS = false }) { Text("Proceed") } }, dismissButton = { TextButton({ pMS = null }) { Text("Cancel") } })
     if (pDel != null) AlertDialog({ pDel = null }, title = { Text("Delete?") }, confirmButton = { Button({ viewModel.deleteTransaction(pDel!!); pDel = null }) { Text("Delete") } }, dismissButton = { TextButton({ pDel = null }) { Text("Cancel") } })
     if (pAdd != null) AlertDialog({ pAdd = null }, title = { Text("Add?") }, confirmButton = { Button({ viewModel.addTransaction(pAdd!!); pAdd = null }) { Text("Add") } }, dismissButton = { TextButton({ pAdd = null }) { Text("Cancel") } })
@@ -1358,25 +1645,25 @@ fun SectorExpandableHeader(type: String, count: Int, isExpanded: Boolean, onTogg
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onToggle() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
             null,
-            tint = Color.Gray,
-            modifier = Modifier.size(20.dp)
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp)
         )
         Text(
             text = type.uppercase(),
-            fontSize = 11.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = Color.Gray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp)
         )
         Spacer(Modifier.width(8.dp))
         Badge(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-            Text(count.toString(), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text(count.toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

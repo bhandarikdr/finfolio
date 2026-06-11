@@ -66,6 +66,9 @@ interface PortfolioDao {
     @Query("SELECT * FROM UserProfile WHERE id = 0 LIMIT 1")
     fun getUserProfile(): Flow<UserEntity?>
 
+    @Query("SELECT * FROM UserProfile WHERE id = 0 LIMIT 1")
+    suspend fun getUserProfileSync(): UserEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveUserProfile(user: UserEntity)
 
@@ -120,30 +123,4 @@ interface PortfolioDao {
 
     @Delete
     fun deleteBoid(boid: BoidEntity)
-
-    // --- IPO MASTER ---
-    @Query("SELECT * FROM ipo_master WHERE isActive = 1 ORDER BY companyName ASC")
-    fun getAllIpos(): Flow<List<IpoMaster>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertIpoMaster(ipo: IpoMaster)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertIpoMasters(ipos: List<IpoMaster>)
-
-    @Query("SELECT * FROM ipo_master WHERE cdscCompanyId = :cdscId LIMIT 1")
-    suspend fun getIpoByCdscId(cdscId: Int): IpoMaster?
-
-    @Query("UPDATE ipo_master SET status = :status, updatedAt = :timestamp WHERE cdscCompanyId = :cdscId")
-    suspend fun updateIpoStatus(cdscId: Int, status: String, timestamp: Long = System.currentTimeMillis())
-
-    // --- IPO RESULT CACHE ---
-    @Query("SELECT * FROM ipo_result_cache WHERE ipoId = :ipoId AND boid = :boid LIMIT 1")
-    suspend fun getIpoResult(ipoId: Int, boid: String): IpoResultCache?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertIpoResult(result: IpoResultCache)
-
-    @Query("DELETE FROM ipo_result_cache WHERE checkedAt < :timestamp")
-    suspend fun clearOldCache(timestamp: Long)
 }

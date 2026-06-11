@@ -43,6 +43,12 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
+    fun updateAppSettings(currency: String, dateFormat: String) {
+        viewModelScope.launch {
+            repository.updateAppSettings(currency, dateFormat)
+        }
+    }
+
     val allTransactions: StateFlow<List<TransactionRecord>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -281,6 +287,12 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
                 _snackbarMessage.emit("Portfolio Data Error: ${err.message}")
             }
             _isLoading.value = false
+        }
+    }
+
+    fun updateVisibleIndices(visible: List<String>) {
+        viewModelScope.launch {
+            repository.updateVisibleIndices(visible)
         }
     }
 }

@@ -3,6 +3,7 @@
 This document defines the logic and data management for the "Market Pulse" utility in FinFolio.
 
 ## 1. Data Categories
+Below three categories are displayed unexpanded by default and expands as the user clicks on the items
 
 ### A. Indices
 - **Data Source**: Scraped live from market sources (e.g., ShareSansar).
@@ -18,7 +19,7 @@ This document defines the logic and data management for the "Market Pulse" utili
 - **Display Selection**:
     - **NEPSE Index**: Permanently fixed and always displayed.
     - **Others**: Selectable via the Settings icon in the Indices header. Selected items are shown alongside the NEPSE index.
-    - **Selection Persistence**: Only indices explicitly checked in the Settings dialog are displayed (exact match).
+    - **Selection Persistence**: Only indices explicitly checked in the Settings dialog are displayed (exact match). Persistent across app restarts.
 
 ### B. My Holdings
 - **Data Source**: Derived from user's transaction history + Live Scrip Scraper.
@@ -42,11 +43,10 @@ This document defines the logic and data management for the "Market Pulse" utili
 - **Metrics**: Same as Holdings.
 - **Addition Logic**: The `Add` button specifically searches for Scrips (Indices are excluded in this mode).
 
-## 2. Search & Interaction
+## 2. Search in Watchlist & Interaction
 - **Search Logic**: Searching is primarily done through the `+` button in the Watchlist section.
-- **Combined Search Source**: Search results combine data from the fixed `ScripMaster` list and the `Live Trading` scraper to ensure all active scrips are discoverable.
+- **Combined Search Source**: Search results are the `Live Trading` scraper to ensure all active scrips are discoverable.
 - **Functionality**: Scrips (Holdings/Watchlist) are searchable and can be toggled in/out of the watchlist directly from the search dialog.
-- **Locate & Expand**: Selecting a search result identifies its category (Indices, Holdings, or Watchlist) and automatically expands that section to show the item.
 
 ## 3. Database Schema Reference
 - `MarketIndexEntity`: `indexName` (PK), `currentValue`, `previousValue`, `changePercent`.

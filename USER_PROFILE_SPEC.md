@@ -6,7 +6,12 @@ Details regarding user personalization and profile management.
 - **Name**: Displayed in the Navigation Drawer and support requests.
 - **Email**: Used for "Registering" the app instance and as a "Reply-To" for support emails.
 
-## 2. Global Profile Drawer
+## 2. App Settings
+Users can configure their application experience through the Settings page:
+- **Currency Symbol**: Choose from रु., $, €, £, ¥, ₹.
+- **Date Format**: (Future) Support for AD/BS toggle.
+
+## 3. Global Profile Drawer
 - Accessed via the user icon in the Top Bar.
 - Contains quick links to:
     - My Profile

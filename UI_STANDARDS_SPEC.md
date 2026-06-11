@@ -17,6 +17,12 @@ All secondary screens must use the `SubScreenHeader` composable to maintain cons
 - **Cards**: All items (Scrips, IPOs, BOIDs) should be wrapped in `Card` or `Surface` with rounded corners (8.dp to 12.dp).
 - **Badges**: Use `Badge` for counts and status indicators (e.g., "Holding", "Allotted").
 
-## 4. Expandable Sections
-- Use `ExpandableHeader` for main sections.
-- For nested groupings (like Sectors in Holdings), use `SectorExpandableHeader` which includes an item count next to the title (e.g., "BANKS 5").
+## 5. Currency & Numbers
+- **Formatting**: Always use the `formatCurrency(amount, symbol)` helper.
+- **Dynamic Symbol**: Retrieve the symbol from `userProfile.currencySymbol`.
+- **Locale**: Standardize on `Locale.US` for comma separators in thousands.
+
+## 6. Settings Page
+- **Location**: Accessible from the "More" tab.
+- **Sections**: Grouped by category (Regional, System, etc.).
+- **Interactive Elements**: Use `FilterChip` for selection menus and `FilterRow` for layout.

@@ -26,7 +26,15 @@ import kotlinx.coroutines.flow.map
 class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
     val userProfile: Flow<UserProfile> = portfolioDao.getUserProfile().map { entity ->
-        UserProfile(entity?.name ?: "", entity?.email ?: "")
+        UserProfile(
+            name = entity?.name ?: "",
+            email = entity?.email ?: "",
+            currencySymbol = entity?.currencySymbol ?: "रु.",
+            dateFormat = entity?.dateFormat ?: "AD",
+            visibleIndices = entity?.visibleIndicesJson?.let { 
+                if (it.isBlank()) emptyList() else it.split(",").filter { s -> s.isNotBlank() }
+            } ?: emptyList()
+        )
     }
 
     private val _nepseStatus = MutableStateFlow(NepseStatus())
@@ -34,7 +42,46 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
     suspend fun saveUserProfile(name: String, email: String) {
         withContext(Dispatchers.IO) {
-            portfolioDao.saveUserProfile(UserEntity(name = name, email = email))
+            val existing = portfolioDao.getUserProfileSync()
+            portfolioDao.saveUserProfile(
+                UserEntity(
+                    name = name,
+                    email = email,
+                    currencySymbol = existing?.currencySymbol ?: "रु.",
+                    dateFormat = existing?.dateFormat ?: "AD",
+                    visibleIndicesJson = existing?.visibleIndicesJson ?: ""
+                )
+            )
+        }
+    }
+
+    suspend fun updateAppSettings(currency: String, dateFormat: String) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            portfolioDao.saveUserProfile(
+                UserEntity(
+                    name = existing?.name ?: "",
+                    email = existing?.email ?: "",
+                    currencySymbol = currency,
+                    dateFormat = dateFormat,
+                    visibleIndicesJson = existing?.visibleIndicesJson ?: ""
+                )
+            )
+        }
+    }
+
+    suspend fun updateVisibleIndices(visible: List<String>) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            portfolioDao.saveUserProfile(
+                UserEntity(
+                    name = existing?.name ?: "",
+                    email = existing?.email ?: "",
+                    currencySymbol = existing?.currencySymbol ?: "रु.",
+                    dateFormat = existing?.dateFormat ?: "AD",
+                    visibleIndicesJson = visible.joinToString(",")
+                )
+            )
         }
     }
 

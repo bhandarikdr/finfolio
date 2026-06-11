@@ -2,24 +2,31 @@ package com.example.data.repository
 
 import com.example.data.db.BoidEntity
 import com.example.data.db.IpoMaster
+import com.example.data.db.IpoMasterDao
 import com.example.data.db.IpoResultCache
 import com.example.data.db.PortfolioDao
 import com.example.data.model.*
+import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.*
 
-class IpoRepository(private val portfolioDao: PortfolioDao) {
+class IpoRepository(
+    private val portfolioDao: PortfolioDao,
+    private val ipoMasterDao: IpoMasterDao
+) {
 
     val allBoids: Flow<List<BoidEntry>> = portfolioDao.getAllBoids().map { list ->
         list.map { BoidEntry(name = it.name, boid = it.boid) }
     }
 
-    val ipoMasterList: Flow<List<IpoMaster>> = portfolioDao.getAllIpos()
+    val ipoMasterList: Flow<List<IpoMaster>> = ipoMasterDao.getAllIPOs()
 
     suspend fun addBoid(name: String, boid: String) {
         portfolioDao.insertBoid(BoidEntity(boid, name))
@@ -29,14 +36,107 @@ class IpoRepository(private val portfolioDao: PortfolioDao) {
         portfolioDao.deleteBoid(BoidEntity(boid, ""))
     }
 
+    suspend fun updateIpo(ipo: IpoMaster) {
+        ipoMasterDao.update(ipo)
+    }
+
+    suspend fun addIpo(ipo: IpoMaster) {
+        ipoMasterDao.insert(ipo)
+    }
+
     suspend fun syncIpos(): Result<Unit> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<String>()
+        var successCount = 0
+
+        // 1. Sync from CDSC Result Portal (Primary for Bulk Checker)
         try {
-            val url = URL("https://iporesult.cdsc.com.np/result/company/list")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept", "application/json, text/plain, */*")
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            val cdscResult = syncFromCdscResultPortal()
+            if (cdscResult.isSuccess) {
+                successCount++
+                results.add("CDSC Result Portal synced")
+            }
+        } catch (e: Exception) {
+            Log.e("IpoRepository", "CDSC Sync Failed", e)
+        }
+
+        // 2. Sync from Nepali Paisa (Investment Calendar)
+        try {
+            val npResult = syncFromNepaliPaisa()
+            if (npResult.isSuccess) {
+                successCount++
+                results.add("Nepali Paisa synced")
+            }
+        } catch (e: Exception) {
+            Log.e("IpoRepository", "Nepali Paisa Sync Failed", e)
+        }
+
+        // 3. Sync from SEBON Pipeline
+        try {
+            val sebonResult = syncFromSebonPipeline()
+            if (sebonResult.isSuccess) {
+                successCount++
+                results.add("SEBON synced")
+            }
+        } catch (e: Exception) {
+            Log.e("IpoRepository", "SEBON Sync Failed", e)
+        }
+
+        if (successCount > 0) {
+            Result.success(Unit)
+        } else {
+            Result.failure(Exception("Failed to sync from all sources"))
+        }
+    }
+
+    private suspend fun syncFromSebonPipeline(): Result<Unit> {
+        return try {
+            val doc = Jsoup.connect("https://sebon.gov.np/ipo-pipeline")
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .timeout(15000)
+                .get()
             
+            val rows = doc.select("table tbody tr")
+            val newIpos = mutableListOf<IpoMaster>()
+            
+            for (row in rows) {
+                val cols = row.select("td")
+                if (cols.size >= 2) {
+                    val name = cols[1].text().trim()
+                    if (name.isNotBlank()) {
+                        val existing = ipoMasterDao.getByName(name)
+                        if (existing == null) {
+                            newIpos.add(IpoMaster(
+                                companyName = name,
+                                status = "Pipeline",
+                                source = "SEBON",
+                                issueType = "IPO"
+                            ))
+                        }
+                    }
+                }
+            }
+            if (newIpos.isNotEmpty()) {
+                ipoMasterDao.insertAll(newIpos)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("IpoRepository", "SEBON Sync Failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun syncFromCdscResultPortal(): Result<Unit> {
+        val url = URL("https://iporesult.cdsc.com.np/result/company/list")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.setRequestProperty("Accept", "application/json, text/plain, */*")
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        conn.setRequestProperty("Referer", "https://iporesult.cdsc.com.np/")
+        conn.setRequestProperty("Origin", "https://iporesult.cdsc.com.np")
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        
+        return try {
             if (conn.responseCode == 200) {
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONArray(text)
@@ -47,37 +147,107 @@ class IpoRepository(private val portfolioDao: PortfolioDao) {
                     val name = obj.getString("name")
                     val scrip = if (obj.has("scrip") && !obj.isNull("scrip")) obj.getString("scrip") else null
                     
-                    val existing = portfolioDao.getIpoByCdscId(cdscId)
+                    val existing = ipoMasterDao.getIpoByCdscId(cdscId)
                     if (existing == null) {
                         newIpos.add(IpoMaster(
                             companyName = name,
                             companyCode = scrip,
                             cdscCompanyId = cdscId,
-                            status = "Allotted" // Defaulting to Allotted as these are from result portal
+                            status = "Allotted",
+                            resultAvailable = true,
+                            source = "CDSC_PORTAL"
                         ))
-                    } else if (existing.companyName != name || existing.companyCode != scrip) {
-                        portfolioDao.insertIpoMaster(existing.copy(
+                    } else {
+                        ipoMasterDao.update(existing.copy(
                             companyName = name,
                             companyCode = scrip,
+                            resultAvailable = true,
                             updatedAt = System.currentTimeMillis()
                         ))
                     }
                 }
                 if (newIpos.isNotEmpty()) {
-                    portfolioDao.insertIpoMasters(newIpos)
+                    ipoMasterDao.insertAll(newIpos)
                 }
                 Result.success(Unit)
             } else {
-                Result.failure(Exception("CDSC Server returned ${conn.responseCode}"))
+                Log.e("IpoRepository", "CDSC Error: ${conn.responseCode}")
+                Result.failure(Exception("CDSC returned ${conn.responseCode}"))
             }
         } catch (e: Exception) {
+            Log.e("IpoRepository", "CDSC Network Error: ${e.message}")
+            Result.failure(e)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private suspend fun syncFromNepaliPaisa(): Result<Unit> {
+        return try {
+            // nepalipaisa.com uses a complex layout, let's try a broader search for company names
+            val doc = Jsoup.connect("https://www.nepalipaisa.com/ipo")
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .timeout(10000)
+                .get()
+            
+            val newIpos = mutableListOf<IpoMaster>()
+            
+            // Try to find tables or lists that contain IPO info
+            val elements = doc.select("tr, .ipo-item, .calendar-item")
+            
+            for (element in elements) {
+                val text = element.text()
+                // Simple heuristic: if it contains "IPO" and some typical company name markers
+                if (text.contains("IPO", ignoreCase = true) && text.length > 10) {
+                    val companyName = element.select("td, h4, .title").firstOrNull()?.text()?.trim()
+                    
+                    if (!companyName.isNullOrBlank() && companyName.length > 3) {
+                        val existing = ipoMasterDao.getByName(companyName) 
+                        if (existing == null) {
+                            newIpos.add(IpoMaster(
+                                companyName = companyName,
+                                status = "Active",
+                                source = "NEPALI_PAISA",
+                                issueType = "IPO"
+                            ))
+                        }
+                    }
+                }
+            }
+            
+            // Try specific table if above is too broad
+            val rows = doc.select("table tbody tr")
+            for (row in rows) {
+                val cols = row.select("td")
+                if (cols.size >= 2) {
+                    val companyName = cols[0].text().trim()
+                    if (companyName.isNotBlank() && companyName.length > 2) {
+                        val existing = ipoMasterDao.getByName(companyName)
+                        if (existing == null) {
+                            newIpos.add(IpoMaster(
+                                companyName = companyName,
+                                status = "Active",
+                                source = "NEPALI_PAISA",
+                                issueType = "IPO"
+                            ))
+                        }
+                    }
+                }
+            }
+
+            if (newIpos.isNotEmpty()) {
+                ipoMasterDao.insertAll(newIpos.distinctBy { it.companyName })
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("IpoRepository", "Nepali Paisa Sync Failed: ${e.message}")
             Result.failure(e)
         }
     }
 
     suspend fun checkIpoResult(cdscCompanyId: Int, boid: String): Result<IpoResultResponse> = withContext(Dispatchers.IO) {
         // Check cache first (24h validity)
-        val cached = portfolioDao.getIpoResult(cdscCompanyId, boid)
+        val cached = ipoMasterDao.getIpoResult(cdscCompanyId, boid)
         if (cached != null && (System.currentTimeMillis() - cached.checkedAt) < 24 * 60 * 60 * 1000) {
             return@withContext Result.success(IpoResultResponse(
                 success = cached.result == "Allotted" || cached.result == "Applied",
@@ -110,7 +280,7 @@ class IpoRepository(private val portfolioDao: PortfolioDao) {
                 val result = IpoResultResponse(success, message)
                 
                 // Cache result
-                portfolioDao.insertIpoResult(IpoResultCache(
+                ipoMasterDao.insertIpoResult(IpoResultCache(
                     ipoId = cdscCompanyId,
                     boid = boid,
                     result = if (success) "Allotted" else "Not Allotted",

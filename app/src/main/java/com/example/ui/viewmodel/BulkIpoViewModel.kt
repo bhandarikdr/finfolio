@@ -11,11 +11,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     val ipos: StateFlow<List<IpoMaster>> = repository.ipoMasterList
+        .map { list -> 
+            // Show all active IPOs, prioritizing those with result IDs
+            list.filter { it.isActive }.sortedWith(compareByDescending<IpoMaster> { it.resultAvailable }.thenByDescending { it.openingDate })
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedIpo = MutableStateFlow<IpoMaster?>(null)
@@ -32,6 +38,9 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     private val _isChecking = MutableStateFlow(false)
     val isChecking = _isChecking.asStateFlow()
+
+    private val _syncMessage = MutableStateFlow<String?>(null)
+    val syncMessage = _syncMessage.asStateFlow()
 
     init {
         // Automatically select the first IPO if available
@@ -54,8 +63,16 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
     fun syncIpos() {
         viewModelScope.launch {
             _isSyncing.value = true
-            repository.syncIpos()
+            _syncMessage.value = "Starting sync..."
+            val result = repository.syncIpos()
+            if (result.isSuccess) {
+                _syncMessage.value = "Sync successful"
+            } else {
+                _syncMessage.value = "Sync failed"
+            }
             _isSyncing.value = false
+            delay(2000)
+            _syncMessage.value = null
         }
     }
 
@@ -77,14 +94,25 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     fun addMultipleBoids(pastedText: String) {
         viewModelScope.launch {
-            // Split by lines, commas, or spaces
-            val lines = pastedText.split(Regex("[\n, ]+"))
+            val lines = pastedText.lines()
             lines.forEach { line ->
-                val trimmed = line.trim()
-                if (trimmed.length == 16 && trimmed.all { it.isDigit() }) {
-                    // Check if already exists in boids
-                    if (boids.value.none { it.boid == trimmed }) {
-                        repository.addBoid("User_${trimmed.takeLast(4)}", trimmed)
+                if (line.isBlank()) return@forEach
+                
+                // Try to find a 16-digit BOID in the line
+                val boidRegex = Regex("\\b\\d{16}\\b")
+                val match = boidRegex.find(line)
+                
+                if (match != null) {
+                    val boid = match.value
+                    // Extract name: everything before or after the BOID, minus common separators
+                    var name = line.replace(boid, "").replace(Regex("[,:|\\t]"), " ").trim()
+                    
+                    if (name.isBlank()) {
+                        name = "User_${boid.takeLast(4)}"
+                    }
+                    
+                    if (boids.value.none { it.boid == boid }) {
+                        repository.addBoid(name, boid)
                     }
                 }
             }
@@ -93,6 +121,7 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     fun startBulkCheck() {
         val ipo = _selectedIpo.value ?: return
+        val companyId = ipo.cdscCompanyId ?: return
         val currentBoids = boids.value
         if (currentBoids.isEmpty()) return
 
@@ -101,7 +130,7 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
             val initialResults = currentBoids.map { BulkIpoResult(it, isChecking = true) }
             _results.value = initialResults
 
-            repository.bulkCheckIpoResults(ipo.cdscCompanyId, currentBoids) { index, result ->
+            repository.bulkCheckIpoResults(companyId, currentBoids) { index, result ->
                 val updatedList = _results.value.toMutableList()
                 result.onSuccess {
                     updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
@@ -117,6 +146,24 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     fun clearResults() {
         _results.value = emptyList()
+    }
+
+    fun toggleIpoActive(ipo: IpoMaster) {
+        viewModelScope.launch {
+            repository.updateIpo(ipo.copy(isActive = !ipo.isActive))
+        }
+    }
+
+    fun addManualIpo(name: String, code: String, id: Int) {
+        viewModelScope.launch {
+            repository.addIpo(IpoMaster(
+                companyName = name,
+                companyCode = code,
+                cdscCompanyId = id,
+                status = "Manual",
+                source = "USER"
+            ))
+        }
     }
 }
 

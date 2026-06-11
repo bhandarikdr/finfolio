@@ -3,7 +3,13 @@ package com.example.data.model
 import com.example.data.db.ExternalLtp
 import com.example.data.db.TransactionRecord
 
-data class UserProfile(val name: String, val email: String)
+data class UserProfile(
+    val name: String,
+    val email: String,
+    val currencySymbol: String = "रु.",
+    val dateFormat: String = "AD",
+    val visibleIndices: List<String> = emptyList()
+)
 
 data class NepseStatus(
     val index: String = "0.00",
