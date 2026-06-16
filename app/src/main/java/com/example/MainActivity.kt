@@ -1372,7 +1372,46 @@ fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>, symbol: String 
                         if (cols.contains("Profit_Percent")) MatrixCellText(String.format(Locale.US, "%.1f%%", r.profitPercent), width = w, color = if (r.profitPercent >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
                     } 
                 } 
-            } 
+            }
+            if (items.isNotEmpty()) {
+                item {
+                    val tBuyAmt = items.sumOf { it.buyAmount }
+                    val tNetInv = items.sumOf { it.netInvest }
+                    val tNetGain = items.sumOf { it.netGain }
+                    val tProfAmt = items.sumOf { it.profitAmount }
+                    val tGrowth = if (tBuyAmt > 0) (tNetGain / tBuyAmt) * 100.0 else 0.0
+                    val tProfPct = if (tNetInv > 0) (tProfAmt / tNetInv) * 100.0 else 0.0
+
+                    Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(vertical = 12.dp)) {
+                        MatrixCellText("TOTAL", FontWeight.ExtraBold, 80.dp, color = MaterialTheme.colorScheme.primary)
+                        Row(Modifier.horizontalScroll(scroll)) {
+                            if (cols.contains("Buy_Amount")) MatrixCellText(formatCurrency(tBuyAmt, symbol), FontWeight.Bold, w)
+                            if (cols.contains("Buy_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.buyQty }), FontWeight.Bold, w)
+                            if (cols.contains("Buy_Count")) MatrixCellText(items.sumOf { it.buyCount }.toString(), FontWeight.Bold, w)
+                            if (cols.contains("Sale_Amount")) MatrixCellText(formatCurrency(items.sumOf { it.saleAmount }, symbol), FontWeight.Bold, w)
+                            if (cols.contains("Sale_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.saleQty }), FontWeight.Bold, w)
+                            if (cols.contains("Sale_Count")) MatrixCellText(items.sumOf { it.saleCount }.toString(), FontWeight.Bold, w)
+                            if (cols.contains("Returns_Cash")) MatrixCellText(formatCurrency(items.sumOf { it.returnsCash }, symbol), FontWeight.Bold, w)
+                            if (cols.contains("Returns_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.returnsQty }), FontWeight.Bold, w)
+                            if (cols.contains("Return_Count")) MatrixCellText(items.sumOf { it.returnCount }.toString(), FontWeight.Bold, w)
+                            if (cols.contains("Balance_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.balanceQty }), FontWeight.Bold, w)
+                            if (cols.contains("Avg_CP")) MatrixCellText("-", FontWeight.Bold, w)
+                            if (cols.contains("Avg_SP")) MatrixCellText("-", FontWeight.Bold, w)
+                            if (cols.contains("LTP")) MatrixCellText("-", FontWeight.Bold, w)
+                            if (cols.contains("Net_Invest")) MatrixCellText(formatCurrency(tNetInv, symbol), FontWeight.Bold, w)
+                            if (cols.contains("Evaluation")) MatrixCellText(formatCurrency(items.sumOf { it.evaluation }, symbol), FontWeight.Bold, w)
+                            if (cols.contains("Realized_Gain")) MatrixCellText(formatCurrency(items.sumOf { it.realizedGain }, symbol), FontWeight.Bold, w, color = if (items.sumOf { it.realizedGain } >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                            if (cols.contains("Unrealized_Gain")) MatrixCellText(formatCurrency(items.sumOf { it.unrealizedGain }, symbol), FontWeight.Bold, w, color = if (items.sumOf { it.unrealizedGain } >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                            if (cols.contains("Deductions")) MatrixCellText(formatCurrency(items.sumOf { it.deductions }, symbol), FontWeight.Bold, w, color = Color.Gray)
+                            if (cols.contains("Net_Gain")) MatrixCellText(formatCurrency(tNetGain, symbol), FontWeight.Bold, w, color = if (tNetGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                            if (cols.contains("Growth")) MatrixCellText(String.format(Locale.US, "%.1f%%", tGrowth), FontWeight.Bold, w, color = if (tGrowth >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                            if (cols.contains("Receivable_Amount")) MatrixCellText(formatCurrency(items.sumOf { it.receivableAmount }, symbol), FontWeight.Bold, w)
+                            if (cols.contains("Profit_Amount")) MatrixCellText(formatCurrency(tProfAmt, symbol), FontWeight.Bold, w, color = if (tProfAmt >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                            if (cols.contains("Profit_Percent")) MatrixCellText(String.format(Locale.US, "%.1f%%", tProfPct), FontWeight.Bold, w, color = if (tProfPct >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                        }
+                    }
+                }
+            }
         }
     }
 }

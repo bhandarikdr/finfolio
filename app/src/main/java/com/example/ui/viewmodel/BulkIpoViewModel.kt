@@ -131,14 +131,16 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
             _results.value = initialResults
 
             repository.bulkCheckIpoResults(companyId, currentBoids) { index, result ->
-                val updatedList = _results.value.toMutableList()
-                result.onSuccess {
-                    updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
+                viewModelScope.launch {
+                    val updatedList = _results.value.toMutableList()
+                    result.onSuccess {
+                        updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
+                    }
+                    result.onFailure {
+                        updatedList[index] = updatedList[index].copy(error = it.message, isChecking = false)
+                    }
+                    _results.value = updatedList
                 }
-                result.onFailure {
-                    updatedList[index] = updatedList[index].copy(error = it.message, isChecking = false)
-                }
-                _results.value = updatedList
             }
             _isChecking.value = false
         }
