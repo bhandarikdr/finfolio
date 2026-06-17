@@ -1342,7 +1342,7 @@ fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>, symbol: String 
                 if (cols.contains("Profit_Percent")) MatrixCellText("Profit %", FontWeight.Bold, w)
             } 
         }
-        LazyColumn(Modifier.fillMaxSize()) { 
+        LazyColumn(Modifier.weight(1f)) { 
             items(items) { r -> 
                 Row(Modifier.padding(vertical = 8.dp)) { 
                     MatrixCellText(r.item, FontWeight.Bold, 80.dp, color = MaterialTheme.colorScheme.primary)
@@ -1373,43 +1373,42 @@ fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>, symbol: String 
                     } 
                 } 
             }
-            if (items.isNotEmpty()) {
-                item {
-                    val tBuyAmt = items.sumOf { it.buyAmount }
-                    val tNetInv = items.sumOf { it.netInvest }
-                    val tNetGain = items.sumOf { it.netGain }
-                    val tProfAmt = items.sumOf { it.profitAmount }
-                    val tGrowth = if (tBuyAmt > 0) (tNetGain / tBuyAmt) * 100.0 else 0.0
-                    val tProfPct = if (tNetInv > 0) (tProfAmt / tNetInv) * 100.0 else 0.0
+        }
+        if (items.isNotEmpty()) {
+            val tBuyAmt = items.sumOf { it.buyAmount }
+            val tNetInv = items.sumOf { it.netInvest }
+            val tNetGain = items.sumOf { it.netGain }
+            val tProfAmt = items.sumOf { it.profitAmount }
+            val tGrowth = if (tBuyAmt > 0) (tNetGain / tBuyAmt) * 100.0 else 0.0
+            val tProfPct = if (tNetInv > 0) (tProfAmt / tNetInv) * 100.0 else 0.0
 
-                    Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(vertical = 12.dp)) {
-                        MatrixCellText("TOTAL", FontWeight.ExtraBold, 80.dp, color = MaterialTheme.colorScheme.primary)
-                        Row(Modifier.horizontalScroll(scroll)) {
-                            if (cols.contains("Buy_Amount")) MatrixCellText(formatCurrency(tBuyAmt, symbol), FontWeight.Bold, w)
-                            if (cols.contains("Buy_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.buyQty }), FontWeight.Bold, w)
-                            if (cols.contains("Buy_Count")) MatrixCellText(items.sumOf { it.buyCount }.toString(), FontWeight.Bold, w)
-                            if (cols.contains("Sale_Amount")) MatrixCellText(formatCurrency(items.sumOf { it.saleAmount }, symbol), FontWeight.Bold, w)
-                            if (cols.contains("Sale_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.saleQty }), FontWeight.Bold, w)
-                            if (cols.contains("Sale_Count")) MatrixCellText(items.sumOf { it.saleCount }.toString(), FontWeight.Bold, w)
-                            if (cols.contains("Returns_Cash")) MatrixCellText(formatCurrency(items.sumOf { it.returnsCash }, symbol), FontWeight.Bold, w)
-                            if (cols.contains("Returns_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.returnsQty }), FontWeight.Bold, w)
-                            if (cols.contains("Return_Count")) MatrixCellText(items.sumOf { it.returnCount }.toString(), FontWeight.Bold, w)
-                            if (cols.contains("Balance_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.balanceQty }), FontWeight.Bold, w)
-                            if (cols.contains("Avg_CP")) MatrixCellText("-", FontWeight.Bold, w)
-                            if (cols.contains("Avg_SP")) MatrixCellText("-", FontWeight.Bold, w)
-                            if (cols.contains("LTP")) MatrixCellText("-", FontWeight.Bold, w)
-                            if (cols.contains("Net_Invest")) MatrixCellText(formatCurrency(tNetInv, symbol), FontWeight.Bold, w)
-                            if (cols.contains("Evaluation")) MatrixCellText(formatCurrency(items.sumOf { it.evaluation }, symbol), FontWeight.Bold, w)
-                            if (cols.contains("Realized_Gain")) MatrixCellText(formatCurrency(items.sumOf { it.realizedGain }, symbol), FontWeight.Bold, w, color = if (items.sumOf { it.realizedGain } >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                            if (cols.contains("Unrealized_Gain")) MatrixCellText(formatCurrency(items.sumOf { it.unrealizedGain }, symbol), FontWeight.Bold, w, color = if (items.sumOf { it.unrealizedGain } >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                            if (cols.contains("Deductions")) MatrixCellText(formatCurrency(items.sumOf { it.deductions }, symbol), FontWeight.Bold, w, color = Color.Gray)
-                            if (cols.contains("Net_Gain")) MatrixCellText(formatCurrency(tNetGain, symbol), FontWeight.Bold, w, color = if (tNetGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                            if (cols.contains("Growth")) MatrixCellText(String.format(Locale.US, "%.1f%%", tGrowth), FontWeight.Bold, w, color = if (tGrowth >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                            if (cols.contains("Receivable_Amount")) MatrixCellText(formatCurrency(items.sumOf { it.receivableAmount }, symbol), FontWeight.Bold, w)
-                            if (cols.contains("Profit_Amount")) MatrixCellText(formatCurrency(tProfAmt, symbol), FontWeight.Bold, w, color = if (tProfAmt >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                            if (cols.contains("Profit_Percent")) MatrixCellText(String.format(Locale.US, "%.1f%%", tProfPct), FontWeight.Bold, w, color = if (tProfPct >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
-                        }
-                    }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 12.dp)) {
+                MatrixCellText("TOTAL", FontWeight.ExtraBold, 80.dp, color = MaterialTheme.colorScheme.primary)
+                Row(Modifier.horizontalScroll(scroll)) {
+                    if (cols.contains("Buy_Amount")) MatrixCellText(formatCurrency(tBuyAmt, symbol), FontWeight.Bold, w)
+                    if (cols.contains("Buy_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.buyQty }), FontWeight.Bold, w)
+                    if (cols.contains("Buy_Count")) MatrixCellText(items.sumOf { it.buyCount }.toString(), FontWeight.Bold, w)
+                    if (cols.contains("Sale_Amount")) MatrixCellText(formatCurrency(items.sumOf { it.saleAmount }, symbol), FontWeight.Bold, w)
+                    if (cols.contains("Sale_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.saleQty }), FontWeight.Bold, w)
+                    if (cols.contains("Sale_Count")) MatrixCellText(items.sumOf { it.saleCount }.toString(), FontWeight.Bold, w)
+                    if (cols.contains("Returns_Cash")) MatrixCellText(formatCurrency(items.sumOf { it.returnsCash }, symbol), FontWeight.Bold, w)
+                    if (cols.contains("Returns_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.returnsQty }), FontWeight.Bold, w)
+                    if (cols.contains("Return_Count")) MatrixCellText(items.sumOf { it.returnCount }.toString(), FontWeight.Bold, w)
+                    if (cols.contains("Balance_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", items.sumOf { it.balanceQty }), FontWeight.Bold, w)
+                    if (cols.contains("Avg_CP")) MatrixCellText("-", FontWeight.Bold, w)
+                    if (cols.contains("Avg_SP")) MatrixCellText("-", FontWeight.Bold, w)
+                    if (cols.contains("LTP")) MatrixCellText("-", FontWeight.Bold, w)
+                    if (cols.contains("Net_Invest")) MatrixCellText(formatCurrency(tNetInv, symbol), FontWeight.Bold, w)
+                    if (cols.contains("Evaluation")) MatrixCellText(formatCurrency(items.sumOf { it.evaluation }, symbol), FontWeight.Bold, w)
+                    if (cols.contains("Realized_Gain")) MatrixCellText(formatCurrency(items.sumOf { it.realizedGain }, symbol), FontWeight.Bold, w, color = if (items.sumOf { it.realizedGain } >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                    if (cols.contains("Unrealized_Gain")) MatrixCellText(formatCurrency(items.sumOf { it.unrealizedGain }, symbol), FontWeight.Bold, w, color = if (items.sumOf { it.unrealizedGain } >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                    if (cols.contains("Deductions")) MatrixCellText(formatCurrency(items.sumOf { it.deductions }, symbol), FontWeight.Bold, w, color = Color.Gray)
+                    if (cols.contains("Net_Gain")) MatrixCellText(formatCurrency(tNetGain, symbol), FontWeight.Bold, w, color = if (tNetGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                    if (cols.contains("Growth")) MatrixCellText(String.format(Locale.US, "%.1f%%", tGrowth), FontWeight.Bold, w, color = if (tGrowth >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                    if (cols.contains("Receivable_Amount")) MatrixCellText(formatCurrency(items.sumOf { it.receivableAmount }, symbol), FontWeight.Bold, w)
+                    if (cols.contains("Profit_Amount")) MatrixCellText(formatCurrency(tProfAmt, symbol), FontWeight.Bold, w, color = if (tProfAmt >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
+                    if (cols.contains("Profit_Percent")) MatrixCellText(String.format(Locale.US, "%.1f%%", tProfPct), FontWeight.Bold, w, color = if (tProfPct >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
                 }
             }
         }
@@ -1463,6 +1462,7 @@ fun RegistrationDialog(onR: (String, String) -> Unit) {
     AlertDialog(onDismissRequest = {}, title = { Text("Personalize") }, text = { Column { OutlinedTextField(n, { n = it }, label = { Text("Full Name") }); OutlinedTextField(e, { e = it }, label = { Text("Email") }) } }, confirmButton = { Button({ if (n.isNotBlank() && e.isNotBlank()) onR(n, e) }) { Text("Register") } })
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (String) -> String, symbol: String = "रु.", onS: (TransactionRecord) -> Unit) {
     var item by remember { mutableStateOf("") }
@@ -1472,27 +1472,127 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
     var amt by remember { mutableStateOf("") }
     val cs = rememberCoroutineScope()
 
+    var showAddItem by remember { mutableStateOf(false) }
+    var showAddType by remember { mutableStateOf(false) }
+
     Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            AutoCompleteTextField("Scrip", item, { 
-                item = it.uppercase()
-                if (item.length >= 2) {
-                    cs.launch {
-                        val suggestedSector = onGetSector(item)
-                        if (suggestedSector != "Other") {
-                            type = suggestedSector
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    var exp by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = exp, onExpandedChange = { exp = it }) {
+                        OutlinedTextField(
+                            value = item,
+                            onValueChange = { item = it.uppercase() },
+                            label = { Text("Scrip") },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exp) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                            singleLine = true
+                        )
+                        val filtered = dI.filter { it.contains(item, ignoreCase = true) }
+                        if (filtered.isNotEmpty()) {
+                            ExposedDropdownMenu(expanded = exp, onDismissRequest = { exp = false }) {
+                                filtered.take(10).forEach { selection ->
+                                    DropdownMenuItem(
+                                        text = { Text(selection) },
+                                        onClick = {
+                                            item = selection
+                                            exp = false
+                                            cs.launch {
+                                                val suggestedSector = onGetSector(item)
+                                                if (suggestedSector != "Other") type = suggestedSector
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }, dI)
-            AutoCompleteTextField("Sector", type, { type = it }, dT)
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                var ex by remember { mutableStateOf(false) }; Box(Modifier.weight(1f)) { OutlinedButton({ ex = true }, Modifier.fillMaxWidth()) { Text(action); Icon(Icons.Default.ArrowDropDown, null) }; DropdownMenu(ex, { ex = false }) { listOf("Buy", "Sale", "Returns").forEach { a -> DropdownMenuItem(text = { Text(a) }, onClick = { action = a; ex = false }) } } }
-                OutlinedTextField(qty, { qty = it }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                IconButton(onClick = { showAddItem = true }, modifier = Modifier.padding(top = 4.dp).size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
+                    Icon(Icons.Default.Add, "Add Scrip", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                }
             }
-            OutlinedTextField(amt, { amt = it }, label = { Text("Amount ($symbol)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-            Button(onClick = { val q = qty.toDoubleOrNull() ?: 0.0; val a = amt.toDoubleOrNull() ?: 0.0; if (item.isNotBlank()) { onS(TransactionRecord(date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()), item = item, type = type, action = action, qty = q, amount = a)); item = ""; qty = ""; amt = "" } }, Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Text("Add Record") }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    var exp by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = exp, onExpandedChange = { exp = it }) {
+                        OutlinedTextField(
+                            value = type,
+                            onValueChange = { type = it },
+                            label = { Text("Sector") },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exp) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                            singleLine = true
+                        )
+                        val filtered = dT.filter { it.contains(type, ignoreCase = true) }
+                        if (filtered.isNotEmpty()) {
+                            ExposedDropdownMenu(expanded = exp, onDismissRequest = { exp = false }) {
+                                filtered.forEach { selection ->
+                                    DropdownMenuItem(
+                                        text = { Text(selection) },
+                                        onClick = {
+                                            type = selection
+                                            exp = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                IconButton(onClick = { showAddType = true }, modifier = Modifier.padding(top = 4.dp).size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)) {
+                    Icon(Icons.Default.Add, "Add Sector", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+                var ex by remember { mutableStateOf(false) }; Box(Modifier.weight(1f)) { OutlinedButton({ ex = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) { Text(action); Icon(Icons.Default.ArrowDropDown, null) }; DropdownMenu(ex, { ex = false }) { listOf("Buy", "Sale", "Returns").forEach { a -> DropdownMenuItem(text = { Text(a) }, onClick = { action = a; ex = false }) } } }
+                OutlinedTextField(qty, { if (it.isEmpty() || it.toDoubleOrNull() != null) qty = it }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(8.dp))
+            }
+            OutlinedTextField(amt, { if (it.isEmpty() || it.toDoubleOrNull() != null) amt = it }, label = { Text("Amount ($symbol)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(8.dp))
+            Button(
+                onClick = { 
+                    val q = qty.toDoubleOrNull() ?: 0.0; 
+                    val a = amt.toDoubleOrNull() ?: 0.0; 
+                    if (item.isNotBlank()) { 
+                        onS(TransactionRecord(date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()), item = item, type = type, action = action, qty = q, amount = a)); 
+                        item = ""; qty = ""; amt = "" 
+                    } 
+                }, 
+                Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) { 
+                Icon(Icons.Default.Add, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Record Transaction", fontWeight = FontWeight.Bold) 
+            }
         }
+    }
+
+    if (showAddItem) {
+        var newScrip by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddItem = false },
+            title = { Text("New Scrip") },
+            text = { OutlinedTextField(newScrip, { newScrip = it.uppercase() }, label = { Text("Symbol") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { Button({ item = newScrip; showAddItem = false }) { Text("Set") } },
+            dismissButton = { TextButton({ showAddItem = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showAddType) {
+        var newType by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddType = false },
+            title = { Text("New Sector") },
+            text = { OutlinedTextField(newType, { newType = it }, label = { Text("Sector Name") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { Button({ type = newType; showAddType = false }) { Text("Set") } },
+            dismissButton = { TextButton({ showAddType = false }) { Text("Cancel") } }
+        )
     }
 }
 
@@ -1598,17 +1698,56 @@ fun DataScreen(viewModel: PortfolioViewModel) {
 
     val txY = remember(transactions, filter) { (if (filter == "All") transactions else transactions.filter { it.item.equals(filter, true) }).groupBy { it.date.split("-").firstOrNull() ?: "Unknown" }.toSortedMap(compareByDescending { it }) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        item { 
-            Text("Record Transaction", fontWeight = FontWeight.Bold)
-            RowEntryForm(dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it } 
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val tabs = listOf("Record", "I/O", "History")
+
+    Column(Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = selectedTab, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary, divider = {}) {
+            tabs.forEachIndexed { index, title ->
+                Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(title, fontWeight = FontWeight.Bold) })
+            }
         }
-        if (showMS) item { Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.AutoMirrored.Filled.TrendingUp, null); Column(Modifier.weight(1f).padding(start = 12.dp)) { Text("WACC Loaded", fontWeight = FontWeight.Bold); Text("Sync Prices Now.", fontSize = 11.sp) }; Button(onClick = { msLauncher.launch("*/*") }) { Text("Sync") } } } }
-        item { UnifiedIOCard(txLauncher, waLauncher, msLauncher, exLauncher) }
-        item { Text("History (${transactions.size})", fontWeight = FontWeight.Bold); FilterDropdown(filter, dItems) { filter = it } }
-        txY.forEach { (y, list) ->
-            item { YearHeader(y, list.size, expY.contains(y)) { expY = if (expY.contains(y)) expY - y else expY + y } }
-            if (expY.contains(y)) items(list) { TransactionListItem(it, symbol = symbol, onE = { editingRec = it }, onD = { pDel = it }) }
+
+        Box(Modifier.weight(1f).padding(16.dp)) {
+            when (selectedTab) {
+                0 -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Text("Record Transaction", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        RowEntryForm(dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it }
+                        if (showMS) {
+                            Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) { 
+                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { 
+                                    Icon(Icons.AutoMirrored.Filled.TrendingUp, null)
+                                    Column(Modifier.weight(1f).padding(start = 12.dp)) { 
+                                        Text("WACC Loaded", fontWeight = FontWeight.Bold)
+                                        Text("Sync Prices Now.", fontSize = 11.sp) 
+                                    }
+                                    Button(onClick = { msLauncher.launch("*/*") }) { Text("Sync") } 
+                                } 
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    UnifiedIOCard(txLauncher, waLauncher, msLauncher, exLauncher)
+                }
+                2 -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("History (${transactions.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Box(Modifier.width(150.dp)) {
+                                FilterDropdown(filter, dItems) { filter = it }
+                            }
+                        }
+                        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            txY.forEach { (y, list) ->
+                                item { YearHeader(y, list.size, expY.contains(y)) { expY = if (expY.contains(y)) expY - y else expY + y } }
+                                if (expY.contains(y)) items(list) { TransactionListItem(it, symbol = symbol, onE = { editingRec = it }, onD = { pDel = it }) }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     if (showImport) AlertDialog({ showImport = false }, title = { Text("Import Mode") }, text = { Text("Append or Overwrite existing?") }, confirmButton = { Button({ viewModel.importTransactions(csvText!!, false, isWacc); showImport = false; showMS = true }) { Text("Append") } }, dismissButton = { TextButton({ viewModel.importTransactions(csvText!!, true, isWacc); showImport = false; showMS = true }) { Text("Overwrite") } })

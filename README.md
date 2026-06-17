@@ -20,13 +20,13 @@ The app uses a **Cost Recovery Model** for Nepali stock market analytics and sup
 | **Evaluation (Individual)**       | `IF Avg CP > 0 THEN (Qty * LTP) ELSE MAX(0, Buy Amt - Sale Amt)`                        |
 | **Net Investment (Selected)**     | `SUM(Net Invest Selected)`                                                              |
 | **Current Evaluation (Selected)** | `SUM(Evaluation Selected)`                                                              |
-| **Receivable**                   | `Evaluation - Deductions`                                                               |
 | **Realized Gain**                 | `(Sale Amt - Buy Amt) + Returns Cash + Net Invest`                                      |
 | **Unrealized Gain**               | `Evaluation - Net Invest`                                                               |
 | **Deductions**                    | `IF Avg CP > 0 AND Evaluation > 0 THEN [(Eval * 0.0038) + 25 + (CGT if profit)] ELSE 0` |
 | **Net Gain (Individual)**         | `Realized Gain + Unrealized Gain - Deductions`                                          |
 | **Net Gain (Selected)**           | `SUM(Net Gain Selected)`                                                                |
 | **Growth %**                      | `(Net Gain / Buy Amount) * 100`                                                         |
+| **Receivable**                   | `Evaluation - Deductions`                                                               |
 | **Profit Amount**                 | `Evaluation - Net Invest`                                                               |
 | **Profit % (ROI)**                | `(Profit Amount / Net Invest) * 100`                                                    |
 
