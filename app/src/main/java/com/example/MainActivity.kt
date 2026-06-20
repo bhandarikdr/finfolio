@@ -306,8 +306,8 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
                     if (sortedGainers.isNotEmpty() || sortedLosers.isNotEmpty()) {
                         item {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                                Text("GAINERS", Modifier.weight(1f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2ECE7B))
-                                Text("LOSERS", Modifier.weight(1f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFEF4444), textAlign = TextAlign.End)
+                                Text("GAINERS (${sortedGainers.size})", Modifier.weight(1f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2ECE7B))
+                                Text("LOSERS (${sortedLosers.size})", Modifier.weight(1f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFEF4444), textAlign = TextAlign.End)
                             }
                         }
                     }
