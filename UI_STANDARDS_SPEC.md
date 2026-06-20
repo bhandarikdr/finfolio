@@ -27,7 +27,12 @@ All secondary screens must use the `SubScreenHeader` composable to maintain cons
 - **Dynamic Recent Items**: Dropdowns should prioritize "Recent Items" based on the user's transaction history.
 - **Dialogs for New Entry**: Use clean, focused dialogs for adding new entities that aren't in existing lists.
 
-## 7. Settings Page
+## 7. Responsive Feedback & Confirmations
+- **Action Confirmation**: Always ask for user confirmation before destructive actions (e.g., Deletion) or significant data changes (e.g., Adding/Updating records manually).
+- **Completion Notifications**: Use `Snackbar` to notify users upon successful completion of background or asynchronous tasks such as CSV Imports, Exports, and Portfolio Syncing.
+- **Progress Indicators**: Show loading states or progress indicators during long-running I/O operations to keep the UI responsive.
+
+## 8. Settings Page
 - **Location**: Accessible from the "More" tab.
 - **Sections**: Grouped by category (Regional, System, etc.).
 - **Interactive Elements**: Use `FilterChip` for selection menus and `FilterRow` for layout.

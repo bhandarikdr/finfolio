@@ -130,6 +130,15 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
         AlertDialog(onDismissRequest = { viewModel.confirmTypeUpdate(pendingTypeUpdate!!, false) }, title = { Text("Sync Sector?") }, text = { Text("Update Sector to '${pendingTypeUpdate!!.type}' for all '${pendingTypeUpdate!!.item}' records?") }, confirmButton = { Button(onClick = { viewModel.confirmTypeUpdate(pendingTypeUpdate!!, true) }) { Text("Yes") } }, dismissButton = { TextButton(onClick = { viewModel.confirmTypeUpdate(pendingTypeUpdate!!, false) }) { Text("No") } })
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarMessage by viewModel.snackbarMessage.collectAsState(initial = null)
+    
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let {
+            snackbarHostState.showSnackbar(it)
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState, gesturesEnabled = false,
         drawerContent = {
@@ -155,6 +164,7 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
         }
     ) {
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { cs.launch { drawerState.open() } }) { Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) }; Column(Modifier.padding(start = 8.dp)) { Text("FinFolio Pro", fontWeight = FontWeight.Bold); Text("EXECUTIVE ANALYTICS", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary) } } }, actions = { if (nepseIndex != null) NepsePillBadge(nepseIndex.index, nepseIndex.value, nepseIndex.percentChange, symbol = userProfile?.currencySymbol ?: "रु."); IconButton(onClick = { 
                 viewModel.refreshLivePrices()
                 marketViewModel.refreshMarketData()
@@ -1820,9 +1830,9 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     if (showImport) AlertDialog({ showImport = false }, title = { Text("Import Mode") }, text = { Text("Append or Overwrite existing transactions?") }, confirmButton = { Button({ viewModel.importTransactions(csvText!!, false, isWacc); showImport = false; showMS = true }) { Text("Append") } }, dismissButton = { TextButton({ viewModel.importTransactions(csvText!!, true, isWacc); showImport = false; showMS = true }) { Text("Overwrite") } })
     if (editingRec != null) EditTransactionDialog(editingRec!!, dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol, onS = { pUpd = it; editingRec = null }, onD = { editingRec = null })
     if (pendingMS != null) AlertDialog({ viewModel.cancelMeroshareImport() }, title = { Text("Align Portfolio?") }, text = { Text("This will create ${pendingMS!!.second} new history entries (System Adjustments) to match your current Meroshare holdings. Proceed?") }, confirmButton = { Button({ viewModel.importMeroshare(pendingMS!!.first); viewModel.cancelMeroshareImport(); showMS = false }) { Text("Proceed") } }, dismissButton = { TextButton({ viewModel.cancelMeroshareImport() }) { Text("Cancel") } })
-    if (pDel != null) AlertDialog({ pDel = null }, title = { Text("Delete?") }, confirmButton = { Button({ viewModel.deleteTransaction(pDel!!); pDel = null }) { Text("Delete") } }, dismissButton = { TextButton({ pDel = null }) { Text("Cancel") } })
-    if (pAdd != null) AlertDialog({ pAdd = null }, title = { Text("Add?") }, confirmButton = { Button({ viewModel.addTransaction(pAdd!!); pAdd = null }) { Text("Add") } }, dismissButton = { TextButton({ pAdd = null }) { Text("Cancel") } })
-    if (pUpd != null) AlertDialog({ pUpd = null }, title = { Text("Update?") }, confirmButton = { Button({ viewModel.updateTransaction(pUpd!!); pUpd = null }) { Text("Update") } }, dismissButton = { TextButton({ pUpd = null }) { Text("Cancel") } })
+    if (pDel != null) AlertDialog({ pDel = null }, title = { Text("Confirm Deletion") }, text = { Text("Are you sure you want to permanently delete this transaction for '${pDel!!.item}'? This action cannot be undone.") }, confirmButton = { Button({ viewModel.deleteTransaction(pDel!!); pDel = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton({ pDel = null }) { Text("Cancel") } })
+    if (pAdd != null) AlertDialog({ pAdd = null }, title = { Text("Confirm Record") }, text = { Text("Add this ${pAdd!!.action} transaction for '${pAdd!!.item}' to your history?") }, confirmButton = { Button({ viewModel.addTransaction(pAdd!!); pAdd = null }) { Text("Confirm") } }, dismissButton = { TextButton({ pAdd = null }) { Text("Cancel") } })
+    if (pUpd != null) AlertDialog({ pUpd = null }, title = { Text("Confirm Update") }, text = { Text("Apply changes to this transaction for '${pUpd!!.item}'?") }, confirmButton = { Button({ viewModel.updateTransaction(pUpd!!); pUpd = null }) { Text("Update") } }, dismissButton = { TextButton({ pUpd = null }) { Text("Cancel") } })
 }
 
 @Composable
