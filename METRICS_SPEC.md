@@ -6,8 +6,8 @@ The Matrix screen provides a granular, tabular view of every scrip in the portfo
 Users can toggle visibility for the following columns:
 - **Buy/Sale Metrics**: Amount, Qty, Count.
 - **Returns**: Cash and Qty received from bonus/right/dividends.
-- **Cost Analysis**: Balance Qty, Average Cost Price (Avg CP), Average Selling Price (Avg SP).
-- **Valuation**: LTP, Net Invest, Evaluation.
+- **Cost Analysis**: Balance Qty, Average Cost Price (Avg CP), Average Selling Price (Avg SP). *Note: Avg CP and Avg SP display the regional currency symbol.*
+- **Valuation**: LTP, Net Invest, Evaluation. *Note: LTP displays the regional currency symbol.*
 - **Performance**: Realized Gain, Unrealized Gain, Deductions, Net Gain, Growth %.
 - **Receivables**: Receivable Amount, Total Profit, Profit %.
 

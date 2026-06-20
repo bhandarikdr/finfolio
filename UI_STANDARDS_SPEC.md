@@ -22,7 +22,12 @@ All secondary screens must use the `SubScreenHeader` composable to maintain cons
 - **Dynamic Symbol**: Retrieve the symbol from `userProfile.currencySymbol`.
 - **Locale**: Standardize on `Locale.US` for comma separators in thousands.
 
-## 6. Settings Page
+## 6. Forms & Selection
+- **Input Fields**: Prefer dropdown selectors for repetitive data (e.g., Scrips, Sectors) to minimize typing errors.
+- **Dynamic Recent Items**: Dropdowns should prioritize "Recent Items" based on the user's transaction history.
+- **Dialogs for New Entry**: Use clean, focused dialogs for adding new entities that aren't in existing lists.
+
+## 7. Settings Page
 - **Location**: Accessible from the "More" tab.
 - **Sections**: Grouped by category (Regional, System, etc.).
 - **Interactive Elements**: Use `FilterChip` for selection menus and `FilterRow` for layout.

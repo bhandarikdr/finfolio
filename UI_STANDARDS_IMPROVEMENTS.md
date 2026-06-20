@@ -22,6 +22,8 @@ To ensure better readability and consistency across the app, font sizes have bee
 - **TopAppBar**: "EXECUTIVE ANALYTICS" tagline size increased.
 - **Market Pulse**: Headers and scrip details now use larger, more readable fonts.
 - **IPO Checker**: Results (Allotted/Not Allotted) and units are more prominent.
+- **Support Panel**: Refined to a more concise layout, removing large profile cards to ensure all fields are visible without scrolling on standard screens.
+- **Transaction Forms**: Replaced standard text inputs for Scrip/Sector with "Recent Item" dropdowns to improve data entry speed and accuracy.
 
 ## 4. Implementation Details
 - Applied via `@Composable` parameter updates in `MainActivity.kt`.
