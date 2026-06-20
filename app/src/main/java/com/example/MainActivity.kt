@@ -1357,9 +1357,9 @@ fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>, symbol: String 
                         if (cols.contains("Returns_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", r.returnsQty), width = w)
                         if (cols.contains("Return_Count")) MatrixCellText(r.returnCount.toString(), width = w)
                         if (cols.contains("Balance_Qty")) MatrixCellText(String.format(Locale.US, "%,.0f", r.balanceQty), width = w)
-                        if (cols.contains("Avg_CP")) MatrixCellText(String.format(Locale.US, "%,.1f", r.avgCp), width = w)
-                        if (cols.contains("Avg_SP")) MatrixCellText(String.format(Locale.US, "%,.1f", r.avgSp), width = w)
-                        if (cols.contains("LTP")) MatrixCellText(String.format(Locale.US, "%,.1f", r.ltp), width = w)
+                        if (cols.contains("Avg_CP")) MatrixCellText(String.format(Locale.US, "%s%,.1f", symbol, r.avgCp), width = w)
+                        if (cols.contains("Avg_SP")) MatrixCellText(String.format(Locale.US, "%s%,.1f", symbol, r.avgSp), width = w)
+                        if (cols.contains("LTP")) MatrixCellText(String.format(Locale.US, "%s%,.1f", symbol, r.ltp), width = w)
                         if (cols.contains("Net_Invest")) MatrixCellText(formatCurrency(r.netInvest, symbol), width = w)
                         if (cols.contains("Evaluation")) MatrixCellText(formatCurrency(r.evaluation, symbol), width = w)
                         if (cols.contains("Realized_Gain")) MatrixCellText(formatCurrency(r.realizedGain, symbol), width = w, color = if (r.realizedGain >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444))
@@ -1464,7 +1464,7 @@ fun RegistrationDialog(onR: (String, String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (String) -> String, symbol: String = "रु.", onS: (TransactionRecord) -> Unit) {
+fun RowEntryForm(dI: List<String>, rI: List<String>, dT: List<String>, rT: List<String>, onGetSector: suspend (String) -> String, symbol: String = "रु.", onS: (TransactionRecord) -> Unit) {
     var item by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("") }
     var action by remember { mutableStateOf("Buy") }
@@ -1480,37 +1480,39 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
                     var exp by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = exp, onExpandedChange = { exp = it }) {
-                        OutlinedTextField(
-                            value = item,
-                            onValueChange = { item = it.uppercase() },
-                            label = { Text("Scrip") },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exp) },
-                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                            singleLine = true
-                        )
-                        val filtered = dI.filter { it.contains(item, ignoreCase = true) }
-                        if (filtered.isNotEmpty()) {
-                            ExposedDropdownMenu(expanded = exp, onDismissRequest = { exp = false }) {
-                                filtered.take(10).forEach { selection ->
-                                    DropdownMenuItem(
-                                        text = { Text(selection) },
-                                        onClick = {
-                                            item = selection
-                                            exp = false
-                                            cs.launch {
-                                                val suggestedSector = onGetSector(item)
-                                                if (suggestedSector != "Other") type = suggestedSector
-                                            }
+                    OutlinedButton(
+                        onClick = { exp = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (item.isEmpty()) "Select Scrip" else item, color = if (item.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                            Icon(Icons.Default.ArrowDropDown, null)
+                        }
+                    }
+                    DropdownMenu(expanded = exp, onDismissRequest = { exp = false }, modifier = Modifier.fillMaxWidth(0.7f)) {
+                        if (rI.isEmpty()) {
+                            DropdownMenuItem(text = { Text("No recent scrips", fontSize = 12.sp, color = Color.Gray) }, onClick = { })
+                        } else {
+                            Text("RECENT SCRIPS", modifier = Modifier.padding(8.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            rI.forEach { selection ->
+                                DropdownMenuItem(
+                                    text = { Text(selection) },
+                                    onClick = {
+                                        item = selection
+                                        exp = false
+                                        cs.launch {
+                                            val suggestedSector = onGetSector(item)
+                                            if (suggestedSector != "Other") type = suggestedSector
                                         }
-                                    )
-                                }
+                                    }
+                                )
                             }
                         }
                     }
                 }
-                IconButton(onClick = { showAddItem = true }, modifier = Modifier.padding(top = 4.dp).size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
+                IconButton(onClick = { showAddItem = true }, modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
                     Icon(Icons.Default.Add, "Add Scrip", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }
             }
@@ -1518,33 +1520,35 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
                     var exp by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = exp, onExpandedChange = { exp = it }) {
-                        OutlinedTextField(
-                            value = type,
-                            onValueChange = { type = it },
-                            label = { Text("Sector") },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exp) },
-                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                            singleLine = true
-                        )
-                        val filtered = dT.filter { it.contains(type, ignoreCase = true) }
-                        if (filtered.isNotEmpty()) {
-                            ExposedDropdownMenu(expanded = exp, onDismissRequest = { exp = false }) {
-                                filtered.forEach { selection ->
-                                    DropdownMenuItem(
-                                        text = { Text(selection) },
-                                        onClick = {
-                                            type = selection
-                                            exp = false
-                                        }
-                                    )
-                                }
+                    OutlinedButton(
+                        onClick = { exp = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (type.isEmpty()) "Select Sector" else type, color = if (type.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                            Icon(Icons.Default.ArrowDropDown, null)
+                        }
+                    }
+                    DropdownMenu(expanded = exp, onDismissRequest = { exp = false }, modifier = Modifier.fillMaxWidth(0.7f)) {
+                        if (rT.isEmpty()) {
+                            DropdownMenuItem(text = { Text("No recent sectors", fontSize = 12.sp, color = Color.Gray) }, onClick = { })
+                        } else {
+                            Text("RECENT SECTORS", modifier = Modifier.padding(8.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                            rT.forEach { selection ->
+                                DropdownMenuItem(
+                                    text = { Text(selection) },
+                                    onClick = {
+                                        type = selection
+                                        exp = false
+                                    }
+                                )
                             }
                         }
                     }
                 }
-                IconButton(onClick = { showAddType = true }, modifier = Modifier.padding(top = 4.dp).size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)) {
+                IconButton(onClick = { showAddType = true }, modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)) {
                     Icon(Icons.Default.Add, "Add Sector", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
                 }
             }
@@ -1682,24 +1686,56 @@ fun AutoCompleteTextField(l: String, v: String, onV: (String) -> Unit, sug: List
 
 @Composable
 fun DataScreen(viewModel: PortfolioViewModel) {
-    val context = LocalContext.current; val transactions by viewModel.allTransactions.collectAsStateWithLifecycle(); val dItems by viewModel.distinctItems.collectAsStateWithLifecycle(); val dTypes by viewModel.distinctTypes.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val transactions by viewModel.allTransactions.collectAsStateWithLifecycle()
+    val dItems by viewModel.distinctItems.collectAsStateWithLifecycle()
+    val rItems by viewModel.recentItems.collectAsStateWithLifecycle()
+    val dTypes by viewModel.distinctTypes.collectAsStateWithLifecycle()
+    val rTypes by viewModel.recentTypes.collectAsStateWithLifecycle()
+    val itemMetrics by viewModel.itemMetrics.collectAsStateWithLifecycle()
+    
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val symbol = userProfile?.currencySymbol ?: "रु."
     
-    var showImport by remember { mutableStateOf(false) }; var csvText by remember { mutableStateOf<String?>(null) }; var isWacc by remember { mutableStateOf(false) }; var showMS by remember { mutableStateOf(false) }
-    var pMS by remember { mutableStateOf<String?>(null) }; var pDel by remember { mutableStateOf<TransactionRecord?>(null) }; var pAdd by remember { mutableStateOf<TransactionRecord?>(null) }
-    var pUpd by remember { mutableStateOf<TransactionRecord?>(null) }; var editingRec by remember { mutableStateOf<TransactionRecord?>(null) }
-    var filter by remember { mutableStateOf("All") }; var expY by remember { mutableStateOf(setOf<String>()) }; val cs = rememberCoroutineScope()
+    var showImport by remember { mutableStateOf(false) }
+    var csvText by remember { mutableStateOf<String?>(null) }
+    var isWacc by remember { mutableStateOf(false) }
+    var showMS by remember { mutableStateOf(false) }
+    
+    val pendingMS by viewModel.pendingMeroshareImport.collectAsStateWithLifecycle()
+    var pDel by remember { mutableStateOf<TransactionRecord?>(null) }
+    var pAdd by remember { mutableStateOf<TransactionRecord?>(null) }
+    var pUpd by remember { mutableStateOf<TransactionRecord?>(null) }
+    var editingRec by remember { mutableStateOf<TransactionRecord?>(null) }
+    var filter by remember { mutableStateOf("All") }
+    var expY by remember { mutableStateOf(setOf<String>()) }
+    val cs = rememberCoroutineScope()
 
-    val msLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) pMS = t } }
+    val msLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) viewModel.prepareMeroshareImport(t) } }
     val txLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) { csvText = t; isWacc = false; showImport = true } } }
     val waLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) { csvText = t; isWacc = true; showImport = true } } }
-    val exLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { if (it != null) cs.launch { val c = buildString { append("Date,Item,Action,Qty,Amount,Type\n"); transactions.forEach { append("${it.date},${it.item},${it.action},${it.qty},${it.amount},${it.type}\n") } }; withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(it)?.use { it.bufferedWriter().write(c) } }; withContext(Dispatchers.Main) { Toast.makeText(context, "Exported", Toast.LENGTH_SHORT).show() } } }
+    val exLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { if (it != null) cs.launch { 
+        val c = buildString { 
+            append("Date,Item,Action,Qty,Amount,Type,LTP\n")
+            transactions.forEach { tx ->
+                val ltp = itemMetrics.find { it.item.equals(tx.item, true) }?.ltp ?: 0.0
+                append("${tx.date},${tx.item},${tx.action},${tx.qty},${tx.amount},${tx.type},$ltp\n") 
+            } 
+        }
+        withContext(Dispatchers.IO) { 
+            context.contentResolver.openOutputStream(it)?.use { stream ->
+                stream.bufferedWriter().use { writer ->
+                    writer.write(c)
+                }
+            } 
+        }
+        withContext(Dispatchers.Main) { Toast.makeText(context, "Exported with LTP", Toast.LENGTH_SHORT).show() } 
+    } }
 
     val txY = remember(transactions, filter) { (if (filter == "All") transactions else transactions.filter { it.item.equals(filter, true) }).groupBy { it.date.split("-").firstOrNull() ?: "Unknown" }.toSortedMap(compareByDescending { it }) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Record", "I/O", "History")
+    val tabs = listOf("Record", "Import/Export", "History")
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedTab, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary, divider = {}) {
@@ -1713,16 +1749,16 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                 0 -> {
                     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                         Text("Record Transaction", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        RowEntryForm(dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it }
+                        RowEntryForm(dItems, rItems, dTypes, rTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it }
                         if (showMS) {
                             Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) { 
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { 
                                     Icon(Icons.AutoMirrored.Filled.TrendingUp, null)
                                     Column(Modifier.weight(1f).padding(start = 12.dp)) { 
                                         Text("WACC Loaded", fontWeight = FontWeight.Bold)
-                                        Text("Sync Prices Now.", fontSize = 11.sp) 
+                                        Text("Import Portfolio CSV to sync prices and quantities.", fontSize = 11.sp) 
                                     }
-                                    Button(onClick = { msLauncher.launch("*/*") }) { Text("Sync") } 
+                                    Button(onClick = { msLauncher.launch("*/*") }) { Text("Import") } 
                                 } 
                             }
                         }
@@ -1750,9 +1786,9 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             }
         }
     }
-    if (showImport) AlertDialog({ showImport = false }, title = { Text("Import Mode") }, text = { Text("Append or Overwrite existing?") }, confirmButton = { Button({ viewModel.importTransactions(csvText!!, false, isWacc); showImport = false; showMS = true }) { Text("Append") } }, dismissButton = { TextButton({ viewModel.importTransactions(csvText!!, true, isWacc); showImport = false; showMS = true }) { Text("Overwrite") } })
+    if (showImport) AlertDialog({ showImport = false }, title = { Text("Import Mode") }, text = { Text("Append or Overwrite existing transactions?") }, confirmButton = { Button({ viewModel.importTransactions(csvText!!, false, isWacc); showImport = false; showMS = true }) { Text("Append") } }, dismissButton = { TextButton({ viewModel.importTransactions(csvText!!, true, isWacc); showImport = false; showMS = true }) { Text("Overwrite") } })
     if (editingRec != null) EditTransactionDialog(editingRec!!, dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol, onS = { pUpd = it; editingRec = null }, onD = { editingRec = null })
-    if (pMS != null) AlertDialog({ pMS = null }, title = { Text("Align Portfolio?") }, confirmButton = { Button({ viewModel.importMeroshare(pMS!!); pMS = null; showMS = false }) { Text("Proceed") } }, dismissButton = { TextButton({ pMS = null }) { Text("Cancel") } })
+    if (pendingMS != null) AlertDialog({ viewModel.cancelMeroshareImport() }, title = { Text("Align Portfolio?") }, text = { Text("This will create ${pendingMS!!.second} new history entries (System Adjustments) to match your current Meroshare holdings. Proceed?") }, confirmButton = { Button({ viewModel.importMeroshare(pendingMS!!.first); viewModel.cancelMeroshareImport(); showMS = false }) { Text("Proceed") } }, dismissButton = { TextButton({ viewModel.cancelMeroshareImport() }) { Text("Cancel") } })
     if (pDel != null) AlertDialog({ pDel = null }, title = { Text("Delete?") }, confirmButton = { Button({ viewModel.deleteTransaction(pDel!!); pDel = null }) { Text("Delete") } }, dismissButton = { TextButton({ pDel = null }) { Text("Cancel") } })
     if (pAdd != null) AlertDialog({ pAdd = null }, title = { Text("Add?") }, confirmButton = { Button({ viewModel.addTransaction(pAdd!!); pAdd = null }) { Text("Add") } }, dismissButton = { TextButton({ pAdd = null }) { Text("Cancel") } })
     if (pUpd != null) AlertDialog({ pUpd = null }, title = { Text("Update?") }, confirmButton = { Button({ viewModel.updateTransaction(pUpd!!); pUpd = null }) { Text("Update") } }, dismissButton = { TextButton({ pUpd = null }) { Text("Cancel") } })
@@ -1762,13 +1798,47 @@ fun DataScreen(viewModel: PortfolioViewModel) {
 fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, wa: androidx.activity.result.ActivityResultLauncher<String>, ms: androidx.activity.result.ActivityResultLauncher<String>, ex: androidx.activity.result.ActivityResultLauncher<String>) {
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(0.3f))) {
         Column(Modifier.padding(16.dp)) {
-            Text("I/O Management", fontWeight = FontWeight.Bold)
-            Button(onClick = { tx.launch("*/*") }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Import Transaction CSV") }
-            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button({ wa.launch("*/*") }, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.tertiary)) { Text("WACC") }
-                Button({ ms.launch("*/*") }, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary)) { Text("Portfolio") }
+            Text("Import/Export Management", fontWeight = FontWeight.Bold)
+            HorizontalDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            
+            Text("Import Options", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            
+            Button(onClick = { tx.launch("*/*") }, Modifier.fillMaxWidth()) { 
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Standard Transaction CSV")
+                    Text("Fields: Date, Item, Action, Qty, Amount, Type", fontSize = 9.sp, fontWeight = FontWeight.Normal)
+                }
             }
-            Button({ ex.launch("finfolio_export.csv") }, Modifier.fillMaxWidth().padding(top = 16.dp), colors = ButtonDefaults.buttonColors(Color(0xFF2E7D32))) { Text("Export History") }
+            
+            Spacer(Modifier.height(12.dp))
+            
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button({ wa.launch("*/*") }, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.tertiary), shape = RoundedCornerShape(8.dp)) { 
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("WACC CSV")
+                        Text("Fields: Scrip, Qty, Rate, Cost", fontSize = 8.sp, fontWeight = FontWeight.Normal)
+                    }
+                }
+                Button({ ms.launch("*/*") }, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary), shape = RoundedCornerShape(8.dp)) { 
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Portfolio CSV")
+                        Text("Fields: Scrip, LTP, Balance", fontSize = 8.sp, fontWeight = FontWeight.Normal)
+                    }
+                }
+            }
+            
+            Text("Note: Portfolio CSV is optional for standard import but mandatory after WACC import to sync current holdings.", 
+                modifier = Modifier.padding(top = 12.dp), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            
+            Text("Export Options", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2E7D32))
+            Spacer(Modifier.height(8.dp))
+            
+            Button({ ex.launch("finfolio_export.csv") }, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(Color(0xFF2E7D32))) { 
+                Text("Export History with LTP") 
+            }
         }
     }
 }
@@ -1861,126 +1931,110 @@ fun DeveloperProfilePanel(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        SubScreenHeader("Support & Contact", onBack)
+        SubScreenHeader("Support", onBack)
         
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Box(
+        Column(Modifier.weight(1f).padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(MaterialTheme.colorScheme.primaryContainer.copy(0.3f), MaterialTheme.colorScheme.surface)
-                        )
-                    )
-                    .padding(24.dp)
+                    .padding(vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(80.dp),
-                        shadowElevation = 8.dp
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SupportAgent,
-                            contentDescription = null,
-                            modifier = Modifier.padding(16.dp),
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(60.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SupportAgent,
+                        contentDescription = null,
+                        modifier = Modifier.padding(12.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                Column {
                     Text(
                         text = "Kedar Bhandari",
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "Lead Developer • FinFolio Pro",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
+                        text = "Lead Developer",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AssistChip(
-                            onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/bkedarnp"))) },
-                            label = { Text("GitHub") },
-                            leadingIcon = { Icon(Icons.Default.Code, null, Modifier.size(16.dp)) }
+                    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "GitHub", 
+                            fontSize = 11.sp, 
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/bkedarnp"))) }
                         )
-                        AssistChip(
-                            onClick = { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:bkedarnp@gmail.com"))) },
-                            label = { Text("Email") },
-                            leadingIcon = { Icon(Icons.Default.AlternateEmail, null, Modifier.size(16.dp)) }
+                        Text(
+                            "Email", 
+                            fontSize = 11.sp, 
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:bkedarnp@gmail.com"))) }
                         )
                     }
                 }
             }
 
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Text(
-                    text = "Direct Support",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "We typically respond within 24 hours.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            HorizontalDivider(Modifier.padding(bottom = 16.dp), thickness = 0.5.dp)
 
-                Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Direct Support",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
 
-                OutlinedTextField(
-                    value = subject,
-                    onValueChange = { subject = it },
-                    label = { Text("Subject") },
-                    placeholder = { Text("What is this regarding?") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Topic, null, Modifier.size(20.dp)) }
-                )
+            OutlinedTextField(
+                value = subject,
+                onValueChange = { subject = it },
+                label = { Text("Subject", fontSize = 12.sp) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                singleLine = true
+            )
 
-                Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-                OutlinedTextField(
-                    value = customMessage,
-                    onValueChange = { customMessage = it },
-                    label = { Text("Message") },
-                    placeholder = { Text("Please describe your issue in detail...") },
-                    modifier = Modifier.fillMaxWidth().height(180.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    leadingIcon = { Box(Modifier.fillMaxHeight().padding(top = 12.dp, start = 12.dp)) { Icon(Icons.AutoMirrored.Filled.Message, null, Modifier.size(20.dp)) } }
-                )
+            OutlinedTextField(
+                value = customMessage,
+                onValueChange = { customMessage = it },
+                label = { Text("Message", fontSize = 12.sp) },
+                modifier = Modifier.fillMaxWidth().height(120.dp),
+                shape = RoundedCornerShape(8.dp)
+            )
 
-                Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-                Button(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_SENDTO).apply {
-                            data = Uri.parse("mailto:")
-                            putExtra(Intent.EXTRA_EMAIL, arrayOf("bkedarnp@gmail.com"))
-                            putExtra(Intent.EXTRA_SUBJECT, "[FinFolio Support] $subject")
-                            val body = "User: $userName ($userEmail)\n\nMessage:\n$customMessage\n\n---\nSystem: Android ${android.os.Build.VERSION.RELEASE}"
-                            putExtra(Intent.EXTRA_TEXT, body)
-                        }
-                        context.startActivity(Intent.createChooser(intent, "Choose Email Client"))
-                    },
-                    enabled = customMessage.isNotBlank() && subject.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, null)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Submit Request", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-                
-                Spacer(modifier = Modifier.height(40.dp)) // Padding for keyboard
+            Button(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_SENDTO).apply {
+                        data = Uri.parse("mailto:")
+                        putExtra(Intent.EXTRA_EMAIL, arrayOf("bkedarnp@gmail.com"))
+                        putExtra(Intent.EXTRA_SUBJECT, "[FinFolio Support] $subject")
+                        val body = "User: $userName ($userEmail)\n\nMessage:\n$customMessage\n\n---\nSystem: Android ${android.os.Build.VERSION.RELEASE}"
+                        putExtra(Intent.EXTRA_TEXT, body)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Choose Email Client"))
+                },
+                enabled = customMessage.isNotBlank() && subject.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Submit", fontWeight = FontWeight.Bold)
             }
+            
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

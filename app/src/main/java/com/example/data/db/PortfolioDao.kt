@@ -30,6 +30,12 @@ interface PortfolioDao {
     @Query("DELETE FROM Data")
     suspend fun clearAllTransactions()
 
+    @Query("SELECT item FROM Data GROUP BY item ORDER BY MAX(id) DESC LIMIT 15")
+    fun getRecentItems(): Flow<List<String>>
+
+    @Query("SELECT type FROM Data GROUP BY type ORDER BY MAX(id) DESC LIMIT 10")
+    fun getRecentTypes(): Flow<List<String>>
+
     @Query("SELECT DISTINCT item FROM Data ORDER BY item ASC")
     fun getDistinctItems(): Flow<List<String>>
 

@@ -58,6 +58,12 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     val distinctItems: StateFlow<List<String>> = repository.distinctItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val recentItems: StateFlow<List<String>> = repository.recentItems
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentTypes: StateFlow<List<String>> = repository.recentTypes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val distinctTypes: StateFlow<List<String>> = combine(
         repository.distinctTypes,
         repository.distinctSectorsFromMaster
@@ -275,6 +281,26 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             }
             _isLoading.value = false
         }
+    }
+
+    private val _pendingMeroshareImport = MutableStateFlow<Pair<String, Int>?>(null)
+    val pendingMeroshareImport = _pendingMeroshareImport.asStateFlow()
+
+    fun prepareMeroshareImport(csvText: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = repository.calculateMeroshareAdjustments(csvText.byteInputStream())
+            result.onSuccess { count ->
+                _pendingMeroshareImport.value = csvText to count
+            }.onFailure { err ->
+                _snackbarMessage.emit("CSV Parse Error: ${err.message}")
+            }
+            _isLoading.value = false
+        }
+    }
+
+    fun cancelMeroshareImport() {
+        _pendingMeroshareImport.value = null
     }
 
     fun importMeroshare(csvText: String) {

@@ -88,6 +88,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
     val allTransactions: Flow<List<TransactionRecord>> = portfolioDao.getAllTransactions()
     val allExternalLtps: Flow<List<ExternalLtp>> = portfolioDao.getAllExternalLtps()
     val distinctItems: Flow<List<String>> = portfolioDao.getDistinctItems()
+    val recentItems: Flow<List<String>> = portfolioDao.getRecentItems()
+    val recentTypes: Flow<List<String>> = portfolioDao.getRecentTypes()
     val distinctTypes: Flow<List<String>> = portfolioDao.getDistinctTypes()
     val distinctSectorsFromMaster: Flow<List<String>> = portfolioDao.getDistinctSectorsFromMaster()
 
@@ -233,6 +235,69 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                 if (overwrite) portfolioDao.clearAllTransactions()
                 records.forEach { portfolioDao.insertTransaction(it) }
                 Result.success(records.size)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun calculateMeroshareAdjustments(inputStream: InputStream): Result<Int> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val reader = BufferedReader(InputStreamReader(inputStream))
+                val lines = reader.readLines().filter { it.isNotBlank() }
+                if (lines.isEmpty()) return@withContext Result.success(0)
+
+                val headerLine = lines.first().replace("\uFEFF", "")
+                var separator = ","
+                if (headerLine.contains(";") && (headerLine.count { it == ';' } > headerLine.count { it == ',' })) {
+                    separator = ";"
+                }
+                val header = parseCsvRow(headerLine, separator).map { it.lowercase().replace("\"", "").trim() }
+
+                val scripIdx = header.indexOfFirst { it.contains("scrip") || it.contains("symbol") || it.contains("item") || it.contains("scrip name") || it.contains("name") }
+                val qtyIdx = header.indexOfFirst { it.contains("current") || it.contains("balance") || it.contains("units") || it.contains("qty") || it.contains("quantity") }
+
+                if (scripIdx == -1 || qtyIdx == -1) return@withContext Result.success(0)
+
+                val allTx = portfolioDao.getAllTransactionsSync()
+                val groupedTx = allTx.groupBy { it.item.uppercase().trim() }
+                var adjustmentCount = 0
+
+                val csvScrips = mutableSetOf<String>()
+
+                for (i in 1 until lines.size) {
+                    val cols = parseCsvRow(lines[i], separator)
+                    if (cols.size > maxOf(scripIdx, qtyIdx)) {
+                        val scrip = cols[scripIdx].uppercase().trim()
+                        if (scrip.isEmpty()) continue
+                        csvScrips.add(scrip)
+                        
+                        val importedQty = cols[qtyIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                        val scripTx = groupedTx[scrip] ?: emptyList()
+                        val currentBalance = scripTx.filter { it.action == "Buy" }.sumOf { it.qty } +
+                                           scripTx.filter { it.action == "Returns" }.sumOf { it.qty } -
+                                           scripTx.filter { it.action == "Sale" }.sumOf { it.qty }
+
+                        if (Math.abs(currentBalance - importedQty) > 0.001) {
+                            adjustmentCount++
+                        }
+                    }
+                }
+
+                // Handle scrips in DB but missing from CSV
+                for ((scrip, scripTx) in groupedTx) {
+                    if (scrip !in csvScrips) {
+                        val balance = scripTx.filter { it.action == "Buy" }.sumOf { it.qty } +
+                                     scripTx.filter { it.action == "Returns" }.sumOf { it.qty } -
+                                     scripTx.filter { it.action == "Sale" }.sumOf { it.qty }
+                        if (balance > 0.001) {
+                            adjustmentCount++
+                        }
+                    }
+                }
+
+                Result.success(adjustmentCount)
             } catch (e: Exception) {
                 Result.failure(e)
             }
