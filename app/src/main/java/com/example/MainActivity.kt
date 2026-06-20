@@ -298,7 +298,30 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
                     }
                 }
                 if (isExp) {
-                    items(scrips) { MoverCard(it, true, symbol = symbol) }
+                    val (gainers, losers) = scrips.partition { it.change >= 0 }
+                    val sortedGainers = gainers.sortedByDescending { it.percentChange }
+                    val sortedLosers = losers.sortedBy { it.percentChange }
+                    val maxRows = maxOf(sortedGainers.size, sortedLosers.size)
+                    
+                    if (sortedGainers.isNotEmpty() || sortedLosers.isNotEmpty()) {
+                        item {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                Text("GAINERS", Modifier.weight(1f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2ECE7B))
+                                Text("LOSERS", Modifier.weight(1f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFEF4444), textAlign = TextAlign.End)
+                            }
+                        }
+                    }
+
+                    items(maxRows) { i ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.weight(1f)) {
+                                sortedGainers.getOrNull(i)?.let { MoverCard(it, true, symbol = symbol, compact = true) }
+                            }
+                            Box(Modifier.weight(1f)) {
+                                sortedLosers.getOrNull(i)?.let { MoverCard(it, true, symbol = symbol, compact = true) }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -358,23 +381,31 @@ fun MarketIndexCard(idx: NepseIndex, symbol: String = "रु.") {
 }
 
 @Composable
-fun MoverCard(m: ScripPriceChange, isH: Boolean, symbol: String = "रु.") {
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+fun MoverCard(m: ScripPriceChange, isH: Boolean, symbol: String = "रु.", compact: Boolean = false) {
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.3f))
+    ) {
+        Row(Modifier.padding(if (compact) 10.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { 
                 Row(verticalAlignment = Alignment.CenterVertically) { 
-                    Text(m.symbol, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                    if (isH) { 
+                    Text(m.symbol, fontWeight = FontWeight.ExtraBold, fontSize = if (compact) 13.sp else 14.sp)
+                    if (isH && !compact) { 
                         Spacer(Modifier.width(8.dp))
                         Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) { Text("Holding", fontSize = 8.sp) } 
                     } 
                 }
-                Text(String.format(Locale.US, "LTP: %s%,.1f (Prev: %,.1f)", symbol, m.ltp, m.previousLtp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (compact) {
+                    Text(String.format(Locale.US, "LTP: %,.0f", m.ltp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text(String.format(Locale.US, "LTP: %s%,.1f (Prev: %,.1f)", symbol, m.ltp, m.previousLtp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             val c = if (m.change >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444)
             Column(horizontalAlignment = Alignment.End) { 
-                Text(String.format(Locale.US, "%+.1f", m.change), color = c, fontWeight = FontWeight.Bold)
-                Text(String.format(Locale.US, "%+.2f%%", m.percentChange), color = c, fontSize = 12.sp, fontWeight = FontWeight.Bold) 
+                Text(String.format(Locale.US, "%+.1f", m.change), color = c, fontWeight = FontWeight.Bold, fontSize = if (compact) 11.sp else 13.sp)
+                Text(String.format(Locale.US, "%+.2f%%", m.percentChange), color = c, fontSize = if (compact) 10.sp else 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
