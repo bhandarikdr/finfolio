@@ -1652,21 +1652,22 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
             Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 var ex by remember { mutableStateOf(false) }
                 Box(Modifier.weight(1f)) { 
-                    OutlinedButton(
-                        onClick = { ex = true }, 
-                        modifier = Modifier.fillMaxWidth().height(60.dp), 
-                        shape = RoundedCornerShape(8.dp)
-                    ) { 
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(action)
-                            Icon(Icons.Default.ArrowDropDown, null) 
-                        }
-                    } 
+                    OutlinedTextField(
+                        value = action,
+                        onValueChange = {},
+                        label = { Text("Action") },
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth().height(60.dp).onFocusChanged { if (it.isFocused) ex = true },
+                        shape = RoundedCornerShape(8.dp),
+                        trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.clickable { ex = true }) }
+                    )
                     DropdownMenu(expanded = ex, onDismissRequest = { ex = false }) { 
                         listOf("Buy", "Sale", "Returns").forEach { a -> 
                             DropdownMenuItem(text = { Text(a) }, onClick = { action = a; ex = false }) 
                         } 
                     } 
+                    // Transparent overlay to ensure clicks everywhere in the box open the menu
+                    Box(Modifier.matchParentSize().clickable { ex = true })
                 }
                 OutlinedTextField(
                     value = qty, 

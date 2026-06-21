@@ -22,10 +22,10 @@ All secondary screens must use the `SubScreenHeader` composable to maintain cons
 - **Dynamic Symbol**: Retrieve the symbol from `userProfile.currencySymbol`.
 - **Locale**: Standardize on `Locale.US` for comma separators in thousands.
 
-## 6. Forms & Selection
 - **Input Fields**: Prefer dropdown selectors for repetitive data (e.g., Scrips, Sectors) to minimize typing errors.
 - **Dynamic Recent Items**: Dropdowns should prioritize "Recent Items" based on the user's transaction history.
 - **Field Heights**: Standardize form input heights (Buttons and TextFields) to `60.dp` for better visual alignment and touch target size.
+- **Row Alignment**: When a dropdown and text field are in the same row, the dropdown must be implemented using a Read-Only `OutlinedTextField` with a `trailingIcon` (instead of a Button) to ensure perfect vertical and label alignment.
 - **Dialogs for New Entry**: Use clean, focused dialogs for adding new entities that aren't in existing lists.
 
 ## 9. Functional Integrity
