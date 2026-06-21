@@ -168,9 +168,9 @@ object FinancialEngines {
             val growth = if (buyAmount == 0.0) 0.0 else (netGain / buyAmount) * 100.0
             val receivableAmount = (evaluation - deductions).coerceAtLeast(0.0)
             
-            // Profit: Current gain on at-risk capital
-            // Formula: Evaluation - Net Investment
-            val profitAmount = evaluation - netInvest
+            // Profit: Gain after all potential deductions
+            // Formula: Evaluation - Receivable
+            val profitAmount = evaluation - receivableAmount
 
             val profitPercent = when {
                 netInvest > 0.0 -> (profitAmount / netInvest) * 100.0

@@ -28,7 +28,7 @@ The app uses a **Cost Recovery Model** for Nepali stock market analytics and sup
 | **Net Gain (Selected)**           | `SUM(Net Gain Selected)`                                                                |
 | **Growth %**                      | `(Net Gain / Buy Amount) * 100`                                                         |
 | **Receivable**                   | `Evaluation - Deductions`                                                               |
-| **Profit Amount**                 | `Evaluation - Net Invest`                                                               |
+| **Profit Amount**                 | `Evaluation - Receivable`                                                               |
 | **Profit % (ROI)**                | `(Profit Amount / Net Invest) * 100`                                                    |
 
 *Note: For cash-only investments (Avg CP = 0), Evaluation represents your remaining principal. Returns are reflected as gains without reducing the perceived worth of the principal investment.*
