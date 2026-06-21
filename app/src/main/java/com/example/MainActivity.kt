@@ -1465,7 +1465,7 @@ fun ColumnConfigurationDialog(isItem: Boolean, active: Set<String>, onT: (String
         "Returns_Cash", "Returns_Qty", "Return_Count", "Balance_Qty", "Avg_CP", "Avg_SP",
         "LTP", "Net_Invest", "Evaluation", "Realized_Gain", "Unrealized_Gain", "Deductions",
         "Net_Gain", "Growth", "Receivable_Amount", "Profit_Amount", "Profit_Percent"
-    )
+    ).sorted()
     Dialog(onDismissRequest = onD) { 
         Card(shape = RoundedCornerShape(16.dp)) { 
             Column(Modifier.padding(16.dp)) { 

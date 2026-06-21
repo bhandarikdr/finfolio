@@ -3,7 +3,7 @@
 The Matrix screen provides a granular, tabular view of every scrip in the portfolio with configurable analytics.
 
 ## 1. Column Options
-Users can toggle visibility for the following columns:
+Users can toggle visibility for the following columns (displayed in ascending order in the configuration dialog):
 - **Buy/Sale Metrics**: Amount, Qty, Count.
 - **Returns**: Cash and Qty received from bonus/right/dividends.
 - **Cost Analysis**: Balance Qty, Average Cost Price (Avg CP), Average Selling Price (Avg SP). *Note: Avg CP and Avg SP display the regional currency symbol.*
