@@ -15,7 +15,7 @@ class ScrapeWorker(
     override suspend fun doWork(): Result {
         return try {
             val database = AppDatabase.getDatabase(applicationContext)
-            val portfolioRepo = PortfolioRepository(database.portfolioDao())
+            val portfolioRepo = PortfolioRepository(database.portfolioDao(), database.ipoMasterDao())
             val marketRepo = MarketRepository(database.portfolioDao())
             
             // 1. Refresh scrip LTPs (Standard mechanism)

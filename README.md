@@ -7,6 +7,7 @@ A comprehensive portfolio tracker managing transactions, parsing live markets, i
 - **Transaction Management**: Track Buy, Sale, and Returns (including Dividends and Bonus shares).
 - **Live Market Data**: Integration for parsing live market prices and capturing snapshots during export.
 - **CSV Import/Export**: Support for importing/exporting transaction history, WACC, and Meroshare exports. Exports now include an `LTP` column to ensure portfolio evaluation can be restored even for manually updated scrips.
+- **Privacy & Security**: Optional 4-digit PIN lock to secure the app. "Flush All Data" feature in settings to reset the app state and wipe all local records.
 
 ## Advanced Metrics
 

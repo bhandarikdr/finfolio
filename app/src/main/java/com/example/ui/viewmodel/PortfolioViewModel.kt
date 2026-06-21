@@ -59,14 +59,25 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
+    fun updatePin(pin: String?) {
+        viewModelScope.launch {
+            repository.updatePin(pin)
+            _snackbarMessage.emit(if (pin == null) "PIN Lock Disabled" else "PIN Lock Enabled")
+        }
+    }
+
     val allTransactions: StateFlow<List<TransactionRecord>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allExternalLtps: StateFlow<List<ExternalLtp>> = repository.allExternalLtps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val distinctItems: StateFlow<List<String>> = repository.distinctItems
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val distinctItems: StateFlow<List<String>> = combine(
+        repository.distinctItems,
+        repository.allScripSymbols
+    ) { fromData, fromMaster ->
+        (fromData + fromMaster).filter { it.isNotBlank() }.distinct().sorted()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recentItems: StateFlow<List<String>> = repository.recentItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -255,6 +266,20 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
                 _snackbarMessage.emit("Wiped out portfolio records successfully")
             } catch (e: Exception) {
                 _snackbarMessage.emit("Error: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun flushAllData() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.flushAllData()
+                _snackbarMessage.emit("App data flushed successfully")
+            } catch (e: Exception) {
+                _snackbarMessage.emit("Error flushing data: ${e.message}")
             } finally {
                 _isLoading.value = false
             }

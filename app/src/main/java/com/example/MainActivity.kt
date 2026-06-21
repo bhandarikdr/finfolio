@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 val context = LocalContext.current
                 val database = remember { AppDatabase.getDatabase(context) }
-                val repository = remember { PortfolioRepository(database.portfolioDao()) }
+                val repository = remember { PortfolioRepository(database.portfolioDao(), database.ipoMasterDao()) }
                 val marketRepo = remember { MarketRepository(database.portfolioDao()) }
                 val ipoRepo = remember { IpoRepository(database.portfolioDao(), database.ipoMasterDao()) }
 
@@ -123,8 +123,22 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
     val pendingTypeUpdate by viewModel.pendingTypeUpdate.collectAsStateWithLifecycle()
     var showReg by remember { mutableStateOf(false) }
     var currentSubView by remember { mutableStateOf<String?>(null) }
+    var isUnlocked by remember { mutableStateOf(false) }
 
     LaunchedEffect(userProfile) { if (userProfile != null && userProfile!!.name.isEmpty()) showReg = true }
+
+    if (userProfile?.pin != null && !isUnlocked) {
+        PinEntryDialog(
+            title = "Enter PIN to Unlock",
+            onPinEntered = { entered ->
+                if (entered == userProfile!!.pin) {
+                    isUnlocked = true
+                } else {
+                    Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
 
     if (pendingTypeUpdate != null) {
         AlertDialog(onDismissRequest = { viewModel.confirmTypeUpdate(pendingTypeUpdate!!, false) }, title = { Text("Sync Sector?") }, text = { Text("Update Sector to '${pendingTypeUpdate!!.type}' for all '${pendingTypeUpdate!!.item}' records?") }, confirmButton = { Button(onClick = { viewModel.confirmTypeUpdate(pendingTypeUpdate!!, true) }) { Text("Yes") } }, dismissButton = { TextButton(onClick = { viewModel.confirmTypeUpdate(pendingTypeUpdate!!, false) }) { Text("No") } })
@@ -158,6 +172,13 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
                             drawerState.close()
                         }
                     },
+                    onProfile = {
+                        cs.launch {
+                            pagerState.animateScrollToPage(3)
+                            currentSubView = "Profile"
+                            drawerState.close()
+                        }
+                    },
                     onClose = { cs.launch { drawerState.close() } }
                 ) 
             }
@@ -186,7 +207,7 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
 }
 
 @Composable
-fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: String = "रु.", onSupport: () -> Unit, onSettings: () -> Unit, onClose: () -> Unit) {
+fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: String = "रु.", onSupport: () -> Unit, onSettings: () -> Unit, onProfile: () -> Unit, onClose: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer.copy(0.3f)).padding(top = 48.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -195,7 +216,7 @@ fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: Strin
                 Spacer(Modifier.weight(1f)); IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close") }
             }
         }
-        DrawerItem(Icons.Default.Person, "My Profile")
+        DrawerItem(Icons.Default.Person, "My Profile") { onProfile() }
         DrawerItem(Icons.Default.Settings, "Settings") { onSettings() }
         DrawerItem(Icons.AutoMirrored.Filled.HelpCenter, "Support") { onSupport() }
         
@@ -207,7 +228,7 @@ fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: Strin
             Text("Format: ${user?.dateFormat ?: "AD"}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         
-        DrawerItem(Icons.AutoMirrored.Filled.Logout, "Logout", MaterialTheme.colorScheme.error); Text("Version 2.5.0", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        DrawerItem(Icons.AutoMirrored.Filled.Logout, "Logout", MaterialTheme.colorScheme.error); Text("Version 2.6.0", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -227,6 +248,7 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
         "Settings" -> SettingsScreen(portfolioVM) { onSubViewChange(null) }
         "Scraper" -> ScraperSettingsScreen(portfolioVM) { onSubViewChange(null) }
         "Contact" -> DeveloperProfilePanel(userProfile?.name ?: "User", userProfile?.email ?: "") { onSubViewChange(null) }
+        "Profile" -> UserProfileScreen(portfolioVM) { onSubViewChange(null) }
         else -> {
             LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item { Text("Utilities", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
@@ -862,10 +884,70 @@ fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
             }
             
             item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        val hasPin = userProfile?.pin != null
+                        var showSetPin by remember { mutableStateOf(false) }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("App PIN Lock", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("Secure access to FinFolio with a 4-digit PIN.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = hasPin, onCheckedChange = { 
+                                if (it) showSetPin = true else vm.updatePin(null)
+                            })
+                        }
+                        
+                        if (hasPin) {
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { showSetPin = true }) {
+                                Text("Change PIN", fontSize = 14.sp)
+                            }
+                        }
+
+                        if (showSetPin) {
+                            PinEntryDialog(
+                                title = "Set 4-Digit PIN",
+                                onPinEntered = { 
+                                    vm.updatePin(it)
+                                    showSetPin = false
+                                },
+                                onDismiss = { showSetPin = false }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
                 Text("System", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(12.dp))
+                
+                var showFlushAlert by remember { mutableStateOf(false) }
+
+                if (showFlushAlert) {
+                    AlertDialog(
+                        onDismissRequest = { showFlushAlert = false },
+                        title = { Text("Flush App Data?") },
+                        text = { Text("This will permanently delete all transactions, history, prices, BOIDs, and custom scraper settings. This action cannot be undone.") },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    vm.flushAllData()
+                                    showFlushAlert = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) { Text("Flush Everything") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showFlushAlert = false }) { Text("Cancel") }
+                        }
+                    )
+                }
+
                 Card(
-                    onClick = { /* Clear data logic if needed here */ },
+                    onClick = { showFlushAlert = true },
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(0.1f)),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(0.2f))
@@ -874,8 +956,8 @@ fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                         Icon(Icons.Default.DeleteForever, null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Reset Application Data", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                            Text("Wipe all transactions and local settings.", fontSize = 11.sp, color = MaterialTheme.colorScheme.error.copy(0.7f))
+                            Text("Flush All Data", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                            Text("Reset app to factory state (Wipe everything)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -1507,7 +1589,7 @@ fun RegistrationDialog(onR: (String, String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RowEntryForm(dI: List<String>, rI: List<String>, dT: List<String>, rT: List<String>, onGetSector: suspend (String) -> String, symbol: String = "रु.", onS: (TransactionRecord) -> Unit) {
+fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (String) -> String, symbol: String = "रु.", onS: (TransactionRecord) -> Unit) {
     var item by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("") }
     var action by remember { mutableStateOf("Buy") }
@@ -1522,38 +1604,15 @@ fun RowEntryForm(dI: List<String>, rI: List<String>, dT: List<String>, rT: List<
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
-                    var exp by remember { mutableStateOf(false) }
-                    OutlinedButton(
-                        onClick = { exp = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (item.isEmpty()) "Select Scrip" else item, color = if (item.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-                            Icon(Icons.Default.ArrowDropDown, null)
-                        }
-                    }
-                    DropdownMenu(expanded = exp, onDismissRequest = { exp = false }, modifier = Modifier.fillMaxWidth(0.7f)) {
-                        if (rI.isEmpty()) {
-                            DropdownMenuItem(text = { Text("No recent scrips", fontSize = 12.sp, color = Color.Gray) }, onClick = { })
-                        } else {
-                            Text("RECENT SCRIPS", modifier = Modifier.padding(8.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            rI.forEach { selection ->
-                                DropdownMenuItem(
-                                    text = { Text(selection) },
-                                    onClick = {
-                                        item = selection
-                                        exp = false
-                                        cs.launch {
-                                            val suggestedSector = onGetSector(item)
-                                            if (suggestedSector != "Other") type = suggestedSector
-                                        }
-                                    }
-                                )
+                    AutoCompleteTextField("Select or Type Scrip", item, {
+                        item = it.uppercase()
+                        if (item.length >= 2) {
+                            cs.launch {
+                                val suggestedSector = onGetSector(item)
+                                if (suggestedSector != "Other") type = suggestedSector
                             }
                         }
-                    }
+                    }, dI)
                 }
                 IconButton(onClick = { showAddItem = true }, modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
                     Icon(Icons.Default.Add, "Add Scrip", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
@@ -1562,34 +1621,7 @@ fun RowEntryForm(dI: List<String>, rI: List<String>, dT: List<String>, rT: List<
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
-                    var exp by remember { mutableStateOf(false) }
-                    OutlinedButton(
-                        onClick = { exp = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (type.isEmpty()) "Select Sector" else type, color = if (type.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-                            Icon(Icons.Default.ArrowDropDown, null)
-                        }
-                    }
-                    DropdownMenu(expanded = exp, onDismissRequest = { exp = false }, modifier = Modifier.fillMaxWidth(0.7f)) {
-                        if (rT.isEmpty()) {
-                            DropdownMenuItem(text = { Text("No recent sectors", fontSize = 12.sp, color = Color.Gray) }, onClick = { })
-                        } else {
-                            Text("RECENT SECTORS", modifier = Modifier.padding(8.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-                            rT.forEach { selection ->
-                                DropdownMenuItem(
-                                    text = { Text(selection) },
-                                    onClick = {
-                                        type = selection
-                                        exp = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    AutoCompleteTextField("Select or Type Sector", type, { type = it }, dT)
                 }
                 IconButton(onClick = { showAddType = true }, modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)) {
                     Icon(Icons.Default.Add, "Add Sector", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
@@ -1700,8 +1732,8 @@ fun EditTransactionDialog(r: TransactionRecord, dI: List<String>, dT: List<Strin
 fun AutoCompleteTextField(l: String, v: String, onV: (String) -> Unit, sug: List<String>) {
     var ex by remember { mutableStateOf(false) }
     val fil = remember(v, sug) { 
-        if (v.isEmpty()) sug.take(15) 
-        else sug.filter { it.contains(v, true) }.take(25) 
+        if (v.isEmpty()) sug.take(50) 
+        else sug.filter { it.contains(v, true) }.take(100)
     }
     Box { 
         OutlinedTextField(
@@ -1732,9 +1764,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     val context = LocalContext.current
     val transactions by viewModel.allTransactions.collectAsStateWithLifecycle()
     val dItems by viewModel.distinctItems.collectAsStateWithLifecycle()
-    val rItems by viewModel.recentItems.collectAsStateWithLifecycle()
     val dTypes by viewModel.distinctTypes.collectAsStateWithLifecycle()
-    val rTypes by viewModel.recentTypes.collectAsStateWithLifecycle()
     val itemMetrics by viewModel.itemMetrics.collectAsStateWithLifecycle()
     
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
@@ -1794,7 +1824,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                 0 -> {
                     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                         Text("Record Transaction", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        RowEntryForm(dItems, rItems, dTypes, rTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it }
+                        RowEntryForm(dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it }
                         if (showMS) {
                             Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) { 
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { 
@@ -1883,6 +1913,129 @@ fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, w
             
             Button({ ex.launch("finfolio_export.csv") }, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(Color(0xFF2E7D32))) { 
                 Text("Export History with LTP") 
+            }
+        }
+    }
+}
+
+@Composable
+fun UserProfileScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
+    val userProfile by vm.userProfile.collectAsStateWithLifecycle()
+    var name by remember(userProfile) { mutableStateOf(userProfile?.name ?: "") }
+    var email by remember(userProfile) { mutableStateOf(userProfile?.email ?: "") }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        SubScreenHeader("My Profile", onBack)
+        
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("Personal Identity", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Display Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it },
+                            label = { Text("Email Address") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        
+                        Button(
+                            onClick = { vm.registerUser(name, email) },
+                            modifier = Modifier.align(Alignment.End),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Save Changes")
+                        }
+                    }
+                }
+            }
+            
+            item {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(0.1f))) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Text("This identity data is used for local personalization and as your reply-to address when contacting support.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PinEntryDialog(
+    title: String,
+    onPinEntered: (String) -> Unit,
+    onDismiss: (() -> Unit)? = null
+) {
+    var pin by remember { mutableStateOf("") }
+    val error = remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = { onDismiss?.invoke() }) {
+        Card(shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(8.dp)) {
+            Column(
+                Modifier.padding(24.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(24.dp))
+                
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    repeat(4) { index ->
+                        val char = pin.getOrNull(index)
+                        Box(
+                            Modifier.size(20.dp).clip(CircleShape)
+                                .background(if (char != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                                .border(1.dp, if (error.value) Color.Red else Color.Transparent, CircleShape)
+                        )
+                    }
+                }
+                
+                Spacer(Modifier.height(32.dp))
+                
+                // Numeric Keypad
+                val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "DEL")
+                keys.chunked(3).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        row.forEach { key ->
+                            IconButton(
+                                onClick = {
+                                    when (key) {
+                                        "C" -> pin = ""
+                                        "DEL" -> if (pin.isNotEmpty()) pin = pin.dropLast(1)
+                                        else -> if (pin.length < 4) {
+                                            pin += key
+                                            if (pin.length == 4) {
+                                                onPinEntered(pin)
+                                                pin = "" // Reset for next use
+                                            }
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(64.dp)
+                            ) {
+                                Text(key, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+                
+                if (onDismiss != null) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                        Text("Cancel")
+                    }
+                }
             }
         }
     }

@@ -27,7 +27,8 @@ data class UserProfile(
     val dateFormat: String = "AD",
     val visibleIndices: List<String> = emptyList(),
     /** Map of scraper categories to a prioritized list of URLs. App tries them in order. */
-    val scraperUrls: Map<ScraperCategory, List<String>> = emptyMap()
+    val scraperUrls: Map<ScraperCategory, List<String>> = emptyMap(),
+    val pin: String? = null
 )
 
 data class NepseStatus(

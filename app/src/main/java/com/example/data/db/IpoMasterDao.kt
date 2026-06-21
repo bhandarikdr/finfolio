@@ -49,4 +49,7 @@ interface IpoMasterDao {
 
     @Query("DELETE FROM ipo_result_cache WHERE checkedAt < :timestamp")
     suspend fun clearOldCache(timestamp: Long)
+
+    @Query("DELETE FROM ipo_result_cache")
+    suspend fun clearResultCache()
 }

@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.content.Context
 import androidx.core.content.edit
 import com.example.data.db.ExternalLtp
+import com.example.data.db.IpoMasterDao
 import com.example.data.db.PortfolioDao
 import com.example.data.db.TransactionRecord
 import com.example.data.model.NepseStatus
@@ -29,7 +30,10 @@ import kotlinx.coroutines.flow.map
  * Repository handling user profile, application settings, and generic scraper configurations.
  * Manages persistence of transactions and external LTP data.
  */
-class PortfolioRepository(private val portfolioDao: PortfolioDao) {
+class PortfolioRepository(
+    private val portfolioDao: PortfolioDao,
+    private val ipoMasterDao: IpoMasterDao
+) {
 
     /** Default scraper URLs categorized by function. Used as fallback if no user overrides exist. */
     val defaultScrapersByCategory = mapOf(
@@ -77,7 +81,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
             visibleIndices = entity?.visibleIndicesJson?.let { 
                 if (it.isBlank()) emptyList() else it.split(",").filter { s -> s.isNotBlank() }
             } ?: emptyList(),
-            scraperUrls = scraperMap
+            scraperUrls = scraperMap,
+            pin = entity?.pin
         )
     }
 
@@ -94,7 +99,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     currencySymbol = existing?.currencySymbol ?: "रु.",
                     dateFormat = existing?.dateFormat ?: "AD",
                     visibleIndicesJson = existing?.visibleIndicesJson ?: "",
-                    scraperUrlsJson = existing?.scraperUrlsJson ?: ""
+                    scraperUrlsJson = existing?.scraperUrlsJson ?: "",
+                    pin = existing?.pin
                 )
             )
         }
@@ -110,9 +116,19 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     currencySymbol = currency,
                     dateFormat = dateFormat,
                     visibleIndicesJson = existing?.visibleIndicesJson ?: "",
-                    scraperUrlsJson = existing?.scraperUrlsJson ?: ""
+                    scraperUrlsJson = existing?.scraperUrlsJson ?: "",
+                    pin = existing?.pin
                 )
             )
+        }
+    }
+
+    suspend fun updatePin(newPin: String?) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(pin = newPin))
+            }
         }
     }
 
@@ -153,7 +169,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     currencySymbol = existing?.currencySymbol ?: "रु.",
                     dateFormat = existing?.dateFormat ?: "AD",
                     visibleIndicesJson = existing?.visibleIndicesJson ?: "",
-                    scraperUrlsJson = json.toString()
+                    scraperUrlsJson = json.toString(),
+                    pin = existing?.pin
                 )
             )
         }
@@ -171,7 +188,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     currencySymbol = existing?.currencySymbol ?: "रु.",
                     dateFormat = existing?.dateFormat ?: "AD",
                     visibleIndicesJson = existing?.visibleIndicesJson ?: "",
-                    scraperUrlsJson = ""
+                    scraperUrlsJson = "",
+                    pin = existing?.pin
                 )
             )
         }
@@ -216,6 +234,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
     val allTransactions: Flow<List<TransactionRecord>> = portfolioDao.getAllTransactions()
     val allExternalLtps: Flow<List<ExternalLtp>> = portfolioDao.getAllExternalLtps()
     val distinctItems: Flow<List<String>> = portfolioDao.getDistinctItems()
+    val allScripSymbols: Flow<List<String>> = portfolioDao.getAllScripMaster().map { list -> list.map { it.symbol } }
     val recentItems: Flow<List<String>> = portfolioDao.getRecentItems()
     val recentTypes: Flow<List<String>> = portfolioDao.getRecentTypes()
     val distinctTypes: Flow<List<String>> = portfolioDao.getDistinctTypes()
@@ -242,6 +261,18 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
     suspend fun clearAllTransactions() {
         withContext(Dispatchers.IO) {
             portfolioDao.clearAllTransactions()
+        }
+    }
+
+    suspend fun flushAllData() {
+        withContext(Dispatchers.IO) {
+            portfolioDao.clearAllTransactions()
+            portfolioDao.clearAllExternalLtps()
+            portfolioDao.clearAllMarketIndices()
+            portfolioDao.clearAllSectorMappings()
+            portfolioDao.clearAllBoids()
+            ipoMasterDao.deleteAll()
+            ipoMasterDao.clearResultCache()
         }
     }
 

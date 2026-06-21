@@ -30,6 +30,18 @@ interface PortfolioDao {
     @Query("DELETE FROM Data")
     suspend fun clearAllTransactions()
 
+    @Query("DELETE FROM ExternalLtp")
+    suspend fun clearAllExternalLtps()
+
+    @Query("DELETE FROM MarketIndices")
+    suspend fun clearAllMarketIndices()
+
+    @Query("DELETE FROM SectorMapping")
+    suspend fun clearAllSectorMappings()
+
+    @Query("DELETE FROM Boids")
+    suspend fun clearAllBoids()
+
     @Query("SELECT item FROM Data GROUP BY item ORDER BY MAX(id) DESC LIMIT 15")
     fun getRecentItems(): Flow<List<String>>
 
