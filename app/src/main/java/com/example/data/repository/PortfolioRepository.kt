@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.InputStream
 import java.io.BufferedReader
@@ -25,7 +26,26 @@ import kotlinx.coroutines.flow.map
 
 class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
+    val defaultScrapers = mapOf(
+        "LTP_SHARESANSAR" to "https://www.sharesansar.com/live-trading",
+        "INDEX_MEROLAGANI" to "https://merolagani.com/latestmarket.aspx",
+        "SCRIP_MASTER" to "https://www.sharesansar.com/company-list",
+        "INDICES_SHARESANSAR" to "https://www.sharesansar.com/market",
+        "IPO_PIPELINE" to "https://sebon.gov.np/ipo-pipeline",
+        "CDSC_COMPANY_LIST" to "https://iporesult.cdsc.com.np/result/company/list",
+        "NEPALI_PAISA_IPO" to "https://www.nepalipaisa.com/ipo",
+        "CDSC_RESULT_CHECK" to "https://iporesult.cdsc.com.np/result/ipo/result"
+    )
+
     val userProfile: Flow<UserProfile> = portfolioDao.getUserProfile().map { entity ->
+        val scraperMap = mutableMapOf<String, String>()
+        if (!entity?.scraperUrlsJson.isNullOrBlank()) {
+            try {
+                val json = JSONObject(entity!!.scraperUrlsJson)
+                json.keys().forEach { key -> scraperMap[key] = json.getString(key) }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+        
         UserProfile(
             name = entity?.name ?: "",
             email = entity?.email ?: "",
@@ -33,7 +53,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
             dateFormat = entity?.dateFormat ?: "AD",
             visibleIndices = entity?.visibleIndicesJson?.let { 
                 if (it.isBlank()) emptyList() else it.split(",").filter { s -> s.isNotBlank() }
-            } ?: emptyList()
+            } ?: emptyList(),
+            scraperUrls = scraperMap
         )
     }
 
@@ -49,7 +70,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     email = email,
                     currencySymbol = existing?.currencySymbol ?: "रु.",
                     dateFormat = existing?.dateFormat ?: "AD",
-                    visibleIndicesJson = existing?.visibleIndicesJson ?: ""
+                    visibleIndicesJson = existing?.visibleIndicesJson ?: "",
+                    scraperUrlsJson = existing?.scraperUrlsJson ?: ""
                 )
             )
         }
@@ -64,24 +86,46 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     email = existing?.email ?: "",
                     currencySymbol = currency,
                     dateFormat = dateFormat,
-                    visibleIndicesJson = existing?.visibleIndicesJson ?: ""
+                    visibleIndicesJson = existing?.visibleIndicesJson ?: "",
+                    scraperUrlsJson = existing?.scraperUrlsJson ?: ""
                 )
             )
         }
     }
 
-    suspend fun updateVisibleIndices(visible: List<String>) {
+    suspend fun updateScraperUrl(key: String, url: String) {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
+            val json = if (!existing?.scraperUrlsJson.isNullOrBlank()) {
+                try { JSONObject(existing!!.scraperUrlsJson) } catch (e: Exception) { JSONObject() }
+            } else JSONObject()
+            
+            json.put(key, url)
+            
             portfolioDao.saveUserProfile(
                 UserEntity(
+                    id = 0,
                     name = existing?.name ?: "",
                     email = existing?.email ?: "",
                     currencySymbol = existing?.currencySymbol ?: "रु.",
                     dateFormat = existing?.dateFormat ?: "AD",
-                    visibleIndicesJson = visible.joinToString(",")
+                    visibleIndicesJson = existing?.visibleIndicesJson ?: "",
+                    scraperUrlsJson = json.toString()
                 )
             )
+        }
+    }
+
+    suspend fun getScraperUrl(key: String): String {
+        return withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (!existing?.scraperUrlsJson.isNullOrBlank()) {
+                try {
+                    val json = JSONObject(existing!!.scraperUrlsJson)
+                    if (json.has(key)) return@withContext json.getString(key)
+                } catch (e: Exception) {}
+            }
+            defaultScrapers[key] ?: ""
         }
     }
 
@@ -490,7 +534,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
                 // Attempt Source 1: Merolagani (Usually very accurate for index)
                 try {
-                    val meroDoc = Jsoup.connect("https://merolagani.com/latestmarket.aspx")
+                    val meroUrl = getScraperUrl("INDEX_MEROLAGANI")
+                    val meroDoc = Jsoup.connect(meroUrl)
                         .userAgent("Mozilla/5.0")
                         .timeout(10000)
                         .get()
@@ -508,7 +553,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                 }
 
                 // Attempt Source 2: ShareSansar (Fallback for Index, primary for Scrip LTPs)
-                val url = "https://www.sharesansar.com/live-trading?t=${System.currentTimeMillis()}"
+                val baseLtpUrl = getScraperUrl("LTP_SHARESANSAR")
+                val url = if (baseLtpUrl.contains("?")) "$baseLtpUrl&t=${System.currentTimeMillis()}" else "$baseLtpUrl?t=${System.currentTimeMillis()}"
                 val mainDoc = Jsoup.connect(url)
                     .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
                     .timeout(20000)

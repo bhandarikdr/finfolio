@@ -61,10 +61,31 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
+    private suspend fun getScraperUrl(key: String): String {
+        return withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (!existing?.scraperUrlsJson.isNullOrBlank()) {
+                try {
+                    val json = org.json.JSONObject(existing!!.scraperUrlsJson)
+                    if (json.has(key)) return@withContext json.getString(key)
+                } catch (e: Exception) {}
+            }
+            // Default Fallbacks
+            when(key) {
+                "SCRIP_MASTER" -> "https://www.sharesansar.com/company-list"
+                "INDICES_SHARESANSAR" -> "https://www.sharesansar.com/market"
+                "INDEX_MEROLAGANI" -> "https://merolagani.com/latestmarket.aspx"
+                "LTP_SHARESANSAR" -> "https://www.sharesansar.com/live-trading"
+                else -> ""
+            }
+        }
+    }
+
     suspend fun fetchMasterScrips(): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val doc = Jsoup.connect("https://www.sharesansar.com/company-list")
+                val scripMasterUrl = getScraperUrl("SCRIP_MASTER")
+                val doc = Jsoup.connect(scripMasterUrl)
                     .userAgent("Mozilla/5.0")
                     .timeout(25000)
                     .get()
@@ -99,7 +120,8 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
             val scrapedList = mutableListOf<NepseIndex>()
             try {
                 // Source 1: Sharesansar Market Page
-                val doc = Jsoup.connect("https://www.sharesansar.com/market")
+                val indicesUrl = getScraperUrl("INDICES_SHARESANSAR")
+                val doc = Jsoup.connect(indicesUrl)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                     .timeout(20000)
                     .get()
@@ -141,7 +163,8 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 // Fallback/Reinforcement for NEPSE Index from Merolagani if missing or for verification
                 if (scrapedList.none { it.index.contains("NEPSE Index", true) }) {
                     try {
-                        val meroDoc = Jsoup.connect("https://merolagani.com/latestmarket.aspx")
+                        val meroUrl = getScraperUrl("INDEX_MEROLAGANI")
+                        val meroDoc = Jsoup.connect(meroUrl)
                             .userAgent("Mozilla/5.0")
                             .timeout(10000)
                             .get()
@@ -214,7 +237,9 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
             val changes = mutableListOf<ScripPriceChange>()
             try {
                 // Ensure we get the latest data by adding a timestamp
-                val doc = Jsoup.connect("https://www.sharesansar.com/live-trading?t=${System.currentTimeMillis()}")
+                val baseLtpUrl = getScraperUrl("LTP_SHARESANSAR")
+                val url = if (baseLtpUrl.contains("?")) "$baseLtpUrl&t=${System.currentTimeMillis()}" else "$baseLtpUrl?t=${System.currentTimeMillis()}"
+                val doc = Jsoup.connect(url)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                     .timeout(25000)
                     .get()

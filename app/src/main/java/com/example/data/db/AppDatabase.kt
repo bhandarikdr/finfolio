@@ -17,7 +17,7 @@ import androidx.room.RoomDatabase
         IpoMaster::class,
         IpoResultCache::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

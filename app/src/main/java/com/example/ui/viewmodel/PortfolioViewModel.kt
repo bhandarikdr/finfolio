@@ -12,6 +12,7 @@ import com.example.data.model.NepseStatus
 import com.example.data.model.TypeMetrics
 import com.example.data.model.UserProfile
 import com.example.data.repository.PortfolioRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,6 +23,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.jsoup.Jsoup
 import java.io.InputStream
 
 enum class DatasetScope {
@@ -36,6 +39,8 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     val nepseStatus: StateFlow<NepseStatus> = repository.nepseStatus
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NepseStatus())
+
+    val defaultScrapers = repository.defaultScrapers
 
     fun registerUser(name: String, email: String) {
         viewModelScope.launch {
@@ -319,6 +324,41 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     fun updateVisibleIndices(visible: List<String>) {
         viewModelScope.launch {
             repository.updateVisibleIndices(visible)
+        }
+    }
+
+    fun updateScraperUrl(key: String, url: String) {
+        viewModelScope.launch {
+            repository.updateScraperUrl(key, url)
+            _snackbarMessage.emit("Scraper URL for $key updated")
+        }
+    }
+
+    suspend fun testScraperUrl(key: String, url: String): kotlin.Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0")
+                    .timeout(10000)
+                    .get()
+                
+                val success = when(key) {
+                    "INDEX_MEROLAGANI" -> doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").isNotEmpty()
+                    "LTP_SHARESANSAR" -> doc.select("table").isNotEmpty()
+                    "SCRIP_MASTER" -> doc.select("table tr").size > 5
+                    "INDICES_SHARESANSAR" -> doc.select("table tr").isNotEmpty()
+                    "IPO_PIPELINE" -> doc.select("table").isNotEmpty()
+                    "CDSC_COMPANY_LIST" -> true // This is JSON, Jsoup might fail to "parse" as HTML but connect works
+                    "NEPALI_PAISA_IPO" -> doc.select("tr, .ipo-item").isNotEmpty()
+                    "CDSC_RESULT_CHECK" -> true
+                    else -> true
+                }
+                
+                if (success) kotlin.Result.success("Success: URL is reachable and target elements found.")
+                else kotlin.Result.failure(Exception("URL reachable but target data structure not found."))
+            } catch (e: Exception) {
+                kotlin.Result.failure(e)
+            }
         }
     }
 }

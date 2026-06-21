@@ -8,7 +8,8 @@ data class UserProfile(
     val email: String,
     val currencySymbol: String = "रु.",
     val dateFormat: String = "AD",
-    val visibleIndices: List<String> = emptyList()
+    val visibleIndices: List<String> = emptyList(),
+    val scraperUrls: Map<String, String> = emptyMap()
 )
 
 data class NepseStatus(

@@ -225,6 +225,7 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
         "BulkCheck" -> BulkIpoCheckScreen(ipoVM) { onSubViewChange(null) }
         "IpoMaster" -> IpoMasterScreen(ipoVM) { onSubViewChange(null) }
         "Settings" -> SettingsScreen(portfolioVM) { onSubViewChange(null) }
+        "Scraper" -> ScraperSettingsScreen(portfolioVM) { onSubViewChange(null) }
         "Contact" -> DeveloperProfilePanel(userProfile?.name ?: "User", userProfile?.email ?: "") { onSubViewChange(null) }
         else -> {
             LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -234,6 +235,7 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
                         { MoreCard("Markets", Icons.AutoMirrored.Filled.TrendingUp, Color(0xFF10B981)) { onSubViewChange("Market") } }, 
                         { MoreCard("Bulk IPO", Icons.AutoMirrored.Filled.FactCheck, Color(0xFFEF4444)) { onSubViewChange("BulkCheck") } }, 
                         { MoreCard("IPO Master", Icons.Default.Inventory, Color(0xFF8B5CF6)) { onSubViewChange("IpoMaster") } },
+                        { MoreCard("Scrapers", Icons.Default.CloudSync, Color(0xFFEC4899)) { onSubViewChange("Scraper") } },
                         { MoreCard("Settings", Icons.Default.Settings, Color(0xFF6366F1)) { onSubViewChange("Settings") } },
                         { MoreCard("Support", Icons.Default.SupportAgent, Color(0xFF3B82F6)) { onSubViewChange("Contact") } }, 
                         { MoreCard("Calculator", Icons.Default.Calculate, Color(0xFFF59E0B)) {} }
@@ -1953,6 +1955,88 @@ fun SectorExpandableHeader(type: String, count: Int, isExpanded: Boolean, onTogg
         Spacer(Modifier.width(8.dp))
         Badge(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
             Text(count.toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
+    val userProfile by vm.userProfile.collectAsStateWithLifecycle()
+    val scrapers = vm.defaultScrapers
+    val currentUrls = userProfile?.scraperUrls ?: emptyMap()
+    val cs = rememberCoroutineScope()
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        SubScreenHeader("Scraper Configuration", onBack)
+        
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(0.1f))) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Customize data sources. Use 'Test' to verify if the scraper can still parse the target site correctly.", 
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            
+            items(scrapers.keys.toList()) { key ->
+                val defaultUrl = scrapers[key] ?: ""
+                var url by remember(currentUrls) { mutableStateOf(currentUrls[key] ?: defaultUrl) }
+                var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+                var isTesting by remember { mutableStateOf(false) }
+
+                Card(Modifier.fillMaxWidth(), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.5f))) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = key.replace("_", " "), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                            if (url != defaultUrl) {
+                                TextButton(onClick = { url = defaultUrl; vm.updateScraperUrl(key, defaultUrl) }) {
+                                    Text("Reset", fontSize = 10.sp)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = url,
+                            onValueChange = { url = it },
+                            label = { Text("Source URL", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                            if (isTesting) {
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            TextButton(onClick = {
+                                isTesting = true
+                                cs.launch {
+                                    val res = vm.testScraperUrl(key, url)
+                                    isTesting = false
+                                    testResult = if (res.isSuccess) true to res.getOrThrow() else false to (res.exceptionOrNull()?.message ?: "Unknown error")
+                                }
+                            }) { Text("Test Connection", fontSize = 12.sp) }
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = { vm.updateScraperUrl(key, url) }, shape = RoundedCornerShape(8.dp)) { 
+                                Text("Save", fontSize = 12.sp) 
+                            }
+                        }
+                        testResult?.let { (success, msg) ->
+                            Surface(
+                                color = if (success) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
+                            ) {
+                                Text(msg, color = if (success) Color(0xFF2E7D32) else Color(0xFFC62828), fontSize = 10.sp, modifier = Modifier.padding(8.dp))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

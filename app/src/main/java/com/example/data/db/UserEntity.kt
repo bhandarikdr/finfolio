@@ -10,5 +10,6 @@ data class UserEntity(
     val email: String,
     val currencySymbol: String = "रु.",
     val dateFormat: String = "AD", // Placeholder for BS/AD
-    val visibleIndicesJson: String = "" // JSON array of visible index names
+    val visibleIndicesJson: String = "", // JSON array of visible index names
+    val scraperUrlsJson: String = "" // JSON map of scraper keys to URLs
 )

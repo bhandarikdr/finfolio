@@ -90,7 +90,8 @@ class IpoRepository(
 
     private suspend fun syncFromSebonPipeline(): Result<Unit> {
         return try {
-            val doc = Jsoup.connect("https://sebon.gov.np/ipo-pipeline")
+            val sebonUrl = getScraperUrl("IPO_PIPELINE")
+            val doc = Jsoup.connect(sebonUrl)
                 .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .timeout(15000)
                 .get()
@@ -126,13 +127,18 @@ class IpoRepository(
     }
 
     private suspend fun syncFromCdscResultPortal(): Result<Unit> {
-        val url = URL("https://iporesult.cdsc.com.np/result/company/list")
+        val cdscBase = getScraperUrl("CDSC_COMPANY_LIST")
+        val url = URL(cdscBase)
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "GET"
         conn.setRequestProperty("Accept", "application/json, text/plain, */*")
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        conn.setRequestProperty("Referer", "https://iporesult.cdsc.com.np/")
-        conn.setRequestProperty("Origin", "https://iporesult.cdsc.com.np")
+        
+        // Dynamic referer/origin extraction
+        val uri = java.net.URI(cdscBase)
+        val host = "${uri.scheme}://${uri.host}"
+        conn.setRequestProperty("Referer", "$host/")
+        conn.setRequestProperty("Origin", host)
         conn.connectTimeout = 10000
         conn.readTimeout = 10000
         
@@ -185,7 +191,8 @@ class IpoRepository(
     private suspend fun syncFromNepaliPaisa(): Result<Unit> {
         return try {
             // nepalipaisa.com uses a complex layout, let's try a broader search for company names
-            val doc = Jsoup.connect("https://www.nepalipaisa.com/ipo")
+            val npUrl = getScraperUrl("NEPALI_PAISA_IPO")
+            val doc = Jsoup.connect(npUrl)
                 .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .timeout(10000)
                 .get()
@@ -257,7 +264,8 @@ class IpoRepository(
         }
 
         try {
-            val url = URL("https://iporesult.cdsc.com.np/result/ipo/result")
+            val resultUrlStr = getScraperUrl("CDSC_RESULT_CHECK")
+            val url = URL(resultUrlStr)
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
@@ -320,6 +328,26 @@ class IpoRepository(
                 }
                 jobs.awaitAll()
                 if (boids.size > batchSize) delay(500) // Small delay between batches to be nice
+            }
+        }
+    }
+
+    private suspend fun getScraperUrl(key: String): String {
+        return withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (!existing?.scraperUrlsJson.isNullOrBlank()) {
+                try {
+                    val json = org.json.JSONObject(existing!!.scraperUrlsJson)
+                    if (json.has(key)) return@withContext json.getString(key)
+                } catch (e: Exception) {}
+            }
+            // Default Fallbacks
+            when(key) {
+                "IPO_PIPELINE" -> "https://sebon.gov.np/ipo-pipeline"
+                "CDSC_COMPANY_LIST" -> "https://iporesult.cdsc.com.np/result/company/list"
+                "NEPALI_PAISA_IPO" -> "https://www.nepalipaisa.com/ipo"
+                "CDSC_RESULT_CHECK" -> "https://iporesult.cdsc.com.np/result/ipo/result"
+                else -> ""
             }
         }
     }
