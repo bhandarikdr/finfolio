@@ -15,21 +15,21 @@ The app uses a **Cost Recovery Model** for Nepali stock market analytics and sup
 
 | Metric                            | Formula / Logic                                                                         |
 |:----------------------------------|:----------------------------------------------------------------------------------------|
-| **Balance Qty**                   | `Buy Qty + Returns Qty - Sale Qty`                                                      |
-| **Avg Cost Price**                | `Buy Amount / (Buy Qty + Returns Qty)`                                                  |
-| **Net Invest (Individual)**       | `MAX(0, Buy Amt - Sale Amt)`                                                            |
-| **Evaluation (Individual)**       | `IF Avg CP > 0 THEN (Qty * LTP) ELSE MAX(0, Buy Amt - Sale Amt)`                        |
+| **1. Balance Qty**                | `Buy Qty + Returns Qty - Sale Qty`                                                      |
+| **2. Avg Cost Price**             | `Buy Amount / (Buy Qty + Returns Qty)`                                                  |
+| **3. Net Invest (Individual)**    | `MAX(0, Buy Amt - Sale Amt)`                                                            |
+| **4. Evaluation (Individual)**    | `IF Avg CP > 0 THEN (Qty * LTP) ELSE MAX(0, Buy Amt - Sale Amt)`                        |
+| **5. Realized Gain**              | `(Sale Amt - Buy Amt) + Returns Cash + Net Invest`                                      |
+| **6. Unrealized Gain**            | `Evaluation - Net Invest`                                                               |
+| **7. Deductions**                 | `IF Avg CP > 0 AND Evaluation > 0 THEN [(Eval * 0.0038) + 25 + (CGT if profit)] ELSE 0` |
+| **8. Receivable**                | `Evaluation - Deductions`                                                               |
+| **9. Net Gain (Individual)**      | `Realized Gain + Unrealized Gain - Deductions`                                          |
+| **10. Profit Amount**             | `Receivable - Net Invest`                                                               |
+| **11. Profit % (ROI)**            | `(Profit Amount / Net Invest) * 100`                                                    |
+| **12. Growth %**                  | `(Net Gain / Buy Amount) * 100`                                                         |
 | **Net Investment (Selected)**     | `SUM(Net Invest Selected)`                                                              |
 | **Current Evaluation (Selected)** | `SUM(Evaluation Selected)`                                                              |
-| **Realized Gain**                 | `(Sale Amt - Buy Amt) + Returns Cash + Net Invest`                                      |
-| **Unrealized Gain**               | `Evaluation - Net Invest`                                                               |
-| **Deductions**                    | `IF Avg CP > 0 AND Evaluation > 0 THEN [(Eval * 0.0038) + 25 + (CGT if profit)] ELSE 0` |
-| **Net Gain (Individual)**         | `Realized Gain + Unrealized Gain - Deductions`                                          |
 | **Net Gain (Selected)**           | `SUM(Net Gain Selected)`                                                                |
-| **Growth %**                      | `(Net Gain / Buy Amount) * 100`                                                         |
-| **Receivable**                   | `Evaluation - Deductions`                                                               |
-| **Profit Amount**                 | `Evaluation - Receivable`                                                               |
-| **Profit % (ROI)**                | `(Profit Amount / Net Invest) * 100`                                                    |
 
 *Note: For cash-only investments (Avg CP = 0), Evaluation represents your remaining principal. Returns are reflected as gains without reducing the perceived worth of the principal investment.*
 
