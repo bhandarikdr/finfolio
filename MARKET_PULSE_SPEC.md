@@ -22,8 +22,12 @@ Below three categories are displayed unexpanded by default and expands as the us
     - **Selection Persistence**: Only indices explicitly checked in the Settings dialog are displayed (exact match). Persistent across app restarts.
 
 ### B. My Holdings
-- **Data Source**: Derived from user's transaction history + Live Scrip Scraper.
+- **Data Source**: Derived from user's transaction history (scrips where calculated **Balance > 0**) + Live Scrip Scraper.
 - **Persistence**: Scrip prices stored in `ExternalLtp` table.
+- **Refresh Trigger**: Automatically updates when:
+    - Online market data is refreshed.
+    - Standard CSV with LTP data is imported.
+    - Portfolio CSV is imported (updates both current and previous LTP).
 - **Update Logic**: 
     1. Newly fetched `ltp` is compared against the stored `ltp` in `ExternalLtp`.
     2. Database update occurs **ONLY if the ltp has changed**.

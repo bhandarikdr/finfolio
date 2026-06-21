@@ -42,10 +42,19 @@ class MarketViewModel(private val repository: MarketRepository, private val port
         fixed + others
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _priceChanges = MutableStateFlow<List<ScripPriceChange>>(emptyList())
-    val priceChanges = _priceChanges.asStateFlow()
+    val priceChanges: StateFlow<List<ScripPriceChange>> = portfolioRepository.allExternalLtps.map { list ->
+        list.map { 
+            ScripPriceChange(
+                symbol = it.symbol,
+                ltp = it.ltp,
+                change = it.ltp - it.previousLtp,
+                percentChange = if (it.previousLtp > 0) (it.ltp - it.previousLtp) / it.previousLtp * 100.0 else 0.0,
+                previousLtp = it.previousLtp
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val watchlistMovers: StateFlow<List<ScripPriceChange>> = combine(wishlistedScrips, _priceChanges) { wish, changes ->
+    val watchlistMovers: StateFlow<List<ScripPriceChange>> = combine(wishlistedScrips, priceChanges) { wish, changes ->
         wish.map { s ->
             val live = changes.find { it.symbol.equals(s.symbol, true) }
             live ?: ScripPriceChange(
@@ -71,7 +80,7 @@ class MarketViewModel(private val repository: MarketRepository, private val port
             _isLoading.value = true
             try {
                 repository.fetchNepseIndices()
-                _priceChanges.value = repository.fetchPriceChanges()
+                repository.fetchPriceChanges()
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {

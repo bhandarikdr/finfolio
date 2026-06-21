@@ -273,7 +273,7 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
     val indices by vm.filteredIndices.collectAsStateWithLifecycle(); val changes by vm.priceChanges.collectAsStateWithLifecycle()
     val allIdx by vm.indices.collectAsStateWithLifecycle(); val visIdx by vm.visibleIndices.collectAsStateWithLifecycle()
     val items by pvm.itemMetrics.collectAsStateWithLifecycle(); val wishMovers by vm.watchlistMovers.collectAsStateWithLifecycle()
-    val pSyms = remember(items) { items.map { it.item.uppercase() }.toSet() }
+    val pSyms = remember(items) { items.filter { it.balanceQty > 0.0 }.map { it.item.uppercase() }.toSet() }
     val userProfile by pvm.userProfile.collectAsStateWithLifecycle()
     val symbol = userProfile?.currencySymbol ?: "रु."
     
@@ -1759,10 +1759,12 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     val waLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) { csvText = t; isWacc = true; showImport = true } } }
     val exLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { if (it != null) cs.launch { 
         val c = buildString { 
-            append("Date,Item,Action,Qty,Amount,Type,LTP\n")
+            append("Date,Item,Action,Qty,Amount,Type,Prev LTP,LTP\n")
             transactions.forEach { tx ->
-                val ltp = itemMetrics.find { it.item.equals(tx.item, true) }?.ltp ?: 0.0
-                append("${tx.date},${tx.item},${tx.action},${tx.qty},${tx.amount},${tx.type},$ltp\n") 
+                val metric = itemMetrics.find { it.item.equals(tx.item, true) }
+                val ltp = metric?.ltp ?: 0.0
+                val prevLtp = metric?.prevLtp ?: 0.0
+                append("${tx.date},${tx.item},${tx.action},${tx.qty},${tx.amount},${tx.type},$prevLtp,$ltp\n")
             } 
         }
         withContext(Dispatchers.IO) { 
@@ -1850,7 +1852,7 @@ fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, w
             Button(onClick = { tx.launch("*/*") }, Modifier.fillMaxWidth()) { 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Standard Transaction CSV")
-                    Text("Fields: Date, Item, Action, Qty, Amount, Type, LTP", fontSize = 9.sp, fontWeight = FontWeight.Normal)
+                    Text("Fields: Date, Item, Action, Qty, Amount, Type, Prev LTP, LTP", fontSize = 9.sp, fontWeight = FontWeight.Normal)
                 }
             }
             
@@ -1866,7 +1868,7 @@ fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, w
                 Button({ ms.launch("*/*") }, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary), shape = RoundedCornerShape(8.dp)) { 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Portfolio CSV")
-                        Text("Fields: Scrip, LTP, Balance", fontSize = 8.sp, fontWeight = FontWeight.Normal)
+                        Text("Fields: Scrip, Prev LTP, LTP, Balance", fontSize = 8.sp, fontWeight = FontWeight.Normal)
                     }
                 }
             }

@@ -55,6 +55,7 @@ data class ItemMetrics(
     val avgCp: Double,
     val avgSp: Double,
     val ltp: Double,
+    val prevLtp: Double = 0.0,
     val netInvest: Double,
     val evaluation: Double,
     val realizedGain: Double,
@@ -139,6 +140,7 @@ object FinancialEngines {
             // Fetching LTP Value
             val ltpValRecord = ltpMap[symbol]
             val ltp = ltpValRecord?.ltp ?: 0.0
+            val prevLtp = ltpValRecord?.previousLtp ?: 0.0
             val isInMs = meroshareFlags[symbol] ?: false
 
             // Evaluation: Current Market Value
@@ -191,6 +193,7 @@ object FinancialEngines {
                 avgCp = avgCp,
                 avgSp = avgSp,
                 ltp = ltp,
+                prevLtp = prevLtp,
                 netInvest = netInvest,
                 evaluation = evaluation,
                 realizedGain = realizedGain,

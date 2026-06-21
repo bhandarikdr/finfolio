@@ -326,7 +326,8 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     val qtyIdx = header.indexOfFirst { it.contains("qty") || it.contains("quantity") }
                     val amountIdx = header.indexOfFirst { it.contains("amount") || it.contains("total") }
                     val typeIdx = header.indexOfFirst { it.contains("type") || it.contains("category") }
-                    val ltpIdx = header.indexOfFirst { it.contains("ltp") || it.contains("price") }
+                    val ltpIdx = header.indexOfFirst { it.contains("ltp") || it == "price" }
+                    val prevLtpIdx = header.indexOfFirst { it.contains("prev ltp") || it.contains("previous ltp") }
 
                     if (itemIdx == -1) return@withContext Result.failure(Exception("Invalid CSV: Symbol/Item column missing"))
 
@@ -341,14 +342,19 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                             val amount = cols.getOrNull(amountIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
                             val date = cols.getOrNull(dateIdx)?.takeIf { it.isNotBlank() } ?: todayStr
 
-                            // Handle optional LTP from standard CSV
+                            // Handle optional LTP and Prev LTP from standard CSV
                             if (ltpIdx != -1 && ltpIdx < cols.size) {
                                 val ltpVal = cols[ltpIdx].replace(",", "").toDoubleOrNull()
+                                val prevLtpVal = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
+                                    cols[prevLtpIdx].replace(",", "").toDoubleOrNull() ?: 0.0
+                                } else 0.0
+
                                 if (ltpVal != null && ltpVal > 0) {
                                     portfolioDao.insertExternalLtp(
                                         ExternalLtp(
                                             symbol = symbol.uppercase().trim(),
                                             ltp = ltpVal,
+                                            previousLtp = prevLtpVal,
                                             source = "CSV_Import",
                                             timestamp = System.currentTimeMillis()
                                         )
@@ -469,6 +475,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
                 val scripIdx = header.indexOfFirst { it.contains("scrip") || it.contains("symbol") || it.contains("item") || it.contains("scrip name") || it.contains("name") }
                 val ltpIdx = header.indexOfFirst { it.contains("last transaction price") || it.contains("ltp") || it.contains("price") || it.contains("rate") || it.contains("valu") }
+                val prevLtpIdx = header.indexOfFirst { it.contains("prev ltp") || it.contains("previous ltp") }
                 val qtyIdx = header.indexOfFirst { it.contains("current") || it.contains("balance") || it.contains("units") || it.contains("qty") || it.contains("quantity") }
 
                 if (scripIdx == -1 || ltpIdx == -1) {
@@ -493,6 +500,10 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                         val ltpValClean = cols[ltpIdx].replace("\"", "").replace(",", "").trim()
                         val ltpValue = ltpValClean.toDoubleOrNull() ?: 0.0
                         
+                        val prevLtpValue = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
+                            cols[prevLtpIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                        } else 0.0
+                        
                         val importedQty = if (qtyIdx != -1 && qtyIdx < cols.size) {
                             cols[qtyIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
                         } else 0.0
@@ -502,6 +513,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                                 ExternalLtp(
                                     symbol = scrip,
                                     ltp = ltpValue,
+                                    previousLtp = prevLtpValue,
                                     source = "Meroshare",
                                     timestamp = timestamp,
                                     isInMeroshareCsv = true
