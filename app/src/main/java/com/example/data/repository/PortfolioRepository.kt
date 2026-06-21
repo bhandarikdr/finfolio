@@ -37,10 +37,10 @@ class PortfolioRepository(
 
     /** Default scraper URLs categorized by function. Used as fallback if no user overrides exist. */
     val defaultScrapersByCategory = mapOf(
-        ScraperCategory.LTP_UPDATE to listOf("https://www.sharesansar.com/live-trading"),
-        ScraperCategory.INDEX_UPDATE to listOf("https://www.sharesansar.com/market", "https://merolagani.com/latestmarket.aspx"),
-        ScraperCategory.SCRIP_SYNC to listOf("https://www.sharesansar.com/company-list"),
-        ScraperCategory.IPO_LISTING to listOf("https://sebon.gov.np/ipo-pipeline", "https://www.nepalipaisa.com/ipo"),
+        ScraperCategory.LTP_UPDATE to listOf("https://www.sharesansar.com/live-trading", "https://www.sharesansar.com/today-share-price", "https://merolagani.com/latestmarket.aspx"),
+        ScraperCategory.INDEX_UPDATE to listOf("https://merolagani.com/latestmarket.aspx", "https://www.sharesansar.com/market"),
+        ScraperCategory.SCRIP_SYNC to listOf("https://www.sharesansar.com/company-list", "https://merolagani.com/CompanyList.aspx"),
+        ScraperCategory.IPO_LISTING to listOf("https://www.sharesansar.com/ipo-fpo-news", "https://merolagani.com/Ipo.aspx"),
         ScraperCategory.CDSC_COMPANIES to listOf("https://iporesult.cdsc.com.np/result/company/list"),
         ScraperCategory.CDSC_RESULT to listOf("https://iporesult.cdsc.com.np/result/ipo/result")
     )
@@ -213,10 +213,6 @@ class PortfolioRepository(
         }
     }
 
-    /** 
-     * Compatibility layer for components still using legacy string keys.
-     * Maps old keys to new ScraperCategories and returns the primary (first) URL.
-     */
     suspend fun getScraperUrl(key: String): String {
         val category = when(key) {
             "LTP_SHARESANSAR" -> ScraperCategory.LTP_UPDATE
@@ -372,7 +368,7 @@ class PortfolioRepository(
                                     val finalPrevLtp = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
                                         cols[prevLtpIdx].replace(",", "").toDoubleOrNull() ?: existing?.ltp ?: ltpVal
                                     } else {
-                                        existing?.ltp ?: ltpVal
+                                        if (existing != null && existing.ltp != ltpVal) existing.ltp else existing?.previousLtp ?: 0.0
                                     }
                                     portfolioDao.insertExternalLtp(ExternalLtp(symbol = symbol, ltp = ltpVal, previousLtp = finalPrevLtp, source = "CSV_Import", timestamp = System.currentTimeMillis()))
                                 }
@@ -468,7 +464,8 @@ class PortfolioRepository(
                 val groupedTx = allTx.groupBy { it.item.uppercase().trim() }
 
                 for (i in 1 until lines.size) {
-                    val cols = parseCsvRow(lines[i], separator)
+                    val rowText = lines[i]
+                    val cols = parseCsvRow(rowText, separator)
                     if (cols.size > maxOf(scripIdx, ltpIdx)) {
                         val scrip = cols[scripIdx].uppercase().trim()
                         if (scrip.isEmpty() || garbageTerms.contains(scrip.lowercase())) continue
@@ -553,6 +550,7 @@ class PortfolioRepository(
 
                 val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+                // 1. NEPSE Index Source 1: Merolagani (Stable ID-based)
                 try {
                     val meroDoc = Jsoup.connect("https://merolagani.com/LatestMarket.aspx").userAgent(userAgent).timeout(10000).get()
                     val idxValEl = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
@@ -561,10 +559,15 @@ class PortfolioRepository(
                         ptChange = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()?.text()?.trim() ?: ""
                         pctChange = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()?.text()?.trim() ?: "0.00%"
                         isPositive = !pctChange.contains("-")
-                        marketStatus = meroDoc.select("#ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()?.text()?.trim() ?: "Market Closed"
+                        val statusEl = meroDoc.select("#ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()
+                        if (statusEl != null) {
+                            marketStatus = if (statusEl.text().contains("Live", true)) "Market Open" else "Market Closed"
+                            marketDate = statusEl.text().substringBefore("(").replace("As of", "").trim()
+                        }
                     }
                 } catch (e: Exception) {}
 
+                // 2. NEPSE Index Source 2: ShareSansar (Fallback)
                 if (indexValue == "0.00" || indexValue.isEmpty()) {
                     try {
                         val ssDoc = Jsoup.connect("https://www.sharesansar.com/market").userAgent(userAgent).timeout(10000).get()
@@ -572,6 +575,7 @@ class PortfolioRepository(
                         val nepseRow = ssRows.find { it.text().contains("NEPSE Index", true) && !it.text().contains("Sub-Index", true) }
                         val cells = nepseRow?.select("td")
                         if (cells != null && cells.size >= 5) {
+                            // SS Market Table layout: index 4 is Close
                             indexValue = cells[4].text().trim()
                             ptChange = cells[5].text().trim()
                             pctChange = cells[6].text().trim()
@@ -582,15 +586,22 @@ class PortfolioRepository(
                             pctChange = cells[3].text().trim()
                             isPositive = !pctChange.contains("-")
                         }
+                        
+                        val ssStatus = ssDoc.select(".market-status, .market-update button").firstOrNull()?.text()?.trim()
+                        if (!ssStatus.isNullOrBlank()) marketStatus = ssStatus
+                        val ssDate = ssDoc.select(".market-update .date, .date").firstOrNull()?.text()?.replace("As of :", "")?.trim()
+                        if (!ssDate.isNullOrBlank()) marketDate = ssDate
                     } catch (e: Exception) {}
                 }
 
+                // Sanitization
                 indexValue = indexValue.replace("\"", "").replace(",", "").trim()
                 ptChange = ptChange.replace("(", "").replace(")", "").replace("+", "").replace("-", "").trim()
                 if (ptChange.isNotEmpty()) ptChange = if (isPositive) "+$ptChange" else "-$ptChange"
 
                 _nepseStatus.value = NepseStatus(index = indexValue, change = ptChange, percentChange = pctChange, date = marketDate, status = marketStatus, isPositive = isPositive)
 
+                // Sync NEPSE with DB
                 try {
                     val idxVal = indexValue.toDoubleOrNull() ?: 0.0
                     if (idxVal > 0) {
@@ -600,7 +611,9 @@ class PortfolioRepository(
                     }
                 } catch (e: Exception) {}
 
-                val urls = listOf("https://www.sharesansar.com/live-trading", "https://www.sharesansar.com/today-share-price", "https://merolagani.com/LatestMarket.aspx")
+                // 3. LTP Scrip Prices (Priority Fallback List)
+                val urls = getScraperUrls(ScraperCategory.LTP_UPDATE)
+                
                 var success = false
                 for (baseUrl in urls) {
                     try {
@@ -608,13 +621,16 @@ class PortfolioRepository(
                         val doc = Jsoup.connect(url).userAgent(userAgent).timeout(20000).get()
                         val scrapedLtps = mutableListOf<ExternalLtp>()
                         val timestamp = System.currentTimeMillis()
+
                         doc.select("table").forEach { table ->
                             val header = table.select("tr").firstOrNull()?.select("th, td")?.map { it.text().uppercase().trim() } ?: emptyList()
                             var symIdx = header.indexOfFirst { it.contains("SYMBOL") || it.contains("SCRIP") || it == "CODE" }
                             var ltpIdx = header.indexOfFirst { it == "LTP" || it.contains("LAST TRADED") || it.contains("PRICE") || it == "CLOSE" }
                             var prvIdx = header.indexOfFirst { it.contains("PREV") || it.contains("CLOSE") && !it.contains("LTP") }
+
                             if (symIdx == -1 && header.size >= 2) symIdx = 1
                             if (ltpIdx == -1 && header.size >= 3) ltpIdx = if (header.size >= 6) 5 else 2
+
                             if (symIdx != -1 && ltpIdx != -1) {
                                 table.select("tr").drop(1).forEach { row ->
                                     val cols = row.select("td")
@@ -630,6 +646,7 @@ class PortfolioRepository(
                                 }
                             }
                         }
+
                         if (scrapedLtps.isNotEmpty()) {
                             portfolioDao.insertExternalLtps(scrapedLtps)
                             success = true
@@ -638,7 +655,9 @@ class PortfolioRepository(
                     } catch (e: Exception) {}
                 }
                 success
-            } catch (e: Exception) { false }
+            } catch (e: Exception) {
+                false
+            }
         }
     }
 }

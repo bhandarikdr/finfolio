@@ -72,10 +72,10 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         
         val lower = clean.lowercase()
         return when {
-            lower.contains("nepse index") || lower == "nepse" || lower == "nepse-index" -> "NEPSE Index"
+            lower.contains("nepse index") || lower == "nepse" -> "NEPSE Index"
             lower.contains("sensitive float") -> "Sensitive Float Index"
-            lower.contains("sensitive index") || lower == "sensitive" -> "Sensitive Index"
-            lower.contains("float index") || lower == "float" -> "Float Index"
+            lower.contains("sensitive index") -> "Sensitive Index"
+            lower.contains("float index") -> "Float Index"
             lower.contains("banking") -> "Banking"
             lower.contains("development bank") -> "Development Bank"
             lower.contains("finance") -> "Finance"
@@ -86,9 +86,9 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
             lower.contains("manufacturing") || lower.contains("production") -> "Manufacturing"
             lower.contains("microfinance") -> "Microfinance Index"
             lower.contains("mutual fund") -> "Mutual Fund"
-            lower.contains("non life") || lower.contains("non-life") -> "Non Life Insurance"
             lower.contains("others") -> "Others"
             lower.contains("trading") -> "Trading"
+            lower.contains("non life") || lower.contains("non-life") -> "Non Life Insurance"
             lower.contains("index") || lower.contains("subindex") || lower.contains("sub index") -> {
                 clean.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
             }
@@ -116,8 +116,8 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                     "https://merolagani.com/CompanyList.aspx"
                 )
                 ScraperCategory.INDEX_UPDATE -> listOf(
-                    "https://www.sharesansar.com/market",
-                    "https://merolagani.com/LatestMarket.aspx"
+                    "https://merolagani.com/LatestMarket.aspx",
+                    "https://www.sharesansar.com/market"
                 )
                 ScraperCategory.LTP_UPDATE -> listOf(
                     "https://www.sharesansar.com/live-trading",
@@ -169,7 +169,6 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         
         for (url in urls) {
             try {
-                // desktop user agent
                 val doc = Jsoup.connect(url).userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").timeout(15000).get()
                 
                 // MeroLagani Specific Selector
@@ -214,8 +213,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                             if (rawName.isNotEmpty() && value > 0 && !garbageTerms.contains(rawName.lowercase())) {
                                 val name = normalizeIndexName(rawName)
                                 if (name != null && scrapedList.none { it.index == name }) {
-                                    val changeStr = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim() else "0"
-                                    val changeVal = changeStr.toDoubleOrNull() ?: 0.0
+                                    val changeVal = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim().toDoubleOrNull() ?: 0.0 else 0.0
                                     val isNeg = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().contains("-") else false
                                     val prevValue = if (isNeg) value + Math.abs(changeVal) else value - changeVal
                                     scrapedList.add(createNepseIndex(name, value, prevValue))
@@ -265,7 +263,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         for (baseUrl in urls) {
             try {
                 val url = if (baseUrl.contains("?")) "$baseUrl&t=${System.currentTimeMillis()}" else "$baseUrl?t=${System.currentTimeMillis()}"
-                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36").timeout(20000).get()
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").timeout(20000).get()
                 val scripEntities = mutableListOf<com.example.data.db.ExternalLtp>()
                 val timestamp = System.currentTimeMillis()
                 

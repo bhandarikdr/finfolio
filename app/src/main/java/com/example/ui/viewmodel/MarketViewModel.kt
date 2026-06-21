@@ -38,14 +38,13 @@ class MarketViewModel(private val repository: MarketRepository, private val port
 
     val filteredIndices: StateFlow<List<NepseIndex>> = combine(indices, visibleIndices) { all, visible ->
         if (all.isEmpty()) {
-            // Provide placeholders with 0.0 values while loading
             setOf("NEPSE Index", "Sensitive Index", "Float Index", "Banking", "HydroPower Index", "Life Insurance", "Microfinance Index")
                 .map { NepseIndex(it, 0.0, 0.0, 0.0) }
         } else {
-            val fixed = all.filter { it.index.equals("NEPSE Index", true) }
-            val others = all.filter { it.index !in fixed.map { f -> f.index } && 
+            val nepse = all.filter { it.index.contains("NEPSE Index", true) }
+            val others = all.filter { it.index !in nepse.map { n -> n.index } && 
                 (it.index in visible || it.index.replace(" SubIndex", "").replace(" Index", "") in visible) }
-            (fixed + others).distinctBy { it.index }
+            (nepse + others).distinctBy { it.index }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

@@ -71,12 +71,25 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 @Composable
-fun NepsePillBadge(index: String, value: Double, pct: Double, symbol: String = "रु.") {
+fun NepsePillBadge(index: String, value: Double, pct: Double, status: String, symbol: String = "रु.") {
     val isPositive = pct >= 0
     val baseColor = if (isPositive) Color(0xFF10B981) else Color(0xFFEF4444)
+    
+    val isOpen = status.contains("Open", true) || status.contains("Live", true)
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
     Surface(modifier = Modifier.padding(end = 8.dp), shape = RoundedCornerShape(100.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, baseColor.copy(0.3f))) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(baseColor))
+            Box(Modifier.size(8.dp).clip(CircleShape).background(if (isOpen) Color(0xFF10B981).copy(alpha = alpha) else Color.Red))
             Column(horizontalAlignment = Alignment.End) {
                 Text(text = index, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
                 Text(text = String.format(Locale.US, "%s%,.1f (%+.2f%%)", symbol, value, pct), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = baseColor)
@@ -119,6 +132,7 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
 
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val indices by marketViewModel.indices.collectAsStateWithLifecycle()
+    val nepseStatus by viewModel.nepseStatus.collectAsStateWithLifecycle()
     val nepseIndex = remember(indices) { 
         indices.find { it.index.equals("NEPSE Index", true) } 
             ?: indices.find { it.index.contains("NEPSE", true) } 
@@ -189,7 +203,7 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
     ) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { cs.launch { drawerState.open() } }) { Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) }; Column(Modifier.padding(start = 8.dp)) { Text("FinFolio Pro", fontWeight = FontWeight.Bold); Text("EXECUTIVE ANALYTICS", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary) } } }, actions = { if (nepseIndex != null) NepsePillBadge(nepseIndex.index, nepseIndex.value, nepseIndex.percentChange, symbol = userProfile?.currencySymbol ?: "रु."); IconButton(onClick = { 
+            topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { cs.launch { drawerState.open() } }) { Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) }; Column(Modifier.padding(start = 8.dp)) { Text("FinFolio Pro", fontWeight = FontWeight.Bold); Text("EXECUTIVE ANALYTICS", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary) } } }, actions = { if (nepseIndex != null) NepsePillBadge(nepseIndex.index, nepseIndex.value, nepseIndex.percentChange, nepseStatus.status, symbol = userProfile?.currencySymbol ?: "रु."); IconButton(onClick = {
                 viewModel.refreshLivePrices()
                 marketViewModel.refreshMarketData()
                 Toast.makeText(context, "Refreshing market data...", Toast.LENGTH_SHORT).show()
