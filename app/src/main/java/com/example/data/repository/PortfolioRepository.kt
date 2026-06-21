@@ -6,6 +6,7 @@ import com.example.data.db.ExternalLtp
 import com.example.data.db.PortfolioDao
 import com.example.data.db.TransactionRecord
 import com.example.data.model.NepseStatus
+import com.example.data.model.ScraperCategory
 import com.example.data.model.UserProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -24,26 +25,48 @@ import com.example.data.db.SectorMapping
 import com.example.data.db.UserEntity
 import kotlinx.coroutines.flow.map
 
+/**
+ * Repository handling user profile, application settings, and generic scraper configurations.
+ * Manages persistence of transactions and external LTP data.
+ */
 class PortfolioRepository(private val portfolioDao: PortfolioDao) {
 
-    val defaultScrapers = mapOf(
-        "LTP_SHARESANSAR" to "https://www.sharesansar.com/live-trading",
-        "INDEX_MEROLAGANI" to "https://merolagani.com/latestmarket.aspx",
-        "SCRIP_MASTER" to "https://www.sharesansar.com/company-list",
-        "INDICES_SHARESANSAR" to "https://www.sharesansar.com/market",
-        "IPO_PIPELINE" to "https://sebon.gov.np/ipo-pipeline",
-        "CDSC_COMPANY_LIST" to "https://iporesult.cdsc.com.np/result/company/list",
-        "NEPALI_PAISA_IPO" to "https://www.nepalipaisa.com/ipo",
-        "CDSC_RESULT_CHECK" to "https://iporesult.cdsc.com.np/result/ipo/result"
+    /** Default scraper URLs categorized by function. Used as fallback if no user overrides exist. */
+    val defaultScrapersByCategory = mapOf(
+        ScraperCategory.LTP_UPDATE to listOf("https://www.sharesansar.com/live-trading"),
+        ScraperCategory.INDEX_UPDATE to listOf("https://www.sharesansar.com/market", "https://merolagani.com/latestmarket.aspx"),
+        ScraperCategory.SCRIP_SYNC to listOf("https://www.sharesansar.com/company-list"),
+        ScraperCategory.IPO_LISTING to listOf("https://sebon.gov.np/ipo-pipeline", "https://www.nepalipaisa.com/ipo"),
+        ScraperCategory.CDSC_COMPANIES to listOf("https://iporesult.cdsc.com.np/result/company/list"),
+        ScraperCategory.CDSC_RESULT to listOf("https://iporesult.cdsc.com.np/result/ipo/result")
     )
 
+    /** 
+     * Flow of the user profile, merging database entity with default values.
+     * Parses scraper URLs from JSON storage into a typed Map.
+     */
     val userProfile: Flow<UserProfile> = portfolioDao.getUserProfile().map { entity ->
-        val scraperMap = mutableMapOf<String, String>()
+        // ... (existing parsing logic)
+        val scraperMap = mutableMapOf<ScraperCategory, List<String>>()
         if (!entity?.scraperUrlsJson.isNullOrBlank()) {
             try {
                 val json = JSONObject(entity!!.scraperUrlsJson)
-                json.keys().forEach { key -> scraperMap[key] = json.getString(key) }
+                ScraperCategory.values().forEach { cat ->
+                    if (json.has(cat.name)) {
+                        val arr = json.getJSONArray(cat.name)
+                        val list = mutableListOf<String>()
+                        for (i in 0 until arr.length()) list.add(arr.getString(i))
+                        scraperMap[cat] = list
+                    }
+                }
             } catch (e: Exception) { e.printStackTrace() }
+        }
+        
+        // Fill defaults if missing
+        ScraperCategory.values().forEach { cat ->
+            if (scraperMap[cat].isNullOrEmpty()) {
+                scraperMap[cat] = defaultScrapersByCategory[cat] ?: emptyList()
+            }
         }
         
         UserProfile(
@@ -93,14 +116,34 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
-    suspend fun updateScraperUrl(key: String, url: String) {
+    /** Updates the list of market indices that are displayed on the home screen pulse. */
+    suspend fun updateVisibleIndices(indices: List<String>) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            portfolioDao.saveUserProfile(
+                UserEntity(
+                    name = existing?.name ?: "",
+                    email = existing?.email ?: "",
+                    currencySymbol = existing?.currencySymbol ?: "रु.",
+                    dateFormat = existing?.dateFormat ?: "AD",
+                    visibleIndicesJson = indices.joinToString(","),
+                    scraperUrlsJson = existing?.scraperUrlsJson ?: ""
+                )
+            )
+        }
+    }
+
+    /** Saves a prioritized list of URLs for a specific scraper category. */
+    suspend fun updateScraperUrls(category: ScraperCategory, urls: List<String>) {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
             val json = if (!existing?.scraperUrlsJson.isNullOrBlank()) {
                 try { JSONObject(existing!!.scraperUrlsJson) } catch (e: Exception) { JSONObject() }
             } else JSONObject()
             
-            json.put(key, url)
+            val arr = org.json.JSONArray()
+            urls.forEach { arr.put(it) }
+            json.put(category.name, arr)
             
             portfolioDao.saveUserProfile(
                 UserEntity(
@@ -116,17 +159,58 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
-    suspend fun getScraperUrl(key: String): String {
+    /** Wipes all custom scraper overrides and restores app to factory default URLs. */
+    suspend fun resetAllScraperUrls() {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            portfolioDao.saveUserProfile(
+                UserEntity(
+                    id = 0,
+                    name = existing?.name ?: "",
+                    email = existing?.email ?: "",
+                    currencySymbol = existing?.currencySymbol ?: "रु.",
+                    dateFormat = existing?.dateFormat ?: "AD",
+                    visibleIndicesJson = existing?.visibleIndicesJson ?: "",
+                    scraperUrlsJson = ""
+                )
+            )
+        }
+    }
+
+    /** Returns the prioritized list of URLs for a category, falling back to defaults if none saved. */
+    suspend fun getScraperUrls(category: ScraperCategory): List<String> {
         return withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
             if (!existing?.scraperUrlsJson.isNullOrBlank()) {
                 try {
                     val json = JSONObject(existing!!.scraperUrlsJson)
-                    if (json.has(key)) return@withContext json.getString(key)
+                    if (json.has(category.name)) {
+                        val arr = json.getJSONArray(category.name)
+                        val list = mutableListOf<String>()
+                        for (i in 0 until arr.length()) list.add(arr.getString(i))
+                        if (list.isNotEmpty()) return@withContext list
+                    }
                 } catch (e: Exception) {}
             }
-            defaultScrapers[key] ?: ""
+            defaultScrapersByCategory[category] ?: emptyList()
         }
+    }
+
+    /** 
+     * Compatibility layer for components still using legacy string keys.
+     * Maps old keys to new ScraperCategories and returns the primary (first) URL.
+     */
+    suspend fun getScraperUrl(key: String): String {
+        val category = when(key) {
+            "LTP_SHARESANSAR" -> ScraperCategory.LTP_UPDATE
+            "INDEX_MEROLAGANI", "INDICES_SHARESANSAR" -> ScraperCategory.INDEX_UPDATE
+            "SCRIP_MASTER" -> ScraperCategory.SCRIP_SYNC
+            "IPO_PIPELINE", "NEPALI_PAISA_IPO" -> ScraperCategory.IPO_LISTING
+            "CDSC_COMPANY_LIST" -> ScraperCategory.CDSC_COMPANIES
+            "CDSC_RESULT_CHECK" -> ScraperCategory.CDSC_RESULT
+            else -> return ""
+        }
+        return getScraperUrls(category).firstOrNull() ?: ""
     }
 
     val allTransactions: Flow<List<TransactionRecord>> = portfolioDao.getAllTransactions()
@@ -242,6 +326,7 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                     val qtyIdx = header.indexOfFirst { it.contains("qty") || it.contains("quantity") }
                     val amountIdx = header.indexOfFirst { it.contains("amount") || it.contains("total") }
                     val typeIdx = header.indexOfFirst { it.contains("type") || it.contains("category") }
+                    val ltpIdx = header.indexOfFirst { it.contains("ltp") || it.contains("price") }
 
                     if (itemIdx == -1) return@withContext Result.failure(Exception("Invalid CSV: Symbol/Item column missing"))
 
@@ -255,6 +340,21 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
                             val qty = cols.getOrNull(qtyIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
                             val amount = cols.getOrNull(amountIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
                             val date = cols.getOrNull(dateIdx)?.takeIf { it.isNotBlank() } ?: todayStr
+
+                            // Handle optional LTP from standard CSV
+                            if (ltpIdx != -1 && ltpIdx < cols.size) {
+                                val ltpVal = cols[ltpIdx].replace(",", "").toDoubleOrNull()
+                                if (ltpVal != null && ltpVal > 0) {
+                                    portfolioDao.insertExternalLtp(
+                                        ExternalLtp(
+                                            symbol = symbol.uppercase().trim(),
+                                            ltp = ltpVal,
+                                            source = "CSV_Import",
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                    )
+                                }
+                            }
 
                             val normalizedAction = when {
                                 actionRaw.equals("sale", ignoreCase = true) || actionRaw.equals("sell", ignoreCase = true) -> "Sale"

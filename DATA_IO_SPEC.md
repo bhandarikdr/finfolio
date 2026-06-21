@@ -9,7 +9,7 @@ This document defines how FinFolio handles transaction recording and external da
 - **Actions**: Buy, Sale, Returns (Bonus/Right/Dividend).
 
 ## 2. CSV Imports
-- **Standard Transaction CSV**: Fields include `Date, Item, Action, Qty, Amount, Type`.
+- **Standard Transaction CSV**: Fields include `Date, Item, Action, Qty, Amount, Type, LTP (Optional)`. Importing this will also update the local market price if the `LTP` column is present.
 - **WACC CSV**: Specialized import for Weighted Average Cost Price data. Fields: `Scrip, Qty, Rate, Cost`.
 - **Portfolio CSV**: Meroshare export format for aligning holdings. Fields: `Scrip, LTP, Balance`.
 - **Smart Portfolio Sync**: Before importing a Portfolio CSV, the system calculates and prompts the user with the number of adjustment records that will be created.

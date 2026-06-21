@@ -9,6 +9,7 @@ import com.example.data.db.TransactionRecord
 import com.example.data.model.FinancialEngines
 import com.example.data.model.ItemMetrics
 import com.example.data.model.NepseStatus
+import com.example.data.model.ScraperCategory
 import com.example.data.model.TypeMetrics
 import com.example.data.model.UserProfile
 import com.example.data.repository.PortfolioRepository
@@ -32,6 +33,10 @@ enum class DatasetScope {
     MEROSHARE
 }
 
+/**
+ * ViewModel responsible for managing portfolio metrics, transactions, and user settings.
+ * Handles the logic for prioritized scraper URL management and testing.
+ */
 class PortfolioViewModel(private val repository: PortfolioRepository) : ViewModel() {
 
     val userProfile: StateFlow<UserProfile?> = repository.userProfile
@@ -40,7 +45,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     val nepseStatus: StateFlow<NepseStatus> = repository.nepseStatus
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NepseStatus())
 
-    val defaultScrapers = repository.defaultScrapers
+    val defaultScrapers = repository.defaultScrapersByCategory
 
     fun registerUser(name: String, email: String) {
         viewModelScope.launch {
@@ -327,14 +332,27 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
-    fun updateScraperUrl(key: String, url: String) {
+    /** Triggers a bulk update for a prioritized list of URLs for a category. */
+    fun updateScraperUrls(category: ScraperCategory, urls: List<String>) {
         viewModelScope.launch {
-            repository.updateScraperUrl(key, url)
-            _snackbarMessage.emit("Scraper URL for $key updated")
+            repository.updateScraperUrls(category, urls)
+            _snackbarMessage.emit("Scraper URLs for ${category.displayName} updated")
         }
     }
 
-    suspend fun testScraperUrl(key: String, url: String): kotlin.Result<String> {
+    /** Wipes all custom scraper overrides and restores app to factory default URLs. */
+    fun resetAllScraperUrls() {
+        viewModelScope.launch {
+            repository.resetAllScraperUrls()
+            _snackbarMessage.emit("All Scraper URLs restored to default")
+        }
+    }
+
+    /** 
+     * Tests a specific URL for its ability to provide data for a given category.
+     * Performs lightweight parsing/checking based on category expectations.
+     */
+    suspend fun testScraperUrl(category: ScraperCategory, url: String): kotlin.Result<String> {
         return withContext(Dispatchers.IO) {
             try {
                 val doc = Jsoup.connect(url)
@@ -342,20 +360,23 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
                     .timeout(10000)
                     .get()
                 
-                val success = when(key) {
-                    "INDEX_MEROLAGANI" -> doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").isNotEmpty()
-                    "LTP_SHARESANSAR" -> doc.select("table").isNotEmpty()
-                    "SCRIP_MASTER" -> doc.select("table tr").size > 5
-                    "INDICES_SHARESANSAR" -> doc.select("table tr").isNotEmpty()
-                    "IPO_PIPELINE" -> doc.select("table").isNotEmpty()
-                    "CDSC_COMPANY_LIST" -> true // This is JSON, Jsoup might fail to "parse" as HTML but connect works
-                    "NEPALI_PAISA_IPO" -> doc.select("tr, .ipo-item").isNotEmpty()
-                    "CDSC_RESULT_CHECK" -> true
-                    else -> true
+                val success = when(category) {
+                    ScraperCategory.INDEX_UPDATE -> doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue, table tr").isNotEmpty()
+                    ScraperCategory.LTP_UPDATE -> doc.select("table tr").size > 5
+                    ScraperCategory.SCRIP_SYNC -> doc.select("table tr").size > 10
+                    ScraperCategory.IPO_LISTING -> doc.select("tr, .ipo-item, table").isNotEmpty()
+                    ScraperCategory.CDSC_COMPANIES -> {
+                        // CDSC usually returns JSON
+                        try {
+                            val text = Jsoup.connect(url).ignoreContentType(true).execute().body()
+                            org.json.JSONArray(text).length() >= 0
+                        } catch (e: Exception) { false }
+                    }
+                    ScraperCategory.CDSC_RESULT -> true
                 }
                 
-                if (success) kotlin.Result.success("Success: URL is reachable and target elements found.")
-                else kotlin.Result.failure(Exception("URL reachable but target data structure not found."))
+                if (success) kotlin.Result.success("Success: URL is reachable and data structure looks valid.")
+                else kotlin.Result.failure(Exception("URL reachable but target data not found."))
             } catch (e: Exception) {
                 kotlin.Result.failure(e)
             }

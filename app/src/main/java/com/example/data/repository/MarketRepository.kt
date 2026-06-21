@@ -3,10 +3,12 @@ package com.example.data.repository
 import com.example.data.db.PortfolioDao
 import com.example.data.db.ScripMaster
 import com.example.data.db.MarketIndexEntity
+import com.example.data.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.HttpURLConnection
 import java.net.URL
@@ -28,11 +30,12 @@ data class ScripPriceChange(
     val previousLtp: Double = 0.0
 )
 
-data class IpoCompany(val id: Int, val name: String, val scrip: String)
-data class IpoResult(val success: Boolean, val message: String)
-
+/**
+ * Repository for market-wide data including indices and scrip price updates.
+ * Implements a prioritized fallback mechanism for data scraping.
+ */
 class MarketRepository(private val portfolioDao: PortfolioDao) {
-
+    
     val allScripMaster: Flow<List<ScripMaster>> = portfolioDao.getAllScripMaster()
     val wishlistedScrips: Flow<List<ScripMaster>> = portfolioDao.getWishlistedScrips()
     
@@ -57,159 +60,13 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         }
 
         if (isWishlisted) {
-            fetchPriceChanges() 
-        }
-    }
-
-    private suspend fun getScraperUrl(key: String): String {
-        return withContext(Dispatchers.IO) {
-            val existing = portfolioDao.getUserProfileSync()
-            if (!existing?.scraperUrlsJson.isNullOrBlank()) {
-                try {
-                    val json = org.json.JSONObject(existing!!.scraperUrlsJson)
-                    if (json.has(key)) return@withContext json.getString(key)
-                } catch (e: Exception) {}
-            }
-            // Default Fallbacks
-            when(key) {
-                "SCRIP_MASTER" -> "https://www.sharesansar.com/company-list"
-                "INDICES_SHARESANSAR" -> "https://www.sharesansar.com/market"
-                "INDEX_MEROLAGANI" -> "https://merolagani.com/latestmarket.aspx"
-                "LTP_SHARESANSAR" -> "https://www.sharesansar.com/live-trading"
-                else -> ""
-            }
-        }
-    }
-
-    suspend fun fetchMasterScrips(): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                val scripMasterUrl = getScraperUrl("SCRIP_MASTER")
-                val doc = Jsoup.connect(scripMasterUrl)
-                    .userAgent("Mozilla/5.0")
-                    .timeout(25000)
-                    .get()
-                
-                val scrips = mutableListOf<ScripMaster>()
-                val rows = doc.select("table tr")
-                rows.forEach { row ->
-                    val cells = row.select("td")
-                    if (cells.size >= 4) {
-                        val symbol = cells[1].text().trim().uppercase()
-                        val name = cells[2].text().trim()
-                        val sector = cells[3].text().trim()
-                        if (symbol.isNotEmpty() && symbol.length <= 15 && symbol != "SYMBOL") {
-                            scrips.add(ScripMaster(symbol, name, sector))
-                        }
-                    }
-                }
-                
-                if (scrips.isNotEmpty()) {
-                    portfolioDao.insertScripMaster(scrips)
-                    return@withContext true
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            false
-        }
-    }
-
-    suspend fun fetchNepseIndices(): List<NepseIndex> {
-        return withContext(Dispatchers.IO) {
-            val scrapedList = mutableListOf<NepseIndex>()
-            try {
-                // Source 1: Sharesansar Market Page
-                val indicesUrl = getScraperUrl("INDICES_SHARESANSAR")
-                val doc = Jsoup.connect(indicesUrl)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    .timeout(20000)
-                    .get()
-                
-                val tables = doc.select("table")
-                for (table in tables) {
-                    val rows = table.select("tr")
-                    for (row in rows) {
-                        val cells = row.select("td")
-                        if (cells.size >= 2) {
-                            val rawName = cells[0].text().trim()
-                            val name = normalizeIndexName(rawName)
-                            if (name != null) {
-                                val value = cells.getOrNull(1)?.text()?.replace(",", "")?.toDoubleOrNull() ?: 0.0
-                                if (value > 0) {
-                                    val existing = portfolioDao.getIndexByName(name)
-                                    
-                                    // LOGIC: Only update if value actually changed
-                                    if (existing == null || Math.abs(existing.currentValue - value) > 0.001) {
-                                        val prevValue = existing?.currentValue ?: (value * 0.99)
-                                        val diff = value - prevValue
-                                        val pct = if (prevValue > 0) (diff / prevValue) * 100.0 else 0.0
-                                        scrapedList.add(NepseIndex(name, value, diff, pct, prevValue))
-                                    } else {
-                                        scrapedList.add(NepseIndex(
-                                            name, 
-                                            existing.currentValue, 
-                                            existing.currentValue - existing.previousValue,
-                                            existing.changePercent,
-                                            existing.previousValue
-                                        ))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Fallback/Reinforcement for NEPSE Index from Merolagani if missing or for verification
-                if (scrapedList.none { it.index.contains("NEPSE Index", true) }) {
-                    try {
-                        val meroUrl = getScraperUrl("INDEX_MEROLAGANI")
-                        val meroDoc = Jsoup.connect(meroUrl)
-                            .userAgent("Mozilla/5.0")
-                            .timeout(10000)
-                            .get()
-                        
-                        val idxValEl = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
-                        if (idxValEl != null && idxValEl.text().trim().isNotEmpty()) {
-                            val value = idxValEl.text().trim().replace(",", "").toDoubleOrNull() ?: 0.0
-                            if (value > 0) {
-                                val name = "NEPSE Index"
-                                val existing = portfolioDao.getIndexByName(name)
-                                if (existing == null || Math.abs(existing.currentValue - value) > 0.001) {
-                                    val prevValue = existing?.currentValue ?: (value * 0.99)
-                                    val diff = value - prevValue
-                                    val pct = if (prevValue > 0) (diff / prevValue) * 100.0 else 0.0
-                                    scrapedList.add(NepseIndex(name, value, diff, pct, prevValue))
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {}
-                }
-
-                if (scrapedList.isNotEmpty()) {
-                    val toPersist = mutableListOf<MarketIndexEntity>()
-                    for (s in scrapedList) {
-                        val ex = portfolioDao.getIndexByName(s.index)
-                        if (ex == null || Math.abs(ex.currentValue - s.value) > 0.001) {
-                            toPersist.add(MarketIndexEntity(s.index, s.value, s.previousValue, s.percentChange))
-                        }
-                    }
-                    if (toPersist.isNotEmpty()) {
-                        portfolioDao.insertMarketIndices(toPersist)
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            scrapedList.distinctBy { it.index }
+            fetchPriceChanges()
         }
     }
 
     private fun normalizeIndexName(name: String): String? {
         if (name.isEmpty() || name.length > 50) return null
         val lower = name.lowercase()
-        
-        // Map common variations to standard names
         return when {
             lower.contains("nepse index") || lower == "nepse" -> "NEPSE Index"
             lower.contains("sensitive index") -> "Sensitive Index"
@@ -232,68 +89,140 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
-    suspend fun fetchPriceChanges(): List<ScripPriceChange> {
+    private suspend fun getScraperUrls(category: ScraperCategory): List<String> {
         return withContext(Dispatchers.IO) {
-            val changes = mutableListOf<ScripPriceChange>()
+            val existing = portfolioDao.getUserProfileSync()
+            if (!existing?.scraperUrlsJson.isNullOrBlank()) {
+                try {
+                    val json = JSONObject(existing!!.scraperUrlsJson)
+                    if (json.has(category.name)) {
+                        val arr = json.getJSONArray(category.name)
+                        val list = mutableListOf<String>()
+                        for (i in 0 until arr.length()) list.add(arr.getString(i))
+                        if (list.isNotEmpty()) return@withContext list
+                    }
+                } catch (e: Exception) {}
+            }
+            when(category) {
+                ScraperCategory.SCRIP_SYNC -> listOf("https://www.sharesansar.com/company-list")
+                ScraperCategory.INDEX_UPDATE -> listOf("https://www.sharesansar.com/market", "https://merolagani.com/latestmarket.aspx")
+                ScraperCategory.LTP_UPDATE -> listOf("https://www.sharesansar.com/live-trading")
+                else -> emptyList()
+            }
+        }
+    }
+
+    /**
+     * Downloads the latest scrip master list (Symbol, Name, Sector) from prioritized URLs.
+     * Updates the local database on success.
+     */
+    suspend fun fetchMasterScrips(): Boolean {
+        val urls = getScraperUrls(ScraperCategory.SCRIP_SYNC)
+        for (url in urls) {
             try {
-                // Ensure we get the latest data by adding a timestamp
-                val baseLtpUrl = getScraperUrl("LTP_SHARESANSAR")
-                val url = if (baseLtpUrl.contains("?")) "$baseLtpUrl&t=${System.currentTimeMillis()}" else "$baseLtpUrl?t=${System.currentTimeMillis()}"
-                val doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    .timeout(25000)
-                    .get()
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(20000).get()
+                val scrips = mutableListOf<ScripMaster>()
+                doc.select("table tr").forEach { row ->
+                    val cells = row.select("td")
+                    if (cells.size >= 4) {
+                        val symbol = cells[1].text().trim().uppercase()
+                        if (symbol.isNotEmpty() && symbol != "SYMBOL") {
+                            scrips.add(ScripMaster(symbol, cells[2].text().trim(), cells[3].text().trim()))
+                        }
+                    }
+                }
+                if (scrips.isNotEmpty()) {
+                    portfolioDao.insertScripMaster(scrips)
+                    return true
+                }
+            } catch (e: Exception) {}
+        }
+        return false
+    }
+
+    /**
+     * Fetches market indices (NEPSE, Banking, etc.) from prioritized sources.
+     * Implements site-specific parsing for MeroLagani and general table parsing.
+     */
+    suspend fun fetchNepseIndices(): List<NepseIndex> {
+        val urls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
+        val scrapedList = mutableListOf<NepseIndex>()
+        
+        for (url in urls) {
+            try {
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(15000).get()
                 
-                val rows = doc.select("table tbody tr")
+                // Try MeroLagani specific selector first if URL matches
+                if (url.contains("merolagani")) {
+                    val idxValEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
+                    if (idxValEl != null) {
+                        val value = idxValEl.text().replace(",", "").toDoubleOrNull() ?: 0.0
+                        if (value > 0) scrapedList.add(createNepseIndex("NEPSE Index", value))
+                    }
+                }
+
+                // General table parsing for other indices
+                doc.select("table tr").forEach { row ->
+                    val cells = row.select("td")
+                    if (cells.size >= 2) {
+                        val name = normalizeIndexName(cells[0].text().trim())
+                        val value = cells[1].text().replace(",", "").toDoubleOrNull() ?: 0.0
+                        if (name != null && value > 0) scrapedList.add(createNepseIndex(name, value))
+                    }
+                }
+                if (scrapedList.isNotEmpty()) break 
+            } catch (e: Exception) {}
+        }
+
+        if (scrapedList.isNotEmpty()) {
+            portfolioDao.insertMarketIndices(scrapedList.map { 
+                MarketIndexEntity(it.index, it.value, it.previousValue, it.percentChange) 
+            })
+        }
+        return scrapedList.distinctBy { it.index }
+    }
+
+    private suspend fun createNepseIndex(name: String, value: Double): NepseIndex {
+        val existing = portfolioDao.getIndexByName(name)
+        val prevValue = existing?.currentValue ?: (value * 0.99)
+        val diff = value - prevValue
+        val pct = if (prevValue > 0) (diff / prevValue) * 100.0 else 0.0
+        return NepseIndex(name, value, diff, pct, prevValue)
+    }
+
+    /**
+     * Fetches the latest Last Traded Prices (LTP) and calculates changes.
+     * Uses prioritized Live Trading URLs (e.g., Sharesansar).
+     */
+    suspend fun fetchPriceChanges(): List<ScripPriceChange> {
+        val urls = getScraperUrls(ScraperCategory.LTP_UPDATE)
+        val changes = mutableListOf<ScripPriceChange>()
+        
+        for (baseUrl in urls) {
+            try {
+                val url = if (baseUrl.contains("?")) "$baseUrl&t=${System.currentTimeMillis()}" else "$baseUrl?t=${System.currentTimeMillis()}"
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(20000).get()
                 val scripEntities = mutableListOf<com.example.data.db.ExternalLtp>()
                 
-                rows.forEach { row ->
+                doc.select("table tbody tr").forEach { row ->
                     val cells = row.select("td")
                     if (cells.size >= 6) {
-                        // Sharesansar live trading: 1=Symbol, 5=LTP (usually)
-                        // But let's be safer and find index by header if possible, 
-                        // or stick to the most common structure.
                         val symbol = cells[1].text().trim().uppercase()
-                        val ltpStr = cells[5].text().replace(",", "").trim()
-                        val ltp = ltpStr.toDoubleOrNull() ?: 0.0
-                        
-                        if (symbol.isNotEmpty() && symbol.length <= 15 && ltp > 0) {
+                        val ltp = cells[5].text().replace(",", "").toDoubleOrNull() ?: 0.0
+                        if (symbol.isNotEmpty() && ltp > 0) {
                             val existing = portfolioDao.getExternalLtpBySymbol(symbol)
-                            
-                            // LOGIC: Only update if LTP actually changed (using tolerance)
-                            if (existing == null || Math.abs(existing.ltp - ltp) > 0.001) {
-                                val prevLtp = existing?.ltp ?: (ltp * 0.99)
-                                val diff = ltp - prevLtp
-                                val pct = if (prevLtp > 0) (diff / prevLtp) * 100.0 else 0.0
-
-                                changes.add(ScripPriceChange(symbol, ltp, diff, pct, prevLtp))
-                                scripEntities.add(com.example.data.db.ExternalLtp(
-                                    symbol = symbol, 
-                                    ltp = ltp, 
-                                    previousLtp = prevLtp, 
-                                    source = "Scraped",
-                                    timestamp = System.currentTimeMillis()
-                                ))
-                            } else {
-                                // Add existing data to changes list for UI consistency
-                                changes.add(ScripPriceChange(
-                                    symbol = symbol, 
-                                    ltp = existing.ltp, 
-                                    change = existing.ltp - existing.previousLtp,
-                                    percentChange = if (existing.previousLtp > 0) ((existing.ltp - existing.previousLtp) / existing.previousLtp) * 100.0 else 0.0,
-                                    previousLtp = existing.previousLtp
-                                ))
-                            }
+                            val prevLtp = existing?.ltp ?: ltp
+                            changes.add(ScripPriceChange(symbol, ltp, ltp - prevLtp, if(prevLtp>0) (ltp-prevLtp)/prevLtp*100.0 else 0.0, prevLtp))
+                            scripEntities.add(com.example.data.db.ExternalLtp(symbol, ltp, prevLtp, "Scraped", System.currentTimeMillis()))
                         }
                     }
                 }
                 if (scripEntities.isNotEmpty()) {
                     portfolioDao.insertExternalLtps(scripEntities)
+                    return changes.distinctBy { it.symbol }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            changes.distinctBy { it.symbol }
+            } catch (e: Exception) {}
         }
+        return emptyList()
     }
 }

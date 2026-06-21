@@ -3,13 +3,31 @@ package com.example.data.model
 import com.example.data.db.ExternalLtp
 import com.example.data.db.TransactionRecord
 
+/**
+ * Categories for data scrapers used throughout the app.
+ * Each category supports prioritized multiple URLs for fallback reliability.
+ */
+enum class ScraperCategory(val displayName: String, val description: String) {
+    LTP_UPDATE("Live Price (LTP) Update", "Fetches latest market prices for portfolio stocks."),
+    INDEX_UPDATE("Market Index Update", "Updates NEPSE and sector indices."),
+    SCRIP_SYNC("Scrip Master Sync", "Downloads list of all listed companies."),
+    IPO_LISTING("IPO Pipeline", "Tracks upcoming and ongoing IPOs."),
+    CDSC_COMPANIES("IPO Result Company List", "Required to map companies for IPO allotment checks."),
+    CDSC_RESULT("IPO Result Checker", "Endpoint for verifying IPO allotment status.")
+}
+
+/**
+ * Represent the user's profile and application preferences.
+ * Includes names, preferences, and custom scraper configurations.
+ */
 data class UserProfile(
     val name: String,
     val email: String,
     val currencySymbol: String = "रु.",
     val dateFormat: String = "AD",
     val visibleIndices: List<String> = emptyList(),
-    val scraperUrls: Map<String, String> = emptyMap()
+    /** Map of scraper categories to a prioritized list of URLs. App tries them in order. */
+    val scraperUrls: Map<ScraperCategory, List<String>> = emptyMap()
 )
 
 data class NepseStatus(

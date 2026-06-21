@@ -1850,7 +1850,7 @@ fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, w
             Button(onClick = { tx.launch("*/*") }, Modifier.fillMaxWidth()) { 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Standard Transaction CSV")
-                    Text("Fields: Date, Item, Action, Qty, Amount, Type", fontSize = 9.sp, fontWeight = FontWeight.Normal)
+                    Text("Fields: Date, Item, Action, Qty, Amount, Type, LTP", fontSize = 9.sp, fontWeight = FontWeight.Normal)
                 }
             }
             
@@ -1962,77 +1962,119 @@ fun SectorExpandableHeader(type: String, count: Int, isExpanded: Boolean, onTogg
 @Composable
 fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
     val userProfile by vm.userProfile.collectAsStateWithLifecycle()
-    val scrapers = vm.defaultScrapers
-    val currentUrls = userProfile?.scraperUrls ?: emptyMap()
+    val currentScrapers = userProfile?.scraperUrls ?: emptyMap()
     val cs = rememberCoroutineScope()
+    var showResetDialog by remember { mutableStateOf(false) }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Restore Defaults?") },
+            text = { Text("This will immediately reset all custom scraper URLs to their factory settings. Priority lists will be restored.") },
+            confirmButton = {
+                Button(onClick = {
+                    vm.resetAllScraperUrls()
+                    showResetDialog = false
+                }) { Text("Confirm Restore") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        SubScreenHeader("Scraper Configuration", onBack)
+        SubScreenHeader(
+            title = "Scraper Configuration",
+            onBack = onBack,
+            trailingIcon = {
+                TextButton(onClick = { showResetDialog = true }) {
+                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Restore All", fontSize = 12.sp)
+                }
+            }
+        )
         
         LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(0.1f))) {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(0.1f)), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(0.2f))) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(12.dp))
-                        Text("Customize data sources. Use 'Test' to verify if the scraper can still parse the target site correctly.", 
-                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("App tries URLs in the order listed. If the first fails, it falls back to the next.", 
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
             
-            items(scrapers.keys.toList()) { key ->
-                val defaultUrl = scrapers[key] ?: ""
-                var url by remember(currentUrls) { mutableStateOf(currentUrls[key] ?: defaultUrl) }
-                var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
-                var isTesting by remember { mutableStateOf(false) }
-
+            items(ScraperCategory.values()) { category ->
+                val urls = currentScrapers[category] ?: emptyList()
+                
                 Card(Modifier.fillMaxWidth(), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.5f))) {
                     Column(Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = key.replace("_", " "), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                            if (url != defaultUrl) {
-                                TextButton(onClick = { url = defaultUrl; vm.updateScraperUrl(key, defaultUrl) }) {
-                                    Text("Reset", fontSize = 10.sp)
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = url,
-                            onValueChange = { url = it },
-                            label = { Text("Source URL", fontSize = 11.sp) },
-                            modifier = Modifier.fillMaxWidth(),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true
-                        )
-                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                            if (isTesting) {
-                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text(text = category.displayName, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(text = category.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+                        
+                        urls.forEachIndexed { index, url ->
+                            var editedUrl by remember(url) { mutableStateOf(url) }
+                            var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+                            var isTesting by remember { mutableStateOf(false) }
+
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) { Text("${index + 1}") }
                                 Spacer(Modifier.width(8.dp))
+                                OutlinedTextField(
+                                    value = editedUrl,
+                                    onValueChange = { editedUrl = it },
+                                    modifier = Modifier.weight(1f),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        if (isTesting) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                        else IconButton(onClick = {
+                                            isTesting = true
+                                            cs.launch {
+                                                val res = vm.testScraperUrl(category, editedUrl)
+                                                isTesting = false
+                                                testResult = if (res.isSuccess) true to res.getOrThrow() else false to (res.exceptionOrNull()?.message ?: "Unknown error")
+                                            }
+                                        }) { Icon(Icons.Default.BugReport, null, Modifier.size(16.dp)) }
+                                    }
+                                )
+                                IconButton(onClick = {
+                                    val newUrls = urls.toMutableList()
+                                    newUrls.removeAt(index)
+                                    vm.updateScraperUrls(category, newUrls)
+                                }) { Icon(Icons.Default.Delete, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error) }
                             }
-                            TextButton(onClick = {
-                                isTesting = true
-                                cs.launch {
-                                    val res = vm.testScraperUrl(key, url)
-                                    isTesting = false
-                                    testResult = if (res.isSuccess) true to res.getOrThrow() else false to (res.exceptionOrNull()?.message ?: "Unknown error")
-                                }
-                            }) { Text("Test Connection", fontSize = 12.sp) }
-                            Spacer(Modifier.width(8.dp))
-                            Button(onClick = { vm.updateScraperUrl(key, url) }, shape = RoundedCornerShape(8.dp)) { 
-                                Text("Save", fontSize = 12.sp) 
+                            
+                            if (editedUrl != url) {
+                                TextButton(onClick = {
+                                    val newUrls = urls.toMutableList()
+                                    newUrls[index] = editedUrl
+                                    vm.updateScraperUrls(category, newUrls)
+                                }, modifier = Modifier.align(Alignment.End)) { Text("Save Change", fontSize = 10.sp) }
+                            }
+
+                            testResult?.let { (success, msg) ->
+                                Text(msg, color = if (success) Color(0xFF2E7D32) else Color(0xFFC62828), fontSize = 9.sp, modifier = Modifier.padding(start = 32.dp, bottom = 4.dp))
                             }
                         }
-                        testResult?.let { (success, msg) ->
-                            Surface(
-                                color = if (success) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
-                                shape = RoundedCornerShape(4.dp),
-                                modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
-                            ) {
-                                Text(msg, color = if (success) Color(0xFF2E7D32) else Color(0xFFC62828), fontSize = 10.sp, modifier = Modifier.padding(8.dp))
-                            }
+                        
+                        Button(
+                            onClick = {
+                                val newUrls = urls.toMutableList() + ""
+                                vm.updateScraperUrls(category, newUrls)
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                        ) {
+                            Icon(Icons.Default.Add, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add URL / Fallback", fontSize = 11.sp)
                         }
                     }
                 }
@@ -2040,6 +2082,7 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
         }
     }
 }
+
 
 @Composable
 fun DeveloperProfilePanel(
