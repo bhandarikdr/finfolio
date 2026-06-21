@@ -25,7 +25,11 @@ All secondary screens must use the `SubScreenHeader` composable to maintain cons
 ## 6. Forms & Selection
 - **Input Fields**: Prefer dropdown selectors for repetitive data (e.g., Scrips, Sectors) to minimize typing errors.
 - **Dynamic Recent Items**: Dropdowns should prioritize "Recent Items" based on the user's transaction history.
+- **Field Heights**: Standardize form input heights (Buttons and TextFields) to `60.dp` for better visual alignment and touch target size.
 - **Dialogs for New Entry**: Use clean, focused dialogs for adding new entities that aren't in existing lists.
+
+## 9. Functional Integrity
+- **Strict Adherence**: Do not change any existing functionality unless specifically instructed to do so. Documentation references are mandatory for all UI and logic adjustments to maintain project consistency.
 
 ## 7. Responsive Feedback & Confirmations
 - **Action Confirmation**: Always ask for user confirmation before destructive actions (e.g., Deletion) or significant data changes (e.g., Adding/Updating records manually).

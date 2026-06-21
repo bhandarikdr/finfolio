@@ -1649,11 +1649,42 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
                 }
             }
 
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                var ex by remember { mutableStateOf(false) }; Box(Modifier.weight(1f)) { OutlinedButton({ ex = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) { Text(action); Icon(Icons.Default.ArrowDropDown, null) }; DropdownMenu(ex, { ex = false }) { listOf("Buy", "Sale", "Returns").forEach { a -> DropdownMenuItem(text = { Text(a) }, onClick = { action = a; ex = false }) } } }
-                OutlinedTextField(qty, { if (it.isEmpty() || it.toDoubleOrNull() != null) qty = it }, label = { Text("Qty") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(8.dp))
+            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                var ex by remember { mutableStateOf(false) }
+                Box(Modifier.weight(1f)) { 
+                    OutlinedButton(
+                        onClick = { ex = true }, 
+                        modifier = Modifier.fillMaxWidth().height(60.dp), 
+                        shape = RoundedCornerShape(8.dp)
+                    ) { 
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(action)
+                            Icon(Icons.Default.ArrowDropDown, null) 
+                        }
+                    } 
+                    DropdownMenu(expanded = ex, onDismissRequest = { ex = false }) { 
+                        listOf("Buy", "Sale", "Returns").forEach { a -> 
+                            DropdownMenuItem(text = { Text(a) }, onClick = { action = a; ex = false }) 
+                        } 
+                    } 
+                }
+                OutlinedTextField(
+                    value = qty, 
+                    onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null) qty = it }, 
+                    label = { Text("Qty") }, 
+                    modifier = Modifier.weight(1f).height(60.dp), 
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), 
+                    shape = RoundedCornerShape(8.dp)
+                )
             }
-            OutlinedTextField(amt, { if (it.isEmpty() || it.toDoubleOrNull() != null) amt = it }, label = { Text("Amount ($symbol)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(8.dp))
+            OutlinedTextField(
+                value = amt, 
+                onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null) amt = it }, 
+                label = { Text("Amount ($symbol)") }, 
+                modifier = Modifier.fillMaxWidth().height(60.dp), 
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), 
+                shape = RoundedCornerShape(8.dp)
+            )
             Button(
                 onClick = { 
                     val q = qty.toDoubleOrNull() ?: 0.0; 
@@ -1663,7 +1694,7 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
                         item = ""; qty = ""; amt = "" 
                     } 
                 }, 
-                Modifier.fillMaxWidth().height(48.dp),
+                Modifier.fillMaxWidth().height(60.dp),
                 shape = RoundedCornerShape(12.dp)
             ) { 
                 Icon(Icons.Default.Add, null)
@@ -1733,8 +1764,8 @@ fun EditTransactionDialog(r: TransactionRecord, dI: List<String>, dT: List<Strin
                     }
                 }, dI)
                 AutoCompleteTextField("Sector", type, { type = it }, dT)
-                OutlinedTextField(qty, { qty = it }, label = { Text("Qty") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(amt, { amt = it }, label = { Text("Amount ($symbol)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(qty, { if (it.isEmpty() || it.toDoubleOrNull() != null) qty = it }, label = { Text("Qty") }, modifier = Modifier.fillMaxWidth().height(60.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(8.dp))
+                OutlinedTextField(amt, { if (it.isEmpty() || it.toDoubleOrNull() != null) amt = it }, label = { Text("Amount ($symbol)") }, modifier = Modifier.fillMaxWidth().height(60.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(8.dp))
                 Row(Modifier.fillMaxWidth(), Arrangement.End) { 
                     TextButton(onD) { Text("Cancel") }
                     Spacer(Modifier.width(8.dp))
@@ -1761,8 +1792,9 @@ fun AutoCompleteTextField(l: String, v: String, onV: (String) -> Unit, sug: List
             value = v, 
             onValueChange = onV, 
             label = { Text(l) }, 
-            modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) ex = true }, 
-            singleLine = true
+            modifier = Modifier.fillMaxWidth().height(60.dp).onFocusChanged { if (it.isFocused) ex = true }, 
+            singleLine = true,
+            shape = RoundedCornerShape(8.dp)
         )
         DropdownMenu(
             expanded = ex && fil.isNotEmpty(), 
