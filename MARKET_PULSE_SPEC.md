@@ -34,6 +34,7 @@ Below three categories are displayed unexpanded by default and expands as the us
     3. Before updating, the current `ltp` is copied to `previousLtp`.
     4. `ltp` is updated with the newly fetched value.
 - **Organization**: Scrips are grouped by their **Sector (Type)**.
+- **Sector Sorting**: The sector list is sorted alphabetically, with "All" always at the top and "Other" (if present) at the bottom.
 - **Expandable Sectors**: Each sector subheading is expandable and displays the number of scrips it contains (e.g., "BANKS 5").
 - **Metrics**:
     - `LTP`: Last Traded Price.

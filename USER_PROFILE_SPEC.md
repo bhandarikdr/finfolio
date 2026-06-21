@@ -14,11 +14,12 @@ Users can configure their application experience through the Settings page:
 
 ## 3. Global Profile Drawer
 - Accessed via the user icon in the Top Bar.
+- **Drawer Close**: A sleek left-pointing arrow button positioned at the top right of the profile header.
 - Contains quick links to:
     - **My Profile**: Edit Name and Email.
     - **Settings**: Manage regional preferences and Security (PIN Lock).
     - **Support**: Direct developer contact.
-    - **Logout**: Exit session.
+    - **Exit**: Close the application immediately.
 
 ## 4. System Maintenance
 - **Flush All Data**: Irreversible action available in Settings. Wipes all transactions, prices, BOIDs, and custom settings. Requires user confirmation via alert.

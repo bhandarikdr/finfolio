@@ -211,12 +211,23 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
 
 @Composable
 fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: String = "रु.", onSupport: () -> Unit, onSettings: () -> Unit, onProfile: () -> Unit, onClose: () -> Unit) {
+    val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer.copy(0.3f)).padding(top = 48.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)) {
+        Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer.copy(0.3f)).padding(top = 40.dp, bottom = 24.dp, start = 24.dp, end = 24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.padding(12.dp)) }
-                Spacer(Modifier.width(16.dp)); Column { Text(user?.name ?: "Guest", fontWeight = FontWeight.Bold); Text(user?.email ?: "local@finfolio.app", fontSize = 14.sp) }
-                Spacer(Modifier.weight(1f)); IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close") }
+                Spacer(Modifier.width(16.dp)); 
+                Column(Modifier.weight(1f)) { 
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                        Column {
+                            Text(user?.name ?: "Guest", fontWeight = FontWeight.Bold)
+                            Text(user?.email ?: "local@finfolio.app", fontSize = 14.sp)
+                        }
+                        IconButton(onClick = onClose, modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary.copy(0.1f), CircleShape)) { 
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Close", tint = MaterialTheme.colorScheme.primary) 
+                        }
+                    }
+                }
             }
         }
         DrawerItem(Icons.Default.Person, "My Profile") { onProfile() }
@@ -231,7 +242,10 @@ fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: Strin
             Text("Format: ${user?.dateFormat ?: "AD"}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         
-        DrawerItem(Icons.AutoMirrored.Filled.Logout, "Logout", MaterialTheme.colorScheme.error); Text("Version 2.6.0", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        DrawerItem(Icons.AutoMirrored.Filled.ExitToApp, "Exit", MaterialTheme.colorScheme.error) {
+            (context as? android.app.Activity)?.finish()
+        }
+        Text("Version 2.7.0", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1439,7 +1453,14 @@ fun MatrixScreen(vm: PortfolioViewModel) {
                 }
                 DropdownMenu(exp, { exp = false }) { 
                     DropdownMenuItem(text = { Text("All") }, onClick = { vm.setSelectedTypeFilter("All"); exp = false })
-                    dTypes.forEach { DropdownMenuItem(text = { Text(it) }, onClick = { vm.setSelectedTypeFilter(it); exp = false }) } 
+                    // Sort items between All and Other
+                    val sortedTypes = dTypes.filter { it.lowercase() != "other" }.sorted()
+                    val hasOther = dTypes.any { it.lowercase() == "other" }
+                    
+                    sortedTypes.forEach { DropdownMenuItem(text = { Text(it) }, onClick = { vm.setSelectedTypeFilter(it); exp = false }) }
+                    if (hasOther) {
+                        DropdownMenuItem(text = { Text("Other") }, onClick = { vm.setSelectedTypeFilter("Other"); exp = false })
+                    }
                 } 
             }
             
@@ -1573,7 +1594,17 @@ fun ColumnConfigurationDialog(isItem: Boolean, active: Set<String>, onT: (String
         Card(shape = RoundedCornerShape(16.dp)) { 
             Column(Modifier.padding(16.dp)) { 
                 Text("Configure Columns", fontWeight = FontWeight.Bold)
-                LazyColumn(Modifier.weight(1f, fill = false).padding(top = 8.dp)) { 
+                
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { opts.forEach { if (!active.contains(it)) onT(it) } }, modifier = Modifier.weight(1f)) {
+                        Text("Select All", fontSize = 11.sp)
+                    }
+                    TextButton(onClick = { opts.forEach { if (active.contains(it)) onT(it) } }, modifier = Modifier.weight(1f)) {
+                        Text("Unselect All", fontSize = 11.sp)
+                    }
+                }
+
+                LazyColumn(Modifier.weight(1f, fill = false).padding(top = 4.dp)) {
                     items(opts) { c -> 
                         Row(Modifier.fillMaxWidth().clickable { onT(c) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { 
                             Checkbox(active.contains(c), { onT(c) })
@@ -1819,7 +1850,6 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     val transactions by viewModel.allTransactions.collectAsStateWithLifecycle()
     val dItems by viewModel.distinctItems.collectAsStateWithLifecycle()
     val dTypes by viewModel.distinctTypes.collectAsStateWithLifecycle()
-    val itemMetrics by viewModel.itemMetrics.collectAsStateWithLifecycle()
     
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val symbol = userProfile?.currencySymbol ?: "रु."
@@ -1842,10 +1872,11 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     val txLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) { csvText = t; isWacc = false; showImport = true } } }
     val waLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) { csvText = t; isWacc = true; showImport = true } } }
     val exLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { if (it != null) cs.launch { 
+        val allMetrics = FinancialEngines.computeItemMetrics(transactions, viewModel.allExternalLtps.value)
         val c = buildString { 
             append("Date,Item,Action,Qty,Amount,Type,Prev LTP,LTP\n")
             transactions.forEach { tx ->
-                val metric = itemMetrics.find { it.item.equals(tx.item, true) }
+                val metric = allMetrics.find { it.item.equals(tx.item, true) }
                 val ltp = metric?.ltp ?: 0.0
                 val prevLtp = metric?.prevLtp ?: 0.0
                 append("${tx.date},${tx.item},${tx.action},${tx.qty},${tx.amount},${tx.type},$prevLtp,$ltp\n")

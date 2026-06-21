@@ -268,11 +268,12 @@ class PortfolioRepository(
         withContext(Dispatchers.IO) {
             portfolioDao.clearAllTransactions()
             portfolioDao.clearAllExternalLtps()
-            portfolioDao.clearAllMarketIndices()
+            // Kept: clearAllMarketIndices() - Per user request to preserve index data
             portfolioDao.clearAllSectorMappings()
             portfolioDao.clearAllBoids()
             ipoMasterDao.deleteAll()
             ipoMasterDao.clearResultCache()
+            // Kept: UserProfile settings (name, email, pin, scrapers) preserved
         }
     }
 
@@ -375,17 +376,20 @@ class PortfolioRepository(
 
                             // Handle optional LTP and Prev LTP from standard CSV
                             if (ltpIdx != -1 && ltpIdx < cols.size) {
-                                val ltpVal = cols[ltpIdx].replace(",", "").toDoubleOrNull()
-                                val prevLtpVal = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
-                                    cols[prevLtpIdx].replace(",", "").toDoubleOrNull() ?: 0.0
-                                } else 0.0
+                                val ltpVal = cols[ltpIdx].replace(",", "").toDoubleOrNull() ?: 0.0
+                                if (ltpVal > 0) {
+                                    val existing = portfolioDao.getExternalLtpBySymbol(symbol.uppercase().trim())
+                                    val finalPrevLtp = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
+                                        cols[prevLtpIdx].replace(",", "").toDoubleOrNull() ?: existing?.ltp ?: 0.0
+                                    } else {
+                                        if (existing != null && existing.ltp != ltpVal) existing.ltp else existing?.previousLtp ?: 0.0
+                                    }
 
-                                if (ltpVal != null && ltpVal > 0) {
                                     portfolioDao.insertExternalLtp(
                                         ExternalLtp(
                                             symbol = symbol.uppercase().trim(),
                                             ltp = ltpVal,
-                                            previousLtp = prevLtpVal,
+                                            previousLtp = finalPrevLtp,
                                             source = "CSV_Import",
                                             timestamp = System.currentTimeMillis()
                                         )
@@ -531,20 +535,25 @@ class PortfolioRepository(
                         val ltpValClean = cols[ltpIdx].replace("\"", "").replace(",", "").trim()
                         val ltpValue = ltpValClean.toDoubleOrNull() ?: 0.0
                         
-                        val prevLtpValue = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
-                            cols[prevLtpIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
-                        } else 0.0
-                        
                         val importedQty = if (qtyIdx != -1 && qtyIdx < cols.size) {
                             cols[qtyIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
                         } else 0.0
 
                         if (scrip.isNotEmpty()) {
+                            val existing = portfolioDao.getExternalLtpBySymbol(scrip)
+                            
+                            // If Prev LTP is missing from CSV, use the existing LTP if it's different from the new one
+                            val finalPrevLtp = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
+                                cols[prevLtpIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                            } else {
+                                if (existing != null && existing.ltp != ltpValue) existing.ltp else existing?.previousLtp ?: 0.0
+                            }
+
                             newLtpRecords.add(
                                 ExternalLtp(
                                     symbol = scrip,
                                     ltp = ltpValue,
-                                    previousLtp = prevLtpValue,
+                                    previousLtp = finalPrevLtp,
                                     source = "Meroshare",
                                     timestamp = timestamp,
                                     isInMeroshareCsv = true
