@@ -37,9 +37,16 @@ class MarketViewModel(private val repository: MarketRepository, private val port
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     val filteredIndices: StateFlow<List<NepseIndex>> = combine(indices, visibleIndices) { all, visible ->
-        val fixed = all.filter { it.index.contains("NEPSE Index", true) }
-        val others = all.filter { it.index !in fixed.map { f -> f.index } && it.index in visible }
-        fixed + others
+        if (all.isEmpty()) {
+            // Provide placeholders with 0.0 values while loading
+            setOf("NEPSE Index", "Sensitive Index", "Float Index", "Banking", "HydroPower Index", "Life Insurance", "Microfinance Index")
+                .map { NepseIndex(it, 0.0, 0.0, 0.0) }
+        } else {
+            val fixed = all.filter { it.index.equals("NEPSE Index", true) }
+            val others = all.filter { it.index !in fixed.map { f -> f.index } && 
+                (it.index in visible || it.index.replace(" SubIndex", "").replace(" Index", "") in visible) }
+            (fixed + others).distinctBy { it.index }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val priceChanges: StateFlow<List<ScripPriceChange>> = portfolioRepository.allExternalLtps.map { list ->

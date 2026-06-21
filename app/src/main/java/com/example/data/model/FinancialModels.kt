@@ -100,9 +100,8 @@ object FinancialEngines {
         ltpList: List<ExternalLtp>
     ): List<ItemMetrics> {
         val ltpMap = mutableMapOf<String, ExternalLtp>()
-        // Put Meroshare first, so Scraped overrides it (since Scraped is step 1 lookup and Meroshare is step 2 check)
-        ltpList.filter { it.source == "Meroshare" }.forEach { ltpMap[it.symbol.uppercase().trim()] = it }
-        ltpList.filter { it.source == "Scraped" }.forEach { ltpMap[it.symbol.uppercase().trim()] = it }
+        // Prioritize by timestamp: latest data wins across all sources (Scraped, Meroshare, CSV Import)
+        ltpList.sortedBy { it.timestamp }.forEach { ltpMap[it.symbol.uppercase().trim()] = it }
 
         val meroshareFlags = ltpList.groupBy { it.symbol.uppercase().trim() }
             .mapValues { (_, list) -> list.any { it.isInMeroshareCsv } }

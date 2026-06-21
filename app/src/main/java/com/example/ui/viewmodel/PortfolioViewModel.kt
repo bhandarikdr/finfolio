@@ -89,7 +89,11 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         repository.distinctTypes,
         repository.distinctSectorsFromMaster
     ) { fromData, fromMaster ->
-        (fromData + fromMaster).filter { it.isNotBlank() }.distinct().sorted()
+        val garbage = listOf("sector", "type", "total", "action", "company", "s.no", "name", "symbol", "index", "indices")
+        (fromData + fromMaster)
+            .filter { it.isNotBlank() && !garbage.contains(it.lowercase().trim()) }
+            .distinct()
+            .sorted()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // UI States and Filters

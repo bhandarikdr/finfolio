@@ -1,0 +1,30 @@
+# Scraping & Sync Resolution Log
+
+## Issue: Empty Indices List in Market Pulse
+**Date**: 2026-06-21
+**Symptoms**:
+1. Top bar NEPSE Index is accurate.
+2. LTP (Scrip prices) are updating.
+3. Market Pulse screen shows an empty list of sector indices (Banking, Hydro, etc.).
+
+### Investigation
+- The NEPSE Index in the top bar uses a direct selector (`#lblIndexValue`) from Merolagani, which is very stable.
+- The Market Pulse list iterates through all tables on `sharesansar.com/market` to find sector-specific data.
+- **Root Cause 1**: The scraper was too strict with header matching. Some tables use "Sub Index" instead of "Index", causing the name column to be missed.
+- **Root Cause 2**: The `normalizeIndexName` function was missing some variations like "Banking SubIndex" or "Others SubIndex", returning `null` and skipping the data.
+- **Root Cause 3**: The UI filter in `MarketViewModel` used strict equality (`in visibleIndices`). If the scraped name was "Banking SubIndex" and the setting was "Banking", it failed to display.
+
+### Resolution
+1. **Repository Layer (`MarketRepository.kt`)**:
+   - Improved `normalizeIndexName` to handle "SubIndex" suffixes and map them to clean categories (e.g., "Banking").
+   - Enhanced `fetchNepseIndices` to search for "Sub Index" and "Sector" headers.
+   - Added a more robust fallback column detection for ShareSansar's specific table layout (Value at column 4, Change at column 5).
+2. **ViewModel Layer (`MarketViewModel.kt`)**:
+   - Updated `filteredIndices` to use a more lenient matching logic. It now checks both the exact name and the name stripped of " Index" or " SubIndex" suffixes.
+   - Added placeholder logic so that if the database is empty, it shows 0.0 values instead of an empty screen, providing immediate feedback.
+3. **Network Layer**:
+   - Switched to a desktop `User-Agent` (Chrome/Windows) to bypass bot-detection mechanisms that occasionally returned 403 Forbidden errors to mobile user agents.
+
+### Preventive Measures
+- The header search logic is now the "Source of Truth". As long as a table contains the words "Index" and "Close" (or "Value"), it will be parsed correctly regardless of its position on the page.
+- Added detailed error logging in the repository to capture parsing failures without crashing the app.
