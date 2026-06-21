@@ -66,11 +66,11 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
 
     private fun normalizeIndexName(name: String): String? {
         if (name.isEmpty() || name.length > 50) return null
-        val lower = name.lowercase()
+        val lower = name.lowercase().trim()
         return when {
-            lower.contains("nepse index") || lower == "nepse" -> "NEPSE Index"
-            lower.contains("sensitive index") -> "Sensitive Index"
-            lower.contains("float index") -> "Float Index"
+            lower.contains("nepse index") || lower == "nepse" || lower == "nepse-index" -> "NEPSE Index"
+            lower.contains("sensitive index") || lower == "sensitive" -> "Sensitive Index"
+            lower.contains("float index") || lower == "float" -> "Float Index"
             lower.contains("sensitive float") -> "Sensitive Float Index"
             lower.contains("banking") -> "Banking"
             lower.contains("development bank") -> "Development Bank"
@@ -82,7 +82,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
             lower.contains("manufacturing") -> "Manufacturing"
             lower.contains("microfinance") -> "Microfinance Index"
             lower.contains("mutual fund") -> "Mutual Fund"
-            lower.contains("non life") -> "Non Life Insurance"
+            lower.contains("non life") || lower.contains("non-life") -> "Non Life Insurance"
             lower.contains("others") -> "Others"
             lower.contains("trading") -> "Trading"
             else -> null
@@ -162,12 +162,18 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 }
 
                 // General table parsing for other indices
-                doc.select("table tr").forEach { row ->
+                doc.select("tr").forEach { row ->
                     val cells = row.select("td")
                     if (cells.size >= 2) {
-                        val name = normalizeIndexName(cells[0].text().trim())
+                        val rawName = cells[0].text().trim()
+                        val name = normalizeIndexName(rawName)
                         val value = cells[1].text().replace(",", "").toDoubleOrNull() ?: 0.0
-                        if (name != null && value > 0) scrapedList.add(createNepseIndex(name, value))
+                        
+                        if (name != null && value > 0) {
+                            if (scrapedList.none { it.index == name }) {
+                                scrapedList.add(createNepseIndex(name, value))
+                            }
+                        }
                     }
                 }
                 if (scrapedList.isNotEmpty()) break 

@@ -119,7 +119,10 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
 
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val indices by marketViewModel.indices.collectAsStateWithLifecycle()
-    val nepseIndex = remember(indices) { indices.find { it.index.contains("NEPSE Index", true) } }
+    val nepseIndex = remember(indices) { 
+        indices.find { it.index.equals("NEPSE Index", true) } 
+            ?: indices.find { it.index.contains("NEPSE", true) } 
+    }
     val pendingTypeUpdate by viewModel.pendingTypeUpdate.collectAsStateWithLifecycle()
     var showReg by remember { mutableStateOf(false) }
     var currentSubView by remember { mutableStateOf<String?>(null) }
@@ -320,7 +323,25 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
             }
         }
         if (expInd) {
-            indices.chunked(2).forEach { row -> item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { Box(modifier = Modifier.weight(1f)) { MarketIndexCard(it, symbol = symbol) } }; if (row.size == 1) Spacer(modifier = Modifier.weight(1f)) } } }
+            val rows = indices.chunked(2)
+            items(rows.size) { rowIndex ->
+                val row = rows[rowIndex]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        MarketIndexCard(row[0], symbol = symbol)
+                    }
+                    if (row.size > 1) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            MarketIndexCard(row[1], symbol = symbol)
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
         }
         item { ExpandableHeader("My Holdings", hM.size, expHol, { expHol = !expHol }, Color(0xFF10B981)) }
         if (expHol) {
@@ -1891,14 +1912,14 @@ fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, w
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button({ wa.launch("*/*") }, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.tertiary), shape = RoundedCornerShape(8.dp)) { 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("WACC CSV")
-                        Text("Fields: Scrip, Qty, Rate, Cost", fontSize = 8.sp, fontWeight = FontWeight.Normal)
+                        Text("WACC CSV", maxLines = 1)
+                        Text("Scrip, Qty, Rate, Cost", fontSize = 8.sp, fontWeight = FontWeight.Normal, maxLines = 1)
                     }
                 }
                 Button({ ms.launch("*/*") }, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary), shape = RoundedCornerShape(8.dp)) { 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Portfolio CSV")
-                        Text("Fields: Scrip, Prev LTP, LTP, Balance", fontSize = 8.sp, fontWeight = FontWeight.Normal)
+                        Text("Portfolio CSV", maxLines = 1)
+                        Text("Scrip, Prev, LTP, Bal", fontSize = 8.sp, fontWeight = FontWeight.Normal, maxLines = 1)
                     }
                 }
             }
