@@ -259,7 +259,7 @@ fun GlobalProfileDrawer(user: com.example.data.model.UserProfile?, symbol: Strin
         DrawerItem(Icons.AutoMirrored.Filled.ExitToApp, "Exit", MaterialTheme.colorScheme.error) {
             (context as? android.app.Activity)?.finish()
         }
-        Text("Version 2.7.0", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Version 1.1 (DB 15)", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -2537,52 +2537,73 @@ fun DeveloperProfilePanel(
 
 @Composable
 fun FinanceCalculatorScreen(onBack: () -> Unit) {
-    var display by remember { mutableStateOf("0") }
-    var operator by remember { mutableStateOf<String?>(null) }
-    var operand1 by remember { mutableDoubleStateOf(0.0) }
-    var isNewNumber by remember { mutableStateOf(true) }
+    var expression by remember { mutableStateOf("") }
+    var resultDisplay by remember { mutableStateOf("") }
 
-    fun onDigit(digit: String) {
-        if (isNewNumber) {
-            display = digit
-            isNewNumber = false
-        } else {
-            if (display == "0") display = digit else display += digit
-        }
-    }
+    fun evaluate(expr: String): String {
+        return try {
+            val res = object : Any() {
+                var pos = -1
+                var ch = 0
 
-    fun onOperator(op: String) {
-        val current = display.toDoubleOrNull() ?: 0.0
-        if (operator != null && !isNewNumber) {
-            val result = when (operator) {
-                "+" -> operand1 + current
-                "-" -> operand1 - current
-                "*" -> operand1 * current
-                "/" -> if (current != 0.0) operand1 / current else 0.0
-                else -> current
-            }
-            operand1 = result
-            display = if (result % 1.0 == 0.0) result.toInt().toString() else String.format(Locale.US, "%.2f", result)
-        } else {
-            operand1 = current
-        }
-        operator = op
-        isNewNumber = true
-    }
+                fun nextChar() {
+                    ch = if (++pos < expr.length) expr[pos].toInt() else -1
+                }
 
-    fun onEquals() {
-        val current = display.toDoubleOrNull() ?: 0.0
-        if (operator != null) {
-            val result = when (operator) {
-                "+" -> operand1 + current
-                "-" -> operand1 - current
-                "*" -> operand1 * current
-                "/" -> if (current != 0.0) operand1 / current else 0.0
-                else -> current
-            }
-            display = if (result % 1.0 == 0.0) result.toLong().toString() else String.format(Locale.US, "%.2f", result)
-            operator = null
-            isNewNumber = true
+                fun eat(charToEat: Int): Boolean {
+                    while (ch == ' '.toInt()) nextChar()
+                    if (ch == charToEat) {
+                        nextChar()
+                        return true
+                    }
+                    return false
+                }
+
+                fun parse(): Double {
+                    nextChar()
+                    val x = parseExpression()
+                    if (pos < expr.length) throw RuntimeException("Unexpected: " + ch.toChar())
+                    return x
+                }
+
+                fun parseExpression(): Double {
+                    var x = parseTerm()
+                    while (true) {
+                        if (eat('+'.toInt())) x += parseTerm()
+                        else if (eat('-'.toInt())) x -= parseTerm()
+                        else return x
+                    }
+                }
+
+                fun parseTerm(): Double {
+                    var x = parseFactor()
+                    while (true) {
+                        if (eat('*'.toInt())) x *= parseFactor()
+                        else if (eat('/'.toInt())) x /= parseFactor()
+                        else return x
+                    }
+                }
+
+                fun parseFactor(): Double {
+                    if (eat('+'.toInt())) return parseFactor()
+                    if (eat('-'.toInt())) return -parseFactor()
+                    var x: Double
+                    val startPos = pos
+                    if (eat('('.toInt())) {
+                        x = parseExpression()
+                        eat(')'.toInt())
+                    } else if (ch >= '0'.toInt() && ch <= '9'.toInt() || ch == '.'.toInt()) {
+                        while (ch >= '0'.toInt() && ch <= '9'.toInt() || ch == '.'.toInt()) nextChar()
+                        x = expr.substring(startPos, pos).toDouble()
+                    } else {
+                        throw RuntimeException("Unexpected: " + ch.toChar())
+                    }
+                    return x
+                }
+            }.parse()
+            if (res % 1.0 == 0.0) res.toLong().toString() else String.format(Locale.US, "%.2f", res)
+        } catch (e: Exception) {
+            "Error"
         }
     }
 
@@ -2594,53 +2615,71 @@ fun FinanceCalculatorScreen(onBack: () -> Unit) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.3f)),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Text(
-                text = display,
-                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                style = MaterialTheme.typography.displayMedium,
-                textAlign = TextAlign.End,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.End) {
+                Text(
+                    text = expression.ifEmpty { "0" },
+                    style = MaterialTheme.typography.headlineSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (resultDisplay.isNotEmpty()) {
+                    Text(
+                        text = "= $resultDisplay",
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
 
         val buttons = listOf(
-            listOf("C", "DEL", "/", "*"),
-            listOf("7", "8", "9", "-"),
-            listOf("4", "5", "6", "+"),
-            listOf("1", "2", "3", "="),
-            listOf("0", ".")
+            listOf("(", ")", "C", "DEL"),
+            listOf("7", "8", "9", "/"),
+            listOf("4", "5", "6", "*"),
+            listOf("1", "2", "3", "-"),
+            listOf("0", ".", "=", "+")
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             buttons.forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     row.forEach { label ->
-                        val isOp = label in listOf("/", "*", "-", "+", "=")
+                        val isOp = label in listOf("/", "*", "-", "+", "=", "(", ")")
                         val isSpec = label in listOf("C", "DEL")
-                        val weight = if (label == "0") 2f else 1f
                         
                         Button(
                             onClick = {
-                                when {
-                                    label in "0123456789" -> onDigit(label)
-                                    label == "." -> if (!display.contains(".")) display += "."
-                                    label == "C" -> { display = "0"; operator = null; operand1 = 0.0; isNewNumber = true }
-                                    label == "DEL" -> if (display.length > 1) display = display.dropLast(1) else display = "0"
-                                    label == "=" -> onEquals()
-                                    else -> onOperator(label)
+                                when (label) {
+                                    "C" -> { expression = ""; resultDisplay = "" }
+                                    "DEL" -> if (expression.isNotEmpty()) expression = expression.dropLast(1)
+                                    "=" -> if (expression.isNotEmpty()) resultDisplay = evaluate(expression)
+                                    else -> {
+                                        if (resultDisplay.isNotEmpty()) {
+                                            if (label in "0123456789.") {
+                                                expression = label
+                                            } else {
+                                                expression = resultDisplay + label
+                                            }
+                                            resultDisplay = ""
+                                        } else {
+                                            expression += label
+                                        }
+                                    }
                                 }
                             },
-                            modifier = Modifier.weight(weight).height(64.dp),
+                            modifier = Modifier.weight(1f).height(64.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = when {
-                                    isOp -> MaterialTheme.colorScheme.primary
+                                    label == "=" -> MaterialTheme.colorScheme.primary
+                                    isOp -> MaterialTheme.colorScheme.secondaryContainer
                                     isSpec -> MaterialTheme.colorScheme.errorContainer
                                     else -> MaterialTheme.colorScheme.surfaceVariant
                                 },
                                 contentColor = when {
-                                    isOp -> MaterialTheme.colorScheme.onPrimary
+                                    label == "=" -> MaterialTheme.colorScheme.onPrimary
+                                    isOp -> MaterialTheme.colorScheme.onSecondaryContainer
                                     isSpec -> MaterialTheme.colorScheme.onErrorContainer
                                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 }
@@ -2648,9 +2687,6 @@ fun FinanceCalculatorScreen(onBack: () -> Unit) {
                         ) {
                             Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
-                    }
-                    if (row.size < 4 && row.contains("0")) {
-                        Spacer(Modifier.weight(1f))
                     }
                 }
             }

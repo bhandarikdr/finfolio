@@ -20,6 +20,12 @@
 3. **Market Status Blink**: Implemented infinite pulsing animation for the status dot when `marketStatus` contains "Open" or "Live".
 4. **Resilient Mapping**: Added "SubIndex" and "Sub Index" to `normalizeIndexName` to capture more sector data.
 
+### Resolution (Session 3)
+1. **Settings Persistence**: Integrated persistence for Matrix column selections, sector filters, and dataset scope directly into `UserEntity`.
+2. **Schema Migration**: Bumped `AppDatabase` version to **15** to handle the new `UserEntity` fields. This prevents crashes due to schema mismatch by using `fallbackToDestructiveMigration`.
+3. **Advanced Calculator**: Reimplemented the Finance Calculator to support full math expressions including brackets `(...)`. Calculations are now deferred until the `=` button is pressed.
+4. **App Versioning**: Updated app version to **1.1** to reflect the major persistence and tool enhancements.
+
 ### Preventive Measures
 - The header search logic is now the "Source of Truth". As long as a table contains the words "Index" and "Close" (or "Value"), it will be parsed correctly regardless of its position on the page.
 - Added detailed error logging in the repository to capture parsing failures without crashing the app.
