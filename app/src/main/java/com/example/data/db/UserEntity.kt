@@ -12,5 +12,9 @@ data class UserEntity(
     val dateFormat: String = "AD", // Placeholder for BS/AD
     val visibleIndicesJson: String = "", // JSON array of visible index names
     val scraperUrlsJson: String = "", // JSON map of scraper keys to URLs
-    val pin: String? = null // Optional 4-digit PIN lock
+    val pin: String? = null, // Optional 4-digit PIN lock
+    val itemColumnsJson: String = "", // JSON array of visible item columns
+    val typeColumnsJson: String = "", // JSON array of visible type columns
+    val selectedSectorFilter: String = "All", // Last selected sector in Matrix
+    val datasetScope: String = "OVERALL" // Last selected scope
 )

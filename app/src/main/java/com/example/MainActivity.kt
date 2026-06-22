@@ -1466,7 +1466,7 @@ fun MatrixScreen(vm: PortfolioViewModel) {
                     Text("Sector: $filter", fontSize = 10.sp)
                     Icon(Icons.Default.ArrowDropDown, null) 
                 }
-                DropdownMenu(exp, { exp = false }) { 
+                DropdownMenu(exp, { exp = false }, modifier = Modifier.heightIn(max = 280.dp)) {
                     DropdownMenuItem(text = { Text("All") }, onClick = { vm.setSelectedTypeFilter("All"); exp = false })
                     // Sort items between All and Other
                     val sortedTypes = dTypes.filter { it.lowercase() != "other" }.sorted()

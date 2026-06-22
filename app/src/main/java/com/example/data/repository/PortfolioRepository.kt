@@ -81,7 +81,15 @@ class PortfolioRepository(
                 if (it.isBlank()) emptyList() else it.split(",").filter { s -> s.isNotBlank() }
             } ?: emptyList(),
             scraperUrls = scraperMap,
-            pin = entity?.pin
+            pin = entity?.pin,
+            itemColumns = entity?.itemColumnsJson?.let { 
+                if (it.isBlank()) emptySet() else it.split(",").toSet()
+            } ?: emptySet(),
+            typeColumns = entity?.typeColumnsJson?.let { 
+                if (it.isBlank()) emptySet() else it.split(",").toSet()
+            } ?: emptySet(),
+            selectedSectorFilter = entity?.selectedSectorFilter ?: "All",
+            datasetScope = entity?.datasetScope ?: "OVERALL"
         )
     }
 
@@ -135,16 +143,45 @@ class PortfolioRepository(
     suspend fun updateVisibleIndices(indices: List<String>) {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
-            portfolioDao.saveUserProfile(
-                UserEntity(
-                    name = existing?.name ?: "",
-                    email = existing?.email ?: "",
-                    currencySymbol = existing?.currencySymbol ?: "रु.",
-                    dateFormat = existing?.dateFormat ?: "AD",
-                    visibleIndicesJson = indices.joinToString(","),
-                    scraperUrlsJson = existing?.scraperUrlsJson ?: ""
-                )
-            )
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(visibleIndicesJson = indices.joinToString(",")))
+            }
+        }
+    }
+
+    suspend fun updateItemColumns(cols: Set<String>) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(itemColumnsJson = cols.joinToString(",")))
+            }
+        }
+    }
+
+    suspend fun updateTypeColumns(cols: Set<String>) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(typeColumnsJson = cols.joinToString(",")))
+            }
+        }
+    }
+
+    suspend fun updateSelectedSectorFilter(filter: String) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(selectedSectorFilter = filter))
+            }
+        }
+    }
+
+    suspend fun updateDatasetScope(scope: String) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(datasetScope = scope))
+            }
         }
     }
 

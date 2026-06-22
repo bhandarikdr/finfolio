@@ -98,10 +98,16 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     // UI States and Filters
     private val _datasetScope = MutableStateFlow(DatasetScope.OVERALL)
-    val datasetScope: StateFlow<DatasetScope> = _datasetScope.asStateFlow()
+    val datasetScope: StateFlow<DatasetScope> = combine(_datasetScope, userProfile) { current, profile ->
+        if (profile != null) {
+            try { DatasetScope.valueOf(profile.datasetScope) } catch(e: Exception) { current }
+        } else current
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DatasetScope.OVERALL)
 
     private val _selectedTypeFilter = MutableStateFlow("All")
-    val selectedTypeFilter: StateFlow<String> = _selectedTypeFilter.asStateFlow()
+    val selectedTypeFilter: StateFlow<String> = combine(_selectedTypeFilter, userProfile) { current, profile ->
+        if (profile != null) profile.selectedSectorFilter else current
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "All")
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -121,7 +127,9 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             "Receivable_Amount", "Profit_Amount", "Profit_Percent",
         )
     )
-    val itemColumns: StateFlow<Set<String>> = _itemColumns.asStateFlow()
+    val itemColumns: StateFlow<Set<String>> = combine(_itemColumns, userProfile) { current, profile ->
+        if (profile != null && profile.itemColumns.isNotEmpty()) profile.itemColumns else current
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), _itemColumns.value)
 
     private val _typeColumns = MutableStateFlow(
         setOf(
@@ -130,7 +138,9 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             "Receivable_Amount", "Profit_Amount", "Profit_Percent",
         )
     )
-    val typeColumns: StateFlow<Set<String>> = _typeColumns.asStateFlow()
+    val typeColumns: StateFlow<Set<String>> = combine(_typeColumns, userProfile) { current, profile ->
+        if (profile != null && profile.typeColumns.isNotEmpty()) profile.typeColumns else current
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), _typeColumns.value)
 
     // Aggregated Metrics calculated reactively based on scope selection
     val itemMetrics: StateFlow<List<ItemMetrics>> = combine(
@@ -160,6 +170,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     fun setDatasetScope(scope: DatasetScope) {
         _datasetScope.value = scope
+        viewModelScope.launch { repository.updateDatasetScope(scope.name) }
     }
 
     suspend fun getSectorForScrip(symbol: String): String {
@@ -168,26 +179,29 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     fun setSelectedTypeFilter(type: String) {
         _selectedTypeFilter.value = type
+        viewModelScope.launch { repository.updateSelectedSectorFilter(type) }
     }
 
     fun toggleItemColumn(column: String) {
-        val current = _itemColumns.value.toMutableSet()
+        val current = itemColumns.value.toMutableSet()
         if (current.contains(column)) {
             current.remove(column)
         } else {
             current.add(column)
         }
         _itemColumns.value = current
+        viewModelScope.launch { repository.updateItemColumns(current) }
     }
 
     fun toggleTypeColumn(column: String) {
-        val current = _typeColumns.value.toMutableSet()
+        val current = typeColumns.value.toMutableSet()
         if (current.contains(column)) {
             current.remove(column)
         } else {
             current.add(column)
         }
         _typeColumns.value = current
+        viewModelScope.launch { repository.updateTypeColumns(current) }
     }
 
     fun addTransaction(record: TransactionRecord) {
