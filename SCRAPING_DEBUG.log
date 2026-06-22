@@ -26,6 +26,11 @@
 3. **Advanced Calculator**: Reimplemented the Finance Calculator to support full math expressions including brackets `(...)`. Calculations are now deferred until the `=` button is pressed.
 4. **App Versioning**: Updated app version to **1.1** to reflect the major persistence and tool enhancements.
 
+### Resolution (Session 4)
+1. **UI Polishing**: Fixed the Calculator display area to a **fixed height (110.dp)**. This prevents the keypad from shifting down when a result is calculated, ensuring a stable touch interface.
+2. **Column Bulk Actions**: Fixed "Select All" and "Unselect All" in the Column Configuration dialog. Added `setItemColumns` and `setTypeColumns` methods to `PortfolioViewModel` to handle bulk state updates and database persistence reliably.
+3. **Documentation Persistence**: Formalized the rule that all user UI preferences (columns, filters, scopes) must be persisted in `UserEntity` to provide a consistent state across app restarts.
+
 ### Preventive Measures
 - The header search logic is now the "Source of Truth". As long as a table contains the words "Index" and "Close" (or "Value"), it will be parsed correctly regardless of its position on the page.
 - Added detailed error logging in the repository to capture parsing failures without crashing the app.

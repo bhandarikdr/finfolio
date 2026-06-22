@@ -193,6 +193,11 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         viewModelScope.launch { repository.updateItemColumns(current) }
     }
 
+    fun setItemColumns(columns: Set<String>) {
+        _itemColumns.value = columns
+        viewModelScope.launch { repository.updateItemColumns(columns) }
+    }
+
     fun toggleTypeColumn(column: String) {
         val current = typeColumns.value.toMutableSet()
         if (current.contains(column)) {
@@ -202,6 +207,11 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
         _typeColumns.value = current
         viewModelScope.launch { repository.updateTypeColumns(current) }
+    }
+
+    fun setTypeColumns(columns: Set<String>) {
+        _typeColumns.value = columns
+        viewModelScope.launch { repository.updateTypeColumns(columns) }
     }
 
     fun addTransaction(record: TransactionRecord) {

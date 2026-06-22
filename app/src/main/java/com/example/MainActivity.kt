@@ -1489,7 +1489,7 @@ fun MatrixScreen(vm: PortfolioViewModel) {
         }
         Box(Modifier.weight(1f).padding(top = 12.dp)) { ItemMatrixTable(fItems, iCols, symbol = symbol) }
     }
-    if (showCfg) ColumnConfigurationDialog(true, iCols, { vm.toggleItemColumn(it) }, { showCfg = false })
+    if (showCfg) ColumnConfigurationDialog(true, iCols, { vm.toggleItemColumn(it) }, { vm.setItemColumns(it) }, { showCfg = false })
 }
 
 @Composable
@@ -1598,7 +1598,7 @@ fun ItemMatrixTable(items: List<ItemMetrics>, cols: Set<String>, symbol: String 
 }
 
 @Composable
-fun ColumnConfigurationDialog(isItem: Boolean, active: Set<String>, onT: (String) -> Unit, onD: () -> Unit) {
+fun ColumnConfigurationDialog(isItem: Boolean, active: Set<String>, onT: (String) -> Unit, onSet: (Set<String>) -> Unit, onD: () -> Unit) {
     val opts = listOf(
         "Buy_Amount", "Buy_Qty", "Buy_Count", "Sale_Amount", "Sale_Qty", "Sale_Count",
         "Returns_Cash", "Returns_Qty", "Return_Count", "Balance_Qty", "Avg_CP", "Avg_SP",
@@ -1611,10 +1611,10 @@ fun ColumnConfigurationDialog(isItem: Boolean, active: Set<String>, onT: (String
                 Text("Configure Columns", fontWeight = FontWeight.Bold)
                 
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { opts.forEach { if (!active.contains(it)) onT(it) } }, modifier = Modifier.weight(1f)) {
+                    TextButton(onClick = { onSet(opts.toSet()) }, modifier = Modifier.weight(1f)) {
                         Text("Select All", fontSize = 11.sp)
                     }
-                    TextButton(onClick = { opts.forEach { if (active.contains(it)) onT(it) } }, modifier = Modifier.weight(1f)) {
+                    TextButton(onClick = { onSet(emptySet()) }, modifier = Modifier.weight(1f)) {
                         Text("Unselect All", fontSize = 11.sp)
                     }
                 }
@@ -2615,21 +2615,28 @@ fun FinanceCalculatorScreen(onBack: () -> Unit) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.3f)),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.End) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .height(110.dp) // Fixed height for 2 rows to prevent keypad shifting
+                    .padding(horizontal = 24.dp, vertical = 16.dp), 
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
                     text = expression.ifEmpty { "0" },
                     style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (resultDisplay.isNotEmpty()) {
-                    Text(
-                        text = "= $resultDisplay",
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (resultDisplay.isNotEmpty()) "= $resultDisplay" else "",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
