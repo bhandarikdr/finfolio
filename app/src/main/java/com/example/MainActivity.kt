@@ -71,7 +71,7 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 @Composable
-fun NepsePillBadge(index: String, value: Double, pct: Double, status: String, symbol: String = "रु.") {
+fun NepsePillBadge(index: String, value: Double, pct: Double, status: String) {
     val isPositive = pct >= 0
     val baseColor = if (isPositive) Color(0xFF10B981) else Color(0xFFEF4444)
     
@@ -92,7 +92,7 @@ fun NepsePillBadge(index: String, value: Double, pct: Double, status: String, sy
             Box(Modifier.size(8.dp).clip(CircleShape).background(if (isOpen) Color(0xFF10B981).copy(alpha = alpha) else Color.Red))
             Column(horizontalAlignment = Alignment.End) {
                 Text(text = index, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-                Text(text = String.format(Locale.US, "%s%,.1f (%+.2f%%)", symbol, value, pct), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = baseColor)
+                Text(text = String.format(Locale.US, "%,.1f (%+.2f%%)", value, pct), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = baseColor)
             }
         }
     }

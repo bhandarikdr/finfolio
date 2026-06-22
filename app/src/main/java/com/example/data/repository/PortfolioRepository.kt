@@ -587,47 +587,46 @@ class PortfolioRepository(
 
                 val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-                // 1. NEPSE Index Source 1: Merolagani (Stable ID-based)
-                try {
-                    val meroDoc = Jsoup.connect("https://merolagani.com/LatestMarket.aspx").userAgent(userAgent).timeout(10000).get()
-                    val idxValEl = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
-                    if (idxValEl != null && idxValEl.text().isNotBlank()) {
-                        indexValue = idxValEl.text().trim()
-                        ptChange = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()?.text()?.trim() ?: ""
-                        pctChange = meroDoc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()?.text()?.trim() ?: "0.00%"
-                        isPositive = !pctChange.contains("-")
-                        val statusEl = meroDoc.select("#ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()
-                        if (statusEl != null) {
-                            marketStatus = if (statusEl.text().contains("Live", true)) "Market Open" else "Market Closed"
-                            marketDate = statusEl.text().substringBefore("(").replace("As of", "").trim()
-                        }
-                    }
-                } catch (e: Exception) {}
-
-                // 2. NEPSE Index Source 2: ShareSansar (Fallback)
-                if (indexValue == "0.00" || indexValue.isEmpty()) {
+                val indexUrls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
+                for (url in indexUrls) {
                     try {
-                        val ssDoc = Jsoup.connect("https://www.sharesansar.com/market").userAgent(userAgent).timeout(10000).get()
-                        val ssRows = ssDoc.select("table tr")
-                        val nepseRow = ssRows.find { it.text().contains("NEPSE Index", true) && !it.text().contains("Sub-Index", true) }
-                        val cells = nepseRow?.select("td")
-                        if (cells != null && cells.size >= 5) {
-                            // SS Market Table layout: index 4 is Close
-                            indexValue = cells[4].text().trim()
-                            ptChange = cells[5].text().trim()
-                            pctChange = cells[6].text().trim()
-                            isPositive = !pctChange.contains("-")
-                        } else if (cells != null && cells.size >= 4) {
-                            indexValue = cells[1].text().trim()
-                            ptChange = cells[2].text().trim()
-                            pctChange = cells[3].text().trim()
-                            isPositive = !pctChange.contains("-")
+                        val doc = Jsoup.connect(url).userAgent(userAgent).timeout(10000).get()
+                        if (url.contains("merolagani.com")) {
+                            val idxValEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
+                            if (idxValEl != null && idxValEl.text().isNotBlank()) {
+                                indexValue = idxValEl.text().trim()
+                                ptChange = doc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()?.text()?.trim() ?: ""
+                                pctChange = doc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()?.text()?.trim() ?: "0.00%"
+                                isPositive = !pctChange.contains("-")
+                                val statusEl = doc.select("#ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()
+                                if (statusEl != null) {
+                                    marketStatus = if (statusEl.text().contains("Live", true)) "Market Open" else "Market Closed"
+                                    marketDate = statusEl.text().substringBefore("(").replace("As of", "").trim()
+                                }
+                                break
+                            }
+                        } else if (url.contains("sharesansar.com")) {
+                            val ssRows = doc.select("table tr")
+                            val nepseRow = ssRows.find { it.text().contains("NEPSE Index", true) && !it.text().contains("Sub-Index", true) }
+                            val cells = nepseRow?.select("td")
+                            if (cells != null && cells.size >= 5) {
+                                indexValue = cells[4].text().trim()
+                                ptChange = cells[5].text().trim()
+                                pctChange = cells[6].text().trim()
+                                isPositive = !pctChange.contains("-")
+                            } else if (cells != null && cells.size >= 4) {
+                                indexValue = cells[1].text().trim()
+                                ptChange = cells[2].text().trim()
+                                pctChange = cells[3].text().trim()
+                                isPositive = !pctChange.contains("-")
+                            }
+                            
+                            val ssStatus = doc.select(".market-status, .market-update button").firstOrNull()?.text()?.trim()
+                            if (!ssStatus.isNullOrBlank()) marketStatus = ssStatus
+                            val ssDate = doc.select(".market-update .date, .date").firstOrNull()?.text()?.replace("As of :", "")?.trim()
+                            if (!ssDate.isNullOrBlank()) marketDate = ssDate
+                            if (indexValue != "0.00") break
                         }
-                        
-                        val ssStatus = ssDoc.select(".market-status, .market-update button").firstOrNull()?.text()?.trim()
-                        if (!ssStatus.isNullOrBlank()) marketStatus = ssStatus
-                        val ssDate = ssDoc.select(".market-update .date, .date").firstOrNull()?.text()?.replace("As of :", "")?.trim()
-                        if (!ssDate.isNullOrBlank()) marketDate = ssDate
                     } catch (e: Exception) {}
                 }
 
