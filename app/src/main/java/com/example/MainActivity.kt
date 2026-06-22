@@ -454,13 +454,9 @@ fun MarketIndexCard(idx: NepseIndex) {
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(10.dp)) {
             Text(idx.index, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(String.format(Locale.US, "%,.1f", idx.value), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 1)
-                Spacer(Modifier.width(6.dp))
-                Text(String.format(Locale.US, "P: %,.0f", idx.previousValue), fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 2.dp), maxLines = 1)
-            }
+            Text(String.format(Locale.US, "%,.1f", idx.value), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, maxLines = 1)
             val c = if (idx.percentChange >= 0) Color(0xFF2ECE7B) else Color(0xFFEF4444)
-            Text(String.format(Locale.US, "%+.2f (%+.2f%%)", idx.change, idx.percentChange), color = c, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(String.format(Locale.US, "%+.2f (%+.2f%%)", idx.change, idx.percentChange), color = c, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }

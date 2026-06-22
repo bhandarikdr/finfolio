@@ -10,11 +10,10 @@ Below three categories are displayed unexpanded by default and expands as the us
 - **Primary Index**: The main index to track (e.g., NEPSE Index) can be customized in Settings.
 - **Persistence**: Stored in `MarketIndices` table.
 - **Values**: Displayed as raw numeric points (No currency symbol).
+- **Display**: Direct display of scraped values (Current Value, Point Change, and Percent Change). No historical previous value calculation.
 - **Update Logic**: 
-    1. Newly fetched `currentValue` is compared against the stored `currentValue` in `MarketIndices`.
-    2. Database update occurs **ONLY if the value has changed**.
-    3. Before updating, the existing `currentValue` is copied to `previousValue`.
-    4. `currentValue` is then updated with the newly fetched value.
+    1. Newly fetched values are directly updated in the `MarketIndices` table.
+    2. Display reflects the latest real-time data from the source.
 - **Metrics**:
     - `Value`: The current index value.
     - `Change %`: Calculated as `((currentValue - previousValue) / previousValue) * 100`.
