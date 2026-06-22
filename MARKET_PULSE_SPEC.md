@@ -7,7 +7,9 @@ Below three categories are displayed unexpanded by default and expands as the us
 
 ### A. Indices
 - **Data Source**: Scraped live from market sources (e.g., ShareSansar).
+- **Primary Index**: The main index to track (e.g., NEPSE Index) can be customized in Settings.
 - **Persistence**: Stored in `MarketIndices` table.
+- **Values**: Displayed as raw numeric points (No currency symbol).
 - **Update Logic**: 
     1. Newly fetched `currentValue` is compared against the stored `currentValue` in `MarketIndices`.
     2. Database update occurs **ONLY if the value has changed**.

@@ -66,6 +66,13 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
+    fun updatePrimaryIndexName(name: String) {
+        viewModelScope.launch {
+            repository.updatePrimaryIndexName(name)
+            _snackbarMessage.emit("Primary index target updated to: $name")
+        }
+    }
+
     val allTransactions: StateFlow<List<TransactionRecord>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

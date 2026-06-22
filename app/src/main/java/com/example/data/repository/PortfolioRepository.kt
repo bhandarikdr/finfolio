@@ -89,7 +89,8 @@ class PortfolioRepository(
                 if (it.isBlank()) emptySet() else it.split(",").toSet()
             } ?: emptySet(),
             selectedSectorFilter = entity?.selectedSectorFilter ?: "All",
-            datasetScope = entity?.datasetScope ?: "OVERALL"
+            datasetScope = entity?.datasetScope ?: "OVERALL",
+            primaryIndexName = entity?.primaryIndexName ?: "NEPSE Index"
         )
     }
 
@@ -107,7 +108,12 @@ class PortfolioRepository(
                     dateFormat = existing?.dateFormat ?: "AD",
                     visibleIndicesJson = existing?.visibleIndicesJson ?: "",
                     scraperUrlsJson = existing?.scraperUrlsJson ?: "",
-                    pin = existing?.pin
+                    pin = existing?.pin,
+                    itemColumnsJson = existing?.itemColumnsJson ?: "",
+                    typeColumnsJson = existing?.typeColumnsJson ?: "",
+                    selectedSectorFilter = existing?.selectedSectorFilter ?: "All",
+                    datasetScope = existing?.datasetScope ?: "OVERALL",
+                    primaryIndexName = existing?.primaryIndexName ?: "NEPSE Index"
                 )
             )
         }
@@ -124,9 +130,23 @@ class PortfolioRepository(
                     dateFormat = dateFormat,
                     visibleIndicesJson = existing?.visibleIndicesJson ?: "",
                     scraperUrlsJson = existing?.scraperUrlsJson ?: "",
-                    pin = existing?.pin
+                    pin = existing?.pin,
+                    itemColumnsJson = existing?.itemColumnsJson ?: "",
+                    typeColumnsJson = existing?.typeColumnsJson ?: "",
+                    selectedSectorFilter = existing?.selectedSectorFilter ?: "All",
+                    datasetScope = existing?.datasetScope ?: "OVERALL",
+                    primaryIndexName = existing?.primaryIndexName ?: "NEPSE Index"
                 )
             )
+        }
+    }
+
+    suspend fun updatePrimaryIndexName(newName: String) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(primaryIndexName = newName))
+            }
         }
     }
 
@@ -197,18 +217,16 @@ class PortfolioRepository(
             urls.forEach { arr.put(it) }
             json.put(category.name, arr)
             
-            portfolioDao.saveUserProfile(
-                UserEntity(
-                    id = 0,
-                    name = existing?.name ?: "",
-                    email = existing?.email ?: "",
-                    currencySymbol = existing?.currencySymbol ?: "रु.",
-                    dateFormat = existing?.dateFormat ?: "AD",
-                    visibleIndicesJson = existing?.visibleIndicesJson ?: "",
-                    scraperUrlsJson = json.toString(),
-                    pin = existing?.pin
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(scraperUrlsJson = json.toString()))
+            } else {
+                portfolioDao.saveUserProfile(
+                    UserEntity(
+                        name = "", email = "",
+                        scraperUrlsJson = json.toString()
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -216,18 +234,9 @@ class PortfolioRepository(
     suspend fun resetAllScraperUrls() {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
-            portfolioDao.saveUserProfile(
-                UserEntity(
-                    id = 0,
-                    name = existing?.name ?: "",
-                    email = existing?.email ?: "",
-                    currencySymbol = existing?.currencySymbol ?: "रु.",
-                    dateFormat = existing?.dateFormat ?: "AD",
-                    visibleIndicesJson = existing?.visibleIndicesJson ?: "",
-                    scraperUrlsJson = "",
-                    pin = existing?.pin
-                )
-            )
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(scraperUrlsJson = ""))
+            }
         }
     }
 

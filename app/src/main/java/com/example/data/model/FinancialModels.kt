@@ -32,7 +32,8 @@ data class UserProfile(
     val itemColumns: Set<String> = emptySet(),
     val typeColumns: Set<String> = emptySet(),
     val selectedSectorFilter: String = "All",
-    val datasetScope: String = "OVERALL"
+    val datasetScope: String = "OVERALL",
+    val primaryIndexName: String = "NEPSE Index"
 )
 
 data class NepseStatus(

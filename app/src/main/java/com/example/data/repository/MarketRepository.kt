@@ -66,13 +66,13 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         }
     }
 
-    private fun normalizeIndexName(name: String): String? {
+    private fun normalizeIndexName(name: String, primaryIndexName: String = "NEPSE Index"): String? {
         val clean = name.trim()
         if (clean.isEmpty() || clean.length > 60) return null
         
         val lower = clean.lowercase()
         return when {
-            lower.contains("nepse index") || lower == "nepse" -> "NEPSE Index"
+            lower.contains(primaryIndexName.lowercase()) || lower == "nepse" -> primaryIndexName
             lower.contains("sensitive float") -> "Sensitive Float Index"
             lower.contains("sensitive index") -> "Sensitive Index"
             lower.contains("float index") -> "Float Index"
@@ -167,6 +167,10 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         val urls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
         val scrapedList = mutableListOf<NepseIndex>()
         
+        val primaryName = withContext(Dispatchers.IO) {
+            portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
+        }
+        
         for (url in urls) {
             try {
                 // Desktop user agent to avoid blocks
@@ -188,8 +192,8 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                             val finalChange = if (isNeg) -Math.abs(change) else change
                             val finalPct = if (isNeg) -Math.abs(pct) else pct
                             
-                            if (scrapedList.none { it.index == "NEPSE Index" }) {
-                                scrapedList.add(NepseIndex("NEPSE Index", value, finalChange, finalPct, value - finalChange))
+                            if (scrapedList.none { it.index == primaryName }) {
+                                scrapedList.add(NepseIndex(primaryName, value, finalChange, finalPct, value - finalChange))
                             }
                         }
                     }
@@ -226,8 +230,8 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                             val value = valueStr.toDoubleOrNull() ?: 0.0
                             
                             if (rawName.isNotEmpty() && value > 0 && !garbageTerms.contains(rawName.lowercase())) {
-                                val name = normalizeIndexName(rawName)
-                                if (name != null && scrapedList.none { it.index == name }) {
+                                val normalized = normalizeIndexName(rawName, primaryName)
+                                if (normalized != null && scrapedList.none { it.index == normalized }) {
                                     val changeStr = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim() else "0"
                                     val pctStr = if (pctIdx != -1 && pctIdx < cells.size) cells[pctIdx].text().replace(",", "").replace("+", "").replace("%", "").trim() else "0"
                                     
@@ -240,7 +244,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                                     val finalChange = if (isNeg) -Math.abs(changeVal) else changeVal
                                     val finalPct = if (isNeg) -Math.abs(pctVal) else pctVal
                                     
-                                    scrapedList.add(NepseIndex(name, value, finalChange, finalPct, value - finalChange))
+                                    scrapedList.add(NepseIndex(normalized, value, finalChange, finalPct, value - finalChange))
                                 }
                             }
                         }

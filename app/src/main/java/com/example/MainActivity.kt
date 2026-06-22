@@ -133,9 +133,10 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val indices by marketViewModel.indices.collectAsStateWithLifecycle()
     val nepseStatus by viewModel.nepseStatus.collectAsStateWithLifecycle()
-    val nepseIndex = remember(indices) { 
-        indices.find { it.index.equals("NEPSE Index", true) } 
-            ?: indices.find { it.index.contains("NEPSE", true) } 
+    val primaryIndexName = userProfile?.primaryIndexName ?: "NEPSE Index"
+    val nepseIndex = remember(indices, primaryIndexName) { 
+        indices.find { it.index.equals(primaryIndexName, true) } 
+            ?: indices.find { it.index.contains(primaryIndexName, true) }
     }
     val pendingTypeUpdate by viewModel.pendingTypeUpdate.collectAsStateWithLifecycle()
     var showReg by remember { mutableStateOf(false) }
@@ -203,7 +204,7 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
     ) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { cs.launch { drawerState.open() } }) { Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) }; Column(Modifier.padding(start = 8.dp)) { Text("FinFolio Pro", fontWeight = FontWeight.Bold); Text("EXECUTIVE ANALYTICS", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary) } } }, actions = { if (nepseIndex != null) NepsePillBadge(nepseIndex.index, nepseIndex.value, nepseIndex.percentChange, nepseStatus.status, symbol = userProfile?.currencySymbol ?: "रु."); IconButton(onClick = {
+            topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { cs.launch { drawerState.open() } }) { Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) }; Column(Modifier.padding(start = 8.dp)) { Text("FinFolio Pro", fontWeight = FontWeight.Bold); Text("EXECUTIVE ANALYTICS", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary) } } }, actions = { if (nepseIndex != null) NepsePillBadge(nepseIndex.index, nepseIndex.value, nepseIndex.percentChange, nepseStatus.status); IconButton(onClick = {
                 viewModel.refreshLivePrices()
                 marketViewModel.refreshMarketData()
                 Toast.makeText(context, "Refreshing market data...", Toast.LENGTH_SHORT).show()
@@ -360,11 +361,11 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(modifier = Modifier.weight(1f)) {
-                        MarketIndexCard(row[0], symbol = symbol)
+                        MarketIndexCard(row[0])
                     }
                     if (row.size > 1) {
                         Box(modifier = Modifier.weight(1f)) {
-                            MarketIndexCard(row[1], symbol = symbol)
+                            MarketIndexCard(row[1])
                         }
                     } else {
                         Spacer(modifier = Modifier.weight(1f))
@@ -435,7 +436,7 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
             showSch = false
         }
     ) { showSch = false }
-    if (showCfg) IndicesConfigDialog(allIdx, visIdx, { vm.toggleIndexVisibility(it) }) { showCfg = false }
+    if (showCfg) IndicesConfigDialog(allIdx, visIdx, primaryIndexName = userProfile?.primaryIndexName ?: "NEPSE Index", onT = { vm.toggleIndexVisibility(it) }) { showCfg = false }
 }
 
 @Composable
@@ -449,12 +450,12 @@ fun ExpandableHeader(t: String, c: Int, ex: Boolean, onT: () -> Unit, clr: Color
 }
 
 @Composable
-fun MarketIndexCard(idx: NepseIndex, symbol: String = "रु.") {
+fun MarketIndexCard(idx: NepseIndex) {
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(10.dp)) {
             Text(idx.index, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(String.format(Locale.US, "%s%,.1f", symbol, idx.value), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 1)
+                Text(String.format(Locale.US, "%,.1f", idx.value), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 1)
                 Spacer(Modifier.width(6.dp))
                 Text(String.format(Locale.US, "P: %,.0f", idx.previousValue), fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 2.dp), maxLines = 1)
             }
@@ -609,26 +610,26 @@ fun GlobalMarketSearchDialog(
 }
 
 @Composable
-fun IndicesConfigDialog(all: List<NepseIndex>, vis: Set<String>, onT: (String) -> Unit, onD: () -> Unit) {
+fun IndicesConfigDialog(all: List<NepseIndex>, vis: Set<String>, primaryIndexName: String, onT: (String) -> Unit, onD: () -> Unit) {
     Dialog(onDismissRequest = onD) {
         Card(shape = RoundedCornerShape(16.dp)) {
             Column(Modifier.padding(16.dp)) {
                 Text("Select Indices", fontWeight = FontWeight.Bold)
                 LazyColumn(Modifier.weight(1f, false)) { 
                     items(all) { idx -> 
-                        val isNepse = idx.index.contains("NEPSE Index", true)
+                        val isPrimary = idx.index.equals(primaryIndexName, true) || idx.index.contains(primaryIndexName, true)
                         Row(
                             Modifier.fillMaxWidth()
-                                .clickable(enabled = !isNepse) { onT(idx.index) }
+                                .clickable(enabled = !isPrimary) { onT(idx.index) }
                                 .padding(vertical = 4.dp), 
                             verticalAlignment = Alignment.CenterVertically
                         ) { 
                             Checkbox(
-                                checked = vis.contains(idx.index) || isNepse, 
-                                onCheckedChange = if (isNepse) null else { _ -> onT(idx.index) },
-                                enabled = !isNepse
+                                checked = vis.contains(idx.index) || isPrimary, 
+                                onCheckedChange = if (isPrimary) null else { _ -> onT(idx.index) },
+                                enabled = !isPrimary
                             )
-                            Text(idx.index, color = if (isNepse) Color.Gray else Color.Unspecified) 
+                            Text(idx.index, color = if (isPrimary) Color.Gray else Color.Unspecified)
                         } 
                     } 
                 }
@@ -868,6 +869,7 @@ fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
     val userProfile by vm.userProfile.collectAsStateWithLifecycle()
     val currentCurrency = userProfile?.currencySymbol ?: "रु."
     val currentDateFormat = userProfile?.dateFormat ?: "AD"
+    val primaryIndex = userProfile?.primaryIndexName ?: "NEPSE Index"
     
     val currencies = listOf("रु.", "$", "€", "£", "¥", "₹")
     
@@ -900,6 +902,34 @@ fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Primary Market Index", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("The main index name to track in the top bar and dashboard (e.g., NEPSE Index, NIFTY 50).", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        
+                        Spacer(Modifier.height(12.dp))
+                        
+                        var editedName by remember(primaryIndex) { mutableStateOf(primaryIndex) }
+                        OutlinedTextField(
+                            value = editedName,
+                            onValueChange = { editedName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("e.g., NEPSE Index") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = {
+                                if (editedName != primaryIndex) {
+                                    IconButton(onClick = { vm.updatePrimaryIndexName(editedName) }) {
+                                        Icon(Icons.Default.Save, "Save", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -2371,11 +2401,13 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                                         }) { Icon(Icons.Default.BugReport, null, Modifier.size(16.dp)) }
                                     }
                                 )
-                                IconButton(onClick = {
-                                    val newUrls = urls.toMutableList()
-                                    newUrls.removeAt(index)
-                                    vm.updateScraperUrls(category, newUrls)
-                                }) { Icon(Icons.Default.Delete, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error) }
+                                if (urls.size > 1) {
+                                    IconButton(onClick = {
+                                        val newUrls = urls.toMutableList()
+                                        newUrls.removeAt(index)
+                                        vm.updateScraperUrls(category, newUrls)
+                                    }) { Icon(Icons.Default.Delete, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error) }
+                                }
                             }
                             
                             if (editedUrl != url) {

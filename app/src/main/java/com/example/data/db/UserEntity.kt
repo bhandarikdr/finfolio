@@ -16,5 +16,6 @@ data class UserEntity(
     val itemColumnsJson: String = "", // JSON array of visible item columns
     val typeColumnsJson: String = "", // JSON array of visible type columns
     val selectedSectorFilter: String = "All", // Last selected sector in Matrix
-    val datasetScope: String = "OVERALL" // Last selected scope
+    val datasetScope: String = "OVERALL", // Last selected scope
+    val primaryIndexName: String = "NEPSE Index" // The main index name to track
 )
