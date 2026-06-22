@@ -280,6 +280,7 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
         "Scraper" -> ScraperSettingsScreen(portfolioVM) { onSubViewChange(null) }
         "Contact" -> DeveloperProfilePanel(userProfile?.name ?: "User", userProfile?.email ?: "") { onSubViewChange(null) }
         "Profile" -> UserProfileScreen(portfolioVM) { onSubViewChange(null) }
+        "Calculator" -> FinanceCalculatorScreen { onSubViewChange(null) }
         else -> {
             LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item { Text("Utilities", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
@@ -291,7 +292,7 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
                         { MoreCard("Scrapers", Icons.Default.CloudSync, Color(0xFFEC4899)) { onSubViewChange("Scraper") } },
                         { MoreCard("Settings", Icons.Default.Settings, Color(0xFF6366F1)) { onSubViewChange("Settings") } },
                         { MoreCard("Support", Icons.Default.SupportAgent, Color(0xFF3B82F6)) { onSubViewChange("Contact") } }, 
-                        { MoreCard("Calculator", Icons.Default.Calculate, Color(0xFFF59E0B)) {} }
+                        { MoreCard("Calculator", Icons.Default.Calculate, Color(0xFFF59E0B)) { onSubViewChange("Calculator") } }
                     ) 
                 }
             }
@@ -1665,32 +1666,96 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
 
     var showAddItem by remember { mutableStateOf(false) }
     var showAddType by remember { mutableStateOf(false) }
+    
+    var expI by remember { mutableStateOf(false) }
+    var expT by remember { mutableStateOf(false) }
 
     Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) {
-                    AutoCompleteTextField("Select or Type Scrip", item, {
-                        item = it.uppercase()
-                        if (item.length >= 2) {
-                            cs.launch {
-                                val suggestedSector = onGetSector(item)
-                                if (suggestedSector != "Other") type = suggestedSector
+                ExposedDropdownMenuBox(
+                    expanded = expI,
+                    onExpandedChange = { expI = it },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = item,
+                        onValueChange = { 
+                            item = it.uppercase()
+                            if (item.length >= 2) {
+                                cs.launch {
+                                    val suggestedSector = onGetSector(item)
+                                    if (suggestedSector != "Other") type = suggestedSector
+                                }
+                            }
+                        },
+                        label = { Text("Scrip") },
+                        modifier = Modifier.fillMaxWidth().height(60.dp).menuAnchor(),
+                        shape = RoundedCornerShape(8.dp),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expI) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                    )
+                    
+                    val filtered = dI.filter { it.contains(item, true) }.take(50)
+                    if (filtered.isNotEmpty()) {
+                        ExposedDropdownMenu(
+                            expanded = expI,
+                            onDismissRequest = { expI = false }
+                        ) {
+                            filtered.forEach { s ->
+                                DropdownMenuItem(
+                                    text = { Text(s) },
+                                    onClick = { 
+                                        item = s
+                                        cs.launch {
+                                            val suggestedSector = onGetSector(item)
+                                            if (suggestedSector != "Other") type = suggestedSector
+                                        }
+                                        expI = false 
+                                    }
+                                )
                             }
                         }
-                    }, dI)
+                    }
                 }
-                IconButton(onClick = { showAddItem = true }, modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
-                    Icon(Icons.Default.Add, "Add Scrip", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                IconButton(onClick = { showAddItem = true }, modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
+                    Icon(Icons.Default.Add, "Add Scrip", tint = MaterialTheme.colorScheme.primary)
                 }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) {
-                    AutoCompleteTextField("Select or Type Sector", type, { type = it }, dT)
+                ExposedDropdownMenuBox(
+                    expanded = expT,
+                    onExpandedChange = { expT = it },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = type,
+                        onValueChange = { type = it },
+                        label = { Text("Sector") },
+                        modifier = Modifier.fillMaxWidth().height(60.dp).menuAnchor(),
+                        shape = RoundedCornerShape(8.dp),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expT) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                    )
+                    
+                    val filtered = dT.filter { it.contains(type, true) }.take(50)
+                    if (filtered.isNotEmpty()) {
+                        ExposedDropdownMenu(
+                            expanded = expT,
+                            onDismissRequest = { expT = false }
+                        ) {
+                            filtered.forEach { s ->
+                                DropdownMenuItem(
+                                    text = { Text(s) },
+                                    onClick = { type = s; expT = false }
+                                )
+                            }
+                        }
+                    }
                 }
-                IconButton(onClick = { showAddType = true }, modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)) {
-                    Icon(Icons.Default.Add, "Add Sector", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                IconButton(onClick = { showAddType = true }, modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
+                    Icon(Icons.Default.Add, "Add Sector", tint = MaterialTheme.colorScheme.primary)
                 }
             }
 
@@ -1756,7 +1821,16 @@ fun RowEntryForm(dI: List<String>, dT: List<String>, onGetSector: suspend (Strin
             onDismissRequest = { showAddItem = false },
             title = { Text("New Scrip") },
             text = { OutlinedTextField(newScrip, { newScrip = it.uppercase() }, label = { Text("Symbol") }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = { Button({ item = newScrip; showAddItem = false }) { Text("Set") } },
+            confirmButton = { 
+                Button({ 
+                    item = newScrip
+                    cs.launch {
+                        val suggestedSector = onGetSector(item)
+                        if (suggestedSector != "Other") type = suggestedSector
+                    }
+                    showAddItem = false 
+                }) { Text("Set") } 
+            },
             dismissButton = { TextButton({ showAddItem = false }) { Text("Cancel") } }
         )
     }
@@ -2457,6 +2531,129 @@ fun DeveloperProfilePanel(
             }
             
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+fun FinanceCalculatorScreen(onBack: () -> Unit) {
+    var display by remember { mutableStateOf("0") }
+    var operator by remember { mutableStateOf<String?>(null) }
+    var operand1 by remember { mutableDoubleStateOf(0.0) }
+    var isNewNumber by remember { mutableStateOf(true) }
+
+    fun onDigit(digit: String) {
+        if (isNewNumber) {
+            display = digit
+            isNewNumber = false
+        } else {
+            if (display == "0") display = digit else display += digit
+        }
+    }
+
+    fun onOperator(op: String) {
+        val current = display.toDoubleOrNull() ?: 0.0
+        if (operator != null && !isNewNumber) {
+            val result = when (operator) {
+                "+" -> operand1 + current
+                "-" -> operand1 - current
+                "*" -> operand1 * current
+                "/" -> if (current != 0.0) operand1 / current else 0.0
+                else -> current
+            }
+            operand1 = result
+            display = if (result % 1.0 == 0.0) result.toInt().toString() else String.format(Locale.US, "%.2f", result)
+        } else {
+            operand1 = current
+        }
+        operator = op
+        isNewNumber = true
+    }
+
+    fun onEquals() {
+        val current = display.toDoubleOrNull() ?: 0.0
+        if (operator != null) {
+            val result = when (operator) {
+                "+" -> operand1 + current
+                "-" -> operand1 - current
+                "*" -> operand1 * current
+                "/" -> if (current != 0.0) operand1 / current else 0.0
+                else -> current
+            }
+            display = if (result % 1.0 == 0.0) result.toLong().toString() else String.format(Locale.US, "%.2f", result)
+            operator = null
+            isNewNumber = true
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        SubScreenHeader("Calculator", onBack)
+        
+        Card(
+            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.3f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Text(
+                text = display,
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                style = MaterialTheme.typography.displayMedium,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        val buttons = listOf(
+            listOf("C", "DEL", "/", "*"),
+            listOf("7", "8", "9", "-"),
+            listOf("4", "5", "6", "+"),
+            listOf("1", "2", "3", "="),
+            listOf("0", ".")
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            buttons.forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    row.forEach { label ->
+                        val isOp = label in listOf("/", "*", "-", "+", "=")
+                        val isSpec = label in listOf("C", "DEL")
+                        val weight = if (label == "0") 2f else 1f
+                        
+                        Button(
+                            onClick = {
+                                when {
+                                    label in "0123456789" -> onDigit(label)
+                                    label == "." -> if (!display.contains(".")) display += "."
+                                    label == "C" -> { display = "0"; operator = null; operand1 = 0.0; isNewNumber = true }
+                                    label == "DEL" -> if (display.length > 1) display = display.dropLast(1) else display = "0"
+                                    label == "=" -> onEquals()
+                                    else -> onOperator(label)
+                                }
+                            },
+                            modifier = Modifier.weight(weight).height(64.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = when {
+                                    isOp -> MaterialTheme.colorScheme.primary
+                                    isSpec -> MaterialTheme.colorScheme.errorContainer
+                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                },
+                                contentColor = when {
+                                    isOp -> MaterialTheme.colorScheme.onPrimary
+                                    isSpec -> MaterialTheme.colorScheme.onErrorContainer
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        ) {
+                            Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (row.size < 4 && row.contains("0")) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
         }
     }
 }

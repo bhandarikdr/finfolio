@@ -169,6 +169,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         
         for (url in urls) {
             try {
+                // Desktop user agent to avoid blocks
                 val doc = Jsoup.connect(url).userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").timeout(15000).get()
                 
                 // MeroLagani Specific Selector
@@ -176,32 +177,46 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                     val idxValEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
                     if (idxValEl != null) {
                         val value = idxValEl.text().replace(",", "").toDoubleOrNull() ?: 0.0
-                        if (value > 0 && scrapedList.none { it.index == "NEPSE Index" }) {
-                            scrapedList.add(createNepseIndex("NEPSE Index", value))
+                        if (value > 0) {
+                            val changeEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()
+                            val pctEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()
+                            
+                            val change = changeEl?.text()?.replace(",", "")?.replace("+", "")?.toDoubleOrNull() ?: 0.0
+                            val pct = pctEl?.text()?.replace("%", "")?.replace("+", "")?.toDoubleOrNull() ?: 0.0
+                            val isNeg = changeEl?.text()?.contains("-") == true
+                            
+                            val finalChange = if (isNeg) -Math.abs(change) else change
+                            val finalPct = if (isNeg) -Math.abs(pct) else pct
+                            
+                            if (scrapedList.none { it.index == "NEPSE Index" }) {
+                                scrapedList.add(NepseIndex("NEPSE Index", value, finalChange, finalPct, value - finalChange))
+                            }
                         }
                     }
                 }
 
-                // Robust Table Parsing (ShareSansar / Merolagani fallback)
+                // Robust Table Parsing (Scan all tables for index-like columns)
                 doc.select("table").forEach { table ->
                     val rows = table.select("tr")
                     if (rows.size < 2) return@forEach
                     
-                    val header = rows.first()?.select("th, td")?.map { it.text().lowercase().trim() } ?: emptyList()
-                    var nameIdx = -1; var valIdx = -1; var chgIdx = -1
+                    val headerRow = rows.first()
+                    val headerText = headerRow?.select("th, td")?.map { it.text().lowercase().trim() } ?: emptyList()
                     
-                    header.forEachIndexed { index, text ->
+                    var nameIdx = -1; var valIdx = -1; var chgIdx = -1; var pctIdx = -1
+                    
+                    headerText.forEachIndexed { index, text ->
                         when {
                             text == "index" || text == "sub index" || text == "sector" || text == "indices" -> if (nameIdx == -1) nameIdx = index
                             text == "close" || text == "value" || text == "current" || text == "pts" || text == "points" || text == "index value" -> if (valIdx == -1) valIdx = index
-                            text.contains("change") || text == "+/-" || text == "diff" -> if (chgIdx == -1) chgIdx = index
+                            text == "change" || text == "point change" || text == "pts change" || text == "+/-" -> if (chgIdx == -1) chgIdx = index
+                            text == "% change" || text == "percent change" || text == "%change" -> if (pctIdx == -1) pctIdx = index
                         }
                     }
 
-                    // Defaults if headers not found (Specific to SS table layout)
+                    // Defaults if headers not strictly found
                     if (nameIdx == -1) nameIdx = 0
-                    if (valIdx == -1) valIdx = if (header.size >= 5) 4 else 1 // SS close is at 4
-                    if (chgIdx == -1) chgIdx = if (header.size >= 6) 5 else 2
+                    if (valIdx == -1) valIdx = if (headerText.size >= 5) 4 else 1 
 
                     rows.drop(1).forEach { row ->
                         val cells = row.select("td")
@@ -213,10 +228,19 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                             if (rawName.isNotEmpty() && value > 0 && !garbageTerms.contains(rawName.lowercase())) {
                                 val name = normalizeIndexName(rawName)
                                 if (name != null && scrapedList.none { it.index == name }) {
-                                    val changeVal = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim().toDoubleOrNull() ?: 0.0 else 0.0
-                                    val isNeg = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().contains("-") else false
-                                    val prevValue = if (isNeg) value + Math.abs(changeVal) else value - changeVal
-                                    scrapedList.add(createNepseIndex(name, value, prevValue))
+                                    val changeStr = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim() else "0"
+                                    val pctStr = if (pctIdx != -1 && pctIdx < cells.size) cells[pctIdx].text().replace(",", "").replace("+", "").replace("%", "").trim() else "0"
+                                    
+                                    val changeVal = changeStr.toDoubleOrNull() ?: 0.0
+                                    val pctVal = pctStr.toDoubleOrNull() ?: 0.0
+                                    
+                                    // Check for negativity symbols in the cells
+                                    val isNeg = (chgIdx != -1 && cells[chgIdx].text().contains("-")) || (pctIdx != -1 && cells[pctIdx].text().contains("-"))
+                                    
+                                    val finalChange = if (isNeg) -Math.abs(changeVal) else changeVal
+                                    val finalPct = if (isNeg) -Math.abs(pctVal) else pctVal
+                                    
+                                    scrapedList.add(NepseIndex(name, value, finalChange, finalPct, value - finalChange))
                                 }
                             }
                         }
@@ -228,15 +252,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         if (scrapedList.isNotEmpty()) {
             withContext(Dispatchers.IO) {
                 for (item in scrapedList) {
-                    val existing = portfolioDao.getIndexByName(item.index)
-                    if (existing == null) {
-                        val pct = if (item.previousValue > 0) ((item.value - item.previousValue) / item.previousValue) * 100.0 else 0.0
-                        portfolioDao.insertMarketIndices(listOf(MarketIndexEntity(item.index, item.value, item.previousValue, pct)))
-                    } else if (existing.currentValue != item.value) {
-                        val prevVal = existing.currentValue
-                        val pct = if (prevVal > 0) ((item.value - prevVal) / prevVal) * 100.0 else 0.0
-                        portfolioDao.insertMarketIndices(listOf(MarketIndexEntity(item.index, item.value, prevVal, pct)))
-                    }
+                    portfolioDao.insertMarketIndices(listOf(MarketIndexEntity(item.index, item.value, item.previousValue, item.percentChange)))
                 }
             }
         }

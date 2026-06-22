@@ -14,16 +14,11 @@
 - **Root Cause 2**: The `normalizeIndexName` function was missing some variations like "Banking SubIndex" or "Others SubIndex", returning `null` and skipping the data.
 - **Root Cause 3**: The UI filter in `MarketViewModel` used strict equality (`in visibleIndices`). If the scraped name was "Banking SubIndex" and the setting was "Banking", it failed to display.
 
-### Resolution
-1. **Repository Layer (`MarketRepository.kt`)**:
-   - Improved `normalizeIndexName` to handle "SubIndex" suffixes and map them to clean categories (e.g., "Banking").
-   - Enhanced `fetchNepseIndices` to search for "Sub Index" and "Sector" headers.
-   - Added a more robust fallback column detection for ShareSansar's specific table layout (Value at column 4, Change at column 5).
-2. **ViewModel Layer (`MarketViewModel.kt`)**:
-   - Updated `filteredIndices` to use a more lenient matching logic. It now checks both the exact name and the name stripped of " Index" or " SubIndex" suffixes.
-   - Added placeholder logic so that if the database is empty, it shows 0.0 values instead of an empty screen, providing immediate feedback.
-3. **Network Layer**:
-   - Switched to a desktop `User-Agent` (Chrome/Windows) to bypass bot-detection mechanisms that occasionally returned 403 Forbidden errors to mobile user agents.
+### Resolution (Session 2)
+1. **Direct Point/Change Scraping**: Redesigned `fetchNepseIndices` to trust online Change/Percent values immediately.
+2. **LTP Snapshot Preservation**: Kept the "Previous LTP" and "Current LTP" logic for Scrips, as this matches the dual-value structure of the Portfolio CSV.
+3. **Market Status Blink**: Implemented infinite pulsing animation for the status dot when `marketStatus` contains "Open" or "Live".
+4. **Resilient Mapping**: Added "SubIndex" and "Sub Index" to `normalizeIndexName` to capture more sector data.
 
 ### Preventive Measures
 - The header search logic is now the "Source of Truth". As long as a table contains the words "Index" and "Close" (or "Value"), it will be parsed correctly regardless of its position on the page.
