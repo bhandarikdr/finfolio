@@ -1056,20 +1056,30 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
     }
 
     val filteredIpos = remember(searchQuery, ipos) {
-        if (searchQuery.isBlank()) ipos
+        val base = if (searchQuery.isBlank()) ipos
         else ipos.filter { 
             it.companyName.contains(searchQuery, true) || 
             it.companyCode?.contains(searchQuery, true) == true ||
             it.cdscCompanyId?.toString()?.contains(searchQuery) == true
         }
+        base
+    }
+
+    var showArchived by remember { mutableStateOf(false) }
+    val displayIpos = remember(filteredIpos, showArchived) {
+        if (showArchived) filteredIpos.filter { !it.isActive }
+        else filteredIpos.filter { it.isActive }
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         SubScreenHeader(
-            title = "IPO Master List",
+            title = if (showArchived) "Archived IPOs" else "IPO Master List",
             onBack = onBack,
             trailingIcon = {
                 Row {
+                    IconButton(onClick = { showArchived = !showArchived }) {
+                        Icon(if (showArchived) Icons.Default.Inventory else Icons.Default.Archive, contentDescription = "Toggle Archive")
+                    }
                     IconButton(onClick = { showAddManual = true }) { Icon(Icons.Default.Add, null) }
                     IconButton(onClick = { vm.syncIpos() }, enabled = !isS) {
                         if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -1099,20 +1109,22 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
         )
 
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (filteredIpos.isEmpty() && !isS) {
+            if (displayIpos.isEmpty() && !isS) {
                 item {
                     Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Icon(if (searchQuery.isEmpty()) Icons.Default.Inventory else Icons.Default.SearchOff, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outlineVariant)
                             Spacer(Modifier.height(16.dp))
                             if (searchQuery.isEmpty()) {
-                                Text("No IPOs found in master list.", fontWeight = FontWeight.Bold)
-                                Text("Try syncing from online sources.", fontSize = 12.sp, color = Color.Gray)
-                                Spacer(Modifier.height(16.dp))
-                                Button(onClick = { vm.syncIpos() }) {
-                                    Icon(Icons.Default.Refresh, null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Sync Now")
+                                Text(if (showArchived) "No archived IPOs." else "No active IPOs found.", fontWeight = FontWeight.Bold)
+                                if (!showArchived) {
+                                    Text("Try syncing from online sources.", fontSize = 12.sp, color = Color.Gray)
+                                    Spacer(Modifier.height(16.dp))
+                                    Button(onClick = { vm.syncIpos() }) {
+                                        Icon(Icons.Default.Refresh, null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Sync Now")
+                                    }
                                 }
                             } else {
                                 Text("No results found for '$searchQuery'", fontWeight = FontWeight.Bold)
@@ -1123,7 +1135,7 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 }
             }
 
-            items(filteredIpos) { ipo ->
+            items(displayIpos) { ipo ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),

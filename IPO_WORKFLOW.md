@@ -37,7 +37,9 @@ The **Bulk Result Checker** supports a flexible import schema:
 ### IPO Master Screen
 - **Refresh**: Triggers the multi-source sync with a linear progress bar and Toast feedback.
 - **Search**: Real-time filtering by company name, symbol, or ID.
-- **Visibility**: Toggle visibility (eye icon) to hide/show specific IPOs in the Bulk Checker dropdown.
+- **Archive/Hide**: Use the eye icon in the IPO Master List to hide older or irrelevant IPOs. 
+- **View Hidden**: Access archived items by clicking the Archive (Box) icon in the top header of the IPO Master screen.
+- **Restore**: Click the eye-off icon in the Archive view to bring an item back to the main list.
 - **Manual Addition**: Use the `+` button to add companies if they are not yet listed in the automated sources.
 
 ### Bulk IPO Result Screen

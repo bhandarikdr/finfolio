@@ -19,8 +19,8 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     val ipos: StateFlow<List<IpoMaster>> = repository.ipoMasterList
         .map { list -> 
-            // Show all active IPOs, prioritizing those with result IDs
-            list.filter { it.isActive }.sortedWith(compareByDescending<IpoMaster> { it.resultAvailable }.thenByDescending { it.openingDate })
+            // Show all IPOs (Active and Archived), prioritizing those with result IDs
+            list.sortedWith(compareByDescending<IpoMaster> { it.resultAvailable }.thenByDescending { it.openingDate })
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
