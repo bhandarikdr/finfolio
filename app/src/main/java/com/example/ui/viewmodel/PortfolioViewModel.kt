@@ -395,6 +395,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     /** Triggers a bulk update for a prioritized list of URLs for a category. */
     fun updateScraperUrls(category: ScraperCategory, urls: List<String>) {
         viewModelScope.launch {
+            com.example.data.util.AppLogger.i("ScraperConfig", "Updating URLs for ${category.name}: $urls")
             repository.updateScraperUrls(category, urls)
             _snackbarMessage.emit("Scraper URLs for ${category.displayName} updated")
         }
@@ -403,6 +404,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     /** Wipes all custom scraper overrides and restores app to factory default URLs. */
     fun resetAllScraperUrls() {
         viewModelScope.launch {
+            com.example.data.util.AppLogger.w("ScraperConfig", "Restoring all scrapers to factory defaults")
             repository.resetAllScraperUrls()
             _snackbarMessage.emit("All Scraper URLs restored to default")
         }
@@ -413,10 +415,11 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
      * Performs lightweight parsing/checking based on category expectations.
      */
     suspend fun testScraperUrl(category: ScraperCategory, url: String): kotlin.Result<String> {
+        com.example.data.util.AppLogger.i("ScraperConfig", "Testing URL for ${category.name}: $url")
         return withContext(Dispatchers.IO) {
             try {
                 val doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0")
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
                     .timeout(10000)
                     .get()
                 
@@ -435,9 +438,15 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
                     ScraperCategory.CDSC_RESULT -> true
                 }
                 
-                if (success) kotlin.Result.success("Success: URL is reachable and data structure looks valid.")
-                else kotlin.Result.failure(Exception("URL reachable but target data not found."))
+                if (success) {
+                    com.example.data.util.AppLogger.i("ScraperConfig", "Test Success for $url")
+                    kotlin.Result.success("Success: URL is reachable and data structure looks valid.")
+                } else {
+                    com.example.data.util.AppLogger.e("ScraperConfig", "Test Failed (No Data Found) for $url")
+                    kotlin.Result.failure(Exception("URL reachable but target data not found."))
+                }
             } catch (e: Exception) {
+                com.example.data.util.AppLogger.e("ScraperConfig", "Test Failed (Network Error) for $url", e)
                 kotlin.Result.failure(e)
             }
         }

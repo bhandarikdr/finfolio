@@ -18,10 +18,6 @@ import kotlinx.coroutines.delay
 class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     val ipos: StateFlow<List<IpoMaster>> = repository.ipoMasterList
-        .map { list -> 
-            // Show all IPOs (Active and Archived), prioritizing those with result IDs
-            list.sortedWith(compareByDescending<IpoMaster> { it.resultAvailable }.thenByDescending { it.openingDate })
-        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedIpo = MutableStateFlow<IpoMaster?>(null)
@@ -41,6 +37,8 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     private val _syncMessage = MutableStateFlow<String?>(null)
     val syncMessage = _syncMessage.asStateFlow()
+
+    val syncLog = repository.syncLog
 
     init {
         // Automatically select the first IPO if available
@@ -80,6 +78,18 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         _selectedIpo.value = ipo
     }
 
+    fun updateCdscId(companyName: String, id: Int) {
+        viewModelScope.launch {
+            val ipo = ipos.value.find { it.companyName == companyName }
+            if (ipo != null) {
+                val updated = ipo.copy(cdscCompanyId = id, updatedAt = System.currentTimeMillis())
+                repository.updateIpo(updated)
+                _selectedIpo.value = updated
+                _syncMessage.value = "Updated CDSC ID for ${ipo.companyName}"
+            }
+        }
+    }
+
     fun addBoid(name: String, boid: String) {
         viewModelScope.launch {
             repository.addBoid(name, boid)
@@ -98,13 +108,11 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
             lines.forEach { line ->
                 if (line.isBlank()) return@forEach
                 
-                // Try to find a 16-digit BOID in the line
                 val boidRegex = Regex("\\b\\d{16}\\b")
                 val match = boidRegex.find(line)
                 
                 if (match != null) {
                     val boid = match.value
-                    // Extract name: everything before or after the BOID, minus common separators
                     var name = line.replace(boid, "").replace(Regex("[,:|\\t]"), " ").trim()
                     
                     if (name.isBlank()) {
@@ -120,10 +128,19 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
     }
 
     fun startBulkCheck() {
-        val ipo = _selectedIpo.value ?: return
-        val companyId = ipo.cdscCompanyId ?: return
+        val ipo = _selectedIpo.value ?: run {
+            showTemporaryMessage("Please select an IPO first")
+            return
+        }
+        val companyId = ipo.cdscCompanyId ?: run {
+            showTemporaryMessage("Company ID missing. Click the warning to enter it.")
+            return
+        }
         val currentBoids = boids.value
-        if (currentBoids.isEmpty()) return
+        if (currentBoids.isEmpty()) {
+            showTemporaryMessage("No BOIDs added to check.")
+            return
+        }
 
         viewModelScope.launch {
             _isChecking.value = true
@@ -133,39 +150,95 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
             repository.bulkCheckIpoResults(companyId, currentBoids) { index, result ->
                 viewModelScope.launch {
                     val updatedList = _results.value.toMutableList()
-                    result.onSuccess {
-                        updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
+                    if (index < updatedList.size) {
+                        result.onSuccess {
+                            updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
+                        }
+                        result.onFailure {
+                            updatedList[index] = updatedList[index].copy(error = it.message, isChecking = false)
+                        }
+                        _results.value = updatedList
                     }
-                    result.onFailure {
-                        updatedList[index] = updatedList[index].copy(error = it.message, isChecking = false)
-                    }
-                    _results.value = updatedList
                 }
             }
             _isChecking.value = false
         }
     }
 
+    private fun showTemporaryMessage(msg: String) {
+        viewModelScope.launch {
+            _syncMessage.value = msg
+            delay(3000)
+            if (_syncMessage.value == msg) _syncMessage.value = null
+        }
+    }
+
+    fun startDeepScan() {
+        val recentIposWithId = ipos.value.filter { it.cdscCompanyId != null }.take(8)
+        val currentBoids = boids.value
+        
+        if (recentIposWithId.isEmpty()) {
+            showTemporaryMessage("No recent IPOs with CDSC IDs found. Sync first.")
+            return
+        }
+        if (currentBoids.isEmpty()) {
+            showTemporaryMessage("No BOIDs added to scan.")
+            return
+        }
+
+        viewModelScope.launch {
+            _isChecking.value = true
+            _results.value = emptyList()
+            val finalResults = mutableListOf<BulkIpoResult>()
+            
+            // Initialize results with "Scanning..." state
+            currentBoids.forEach { boid ->
+                finalResults.add(BulkIpoResult(boid, isChecking = true))
+            }
+            _results.value = finalResults
+
+            for (ipo in recentIposWithId) {
+                _syncMessage.value = "Checking ${ipo.companyName}..."
+                
+                // We use a latch or similar to wait for each IPO's bulk check to finish
+                // OR we just process them. Since bulkCheckIpoResults uses coroutines internally, 
+                // we can just call it and wait.
+                
+                repository.bulkCheckIpoResults(ipo.cdscCompanyId!!, currentBoids) { index, result ->
+                    viewModelScope.launch {
+                        val currentList = _results.value.toMutableList()
+                        result.onSuccess { res ->
+                            if (res.success) {
+                                // If allotted, we update the result. If already allotted from another IPO, 
+                                // we might want to append? For now, just show the first success.
+                                if (currentList[index].result?.success != true) {
+                                    val formattedMsg = "${ipo.scrip ?: ipo.companyName.take(10)}: ${res.message}"
+                                    currentList[index] = currentList[index].copy(
+                                        result = res.copy(message = formattedMsg),
+                                        isChecking = false
+                                    )
+                                }
+                            }
+                        }
+                        // On failure or not allotted, we don't necessarily want to overwrite a success 
+                        // from a previous IPO in the loop.
+                        _results.value = currentList
+                    }
+                }
+                delay(1000) // Pause between companies to be nice to the WAF
+            }
+            
+            // Mark remaining as not checking
+            _results.value = _results.value.map { it.copy(isChecking = false) }
+            _isChecking.value = false
+            _syncMessage.value = "Deep Scan Complete"
+            delay(2000)
+            _syncMessage.value = null
+        }
+    }
+
     fun clearResults() {
         _results.value = emptyList()
-    }
-
-    fun toggleIpoActive(ipo: IpoMaster) {
-        viewModelScope.launch {
-            repository.updateIpo(ipo.copy(isActive = !ipo.isActive))
-        }
-    }
-
-    fun addManualIpo(name: String, code: String, id: Int) {
-        viewModelScope.launch {
-            repository.addIpo(IpoMaster(
-                companyName = name,
-                companyCode = code,
-                cdscCompanyId = id,
-                status = "Manual",
-                source = "USER"
-            ))
-        }
     }
 }
 

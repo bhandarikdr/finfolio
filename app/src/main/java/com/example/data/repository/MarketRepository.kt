@@ -4,6 +4,7 @@ import com.example.data.db.PortfolioDao
 import com.example.data.db.ScripMaster
 import com.example.data.db.MarketIndexEntity
 import com.example.data.model.*
+import com.example.data.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -13,6 +14,7 @@ import org.jsoup.Jsoup
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import android.util.Log
 
 data class NepseIndex(
     val index: String,
@@ -32,7 +34,7 @@ data class ScripPriceChange(
 
 /**
  * Repository for market-wide data including indices and scrip price updates.
- * Implements a prioritized fallback mechanism for data scraping.
+ * Implements a dynamic prioritized fallback mechanism for data scraping.
  */
 class MarketRepository(private val portfolioDao: PortfolioDao) {
     
@@ -46,7 +48,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
             NepseIndex(
                 index = it.indexName,
                 value = it.currentValue,
-                change = it.currentValue - it.previousValue,
+                change = it.pointChange,
                 percentChange = it.changePercent,
                 previousValue = it.previousValue
             )
@@ -60,39 +62,20 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         } else {
             portfolioDao.updateWishlistStatus(symbol, isWishlisted)
         }
-
-        if (isWishlisted) {
-            fetchPriceChanges()
-        }
     }
 
-    private fun normalizeIndexName(name: String, primaryIndexName: String = "NEPSE Index"): String? {
+    private fun normalizeIndexName(name: String, primaryIndexName: String = "NEPSE Index"): String {
         val clean = name.trim()
-        if (clean.isEmpty() || clean.length > 60) return null
-        
         val lower = clean.lowercase()
-        return when {
-            lower.contains(primaryIndexName.lowercase()) || lower == "nepse" -> primaryIndexName
-            lower.contains("sensitive float") -> "Sensitive Float Index"
-            lower.contains("sensitive index") -> "Sensitive Index"
-            lower.contains("float index") -> "Float Index"
-            lower.contains("banking") -> "Banking"
-            lower.contains("development bank") -> "Development Bank"
-            lower.contains("finance") -> "Finance"
-            lower.contains("hotels") || lower.contains("tourism") -> "Hotels"
-            lower.contains("hydro") || lower.contains("hydropower") -> "HydroPower Index"
-            lower.contains("investment") -> "Investment"
-            lower.contains("life insurance") -> "Life Insurance"
-            lower.contains("manufacturing") || lower.contains("production") -> "Manufacturing"
-            lower.contains("microfinance") -> "Microfinance Index"
-            lower.contains("mutual fund") -> "Mutual Fund"
-            lower.contains("others") -> "Others"
-            lower.contains("trading") -> "Trading"
-            lower.contains("non life") || lower.contains("non-life") -> "Non Life Insurance"
-            lower.contains("index") || lower.contains("subindex") || lower.contains("sub index") -> {
-                clean.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-            }
-            else -> null
+        
+        if (lower.contains("nepse index") || lower == "nepse") return primaryIndexName
+        if (lower.contains("sensitive float")) return "Sensitive Float Index"
+        if (lower.contains("sensitive index")) return "Sensitive Index"
+        if (lower.contains("float index")) return "Float Index"
+        
+        // Dynamic: Return title-cased name for any found sector or sub-index
+        return clean.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
+            word.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
         }
     }
 
@@ -111,33 +94,19 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 } catch (e: Exception) {}
             }
             when(category) {
-                ScraperCategory.SCRIP_SYNC -> listOf(
-                    "https://www.sharesansar.com/company-list",
-                    "https://merolagani.com/CompanyList.aspx"
-                )
-                ScraperCategory.INDEX_UPDATE -> listOf(
-                    "https://merolagani.com/LatestMarket.aspx",
-                    "https://www.sharesansar.com/market"
-                )
-                ScraperCategory.LTP_UPDATE -> listOf(
-                    "https://www.sharesansar.com/live-trading",
-                    "https://www.sharesansar.com/today-share-price",
-                    "https://merolagani.com/LatestMarket.aspx"
-                )
+                ScraperCategory.INDEX_UPDATE -> listOf("https://www.sharesansar.com/market", "https://merolagani.com/LatestMarket.aspx")
+                ScraperCategory.LTP_UPDATE -> listOf("https://www.sharesansar.com/live-trading", "https://merolagani.com/LatestMarket.aspx")
+                ScraperCategory.SCRIP_SYNC -> listOf("https://www.sharesansar.com/company-list", "https://merolagani.com/CompanyList.aspx")
                 else -> emptyList()
             }
         }
     }
 
-    /**
-     * Downloads the latest scrip master list (Symbol, Name, Sector) from prioritized URLs.
-     * Updates the local database on success.
-     */
-    suspend fun fetchMasterScrips(): Boolean {
+    suspend fun fetchMasterScrips(): Boolean = withContext(Dispatchers.IO) {
         val urls = getScraperUrls(ScraperCategory.SCRIP_SYNC)
         for (url in urls) {
             try {
-                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").timeout(20000).get()
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(20000).get()
                 val scrips = mutableListOf<ScripMaster>()
                 doc.select("table tr").forEach { row ->
                     val cells = row.select("td")
@@ -145,197 +114,168 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                         val symbol = cells[1].text().trim().uppercase()
                         val name = cells[2].text().trim()
                         val sector = cells[3].text().trim()
-                        if (symbol.isNotEmpty() && !garbageTerms.contains(symbol.lowercase()) && symbol.length <= 12) {
+                        if (symbol.isNotEmpty() && !garbageTerms.contains(symbol.lowercase())) {
                             scrips.add(ScripMaster(symbol, name, sector))
                         }
                     }
                 }
                 if (scrips.isNotEmpty()) {
                     portfolioDao.insertScripMaster(scrips)
-                    return true
+                    return@withContext true
                 }
             } catch (e: Exception) {}
         }
-        return false
+        false
     }
 
-    /**
-     * Fetches market indices (NEPSE, Banking, etc.) from prioritized sources.
-     * Implements site-specific parsing for MeroLagani and general table parsing.
-     */
-    suspend fun fetchNepseIndices(): List<NepseIndex> {
+    suspend fun fetchNepseIndices(): List<NepseIndex> = withContext(Dispatchers.IO) {
+        AppLogger.i("MarketSync", "Starting Market Indices Sync")
         val urls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
         val scrapedList = mutableListOf<NepseIndex>()
-        
-        val primaryName = withContext(Dispatchers.IO) {
-            portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
-        }
+        val timestamp = System.currentTimeMillis()
+        val primaryName = portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
         
         for (url in urls) {
             try {
-                // Desktop user agent to avoid blocks
-                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").timeout(15000).get()
+                AppLogger.d("MarketSync", "Scraping URL: $url")
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(15000).get()
+                val tables = doc.select("table")
+                AppLogger.d("MarketSync", "Found ${tables.size} tables on page")
                 
-                // MeroLagani Specific Selector
-                if (url.contains("merolagani.com")) {
-                    val idxValEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
-                    if (idxValEl != null) {
-                        val value = idxValEl.text().replace(",", "").toDoubleOrNull() ?: 0.0
-                        if (value > 0) {
-                            val changeEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()
-                            val pctEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()
-                            
-                            val change = changeEl?.text()?.replace(",", "")?.replace("+", "")?.toDoubleOrNull() ?: 0.0
-                            val pct = pctEl?.text()?.replace("%", "")?.replace("+", "")?.toDoubleOrNull() ?: 0.0
-                            val isNeg = changeEl?.text()?.contains("-") == true
-                            
-                            val finalChange = if (isNeg) -Math.abs(change) else change
-                            val finalPct = if (isNeg) -Math.abs(pct) else pct
-                            
-                            if (scrapedList.none { it.index == primaryName }) {
-                                scrapedList.add(NepseIndex(primaryName, value, finalChange, finalPct, value - finalChange))
-                            }
-                        }
-                    }
-                }
-
-                // Robust Table Parsing (Scan all tables for index-like columns)
-                doc.select("table").forEach { table ->
-                    val rows = table.select("tr")
-                    if (rows.size < 2) return@forEach
-                    
-                    val headerRow = rows.first()
-                    val headerText = headerRow?.select("th, td")?.map { it.text().lowercase().trim() } ?: emptyList()
+                tables.forEachIndexed { tableIdx, table ->
+                    val allRows = table.select("tr")
+                    if (allRows.size < 2) return@forEachIndexed
                     
                     var nameIdx = -1; var valIdx = -1; var chgIdx = -1; var pctIdx = -1
-                    
-                    headerText.forEachIndexed { index, text ->
-                        when {
-                            text == "index" || text == "sub index" || text == "sector" || text == "indices" -> if (nameIdx == -1) nameIdx = index
-                            text == "close" || text == "value" || text == "current" || text == "pts" || text == "points" || text == "index value" -> if (valIdx == -1) valIdx = index
-                            text == "change" || text == "point change" || text == "pts change" || text == "+/-" -> if (chgIdx == -1) chgIdx = index
-                            text == "% change" || text == "percent change" || text == "%change" -> if (pctIdx == -1) pctIdx = index
+                    var headerRowIdx = -1
+
+                    // Robust Scan: Find the row that contains "Index" and "Value/Close"
+                    for (i in 0 until minOf(allRows.size, 5)) {
+                        val cells = allRows[i].select("th, td")
+                        val headerText = cells.map { it.text().lowercase().trim() }
+                        
+                        var foundName = -1; var foundVal = -1; var foundChg = -1; var foundPct = -1
+                        headerText.forEachIndexed { index, text ->
+                            if (text.contains("index") || text.contains("indices") || text.contains("sector")) foundName = index
+                            if (text.contains("value") || text.contains("close") || text.contains("current") || text.contains("pts") || text == "ltp") foundVal = index
+                            if (text.contains("change") && !text.contains("%") || text == "+/-") foundChg = index
+                            if (text.contains("%")) foundPct = index
+                        }
+                        
+                        if (foundName != -1 && foundVal != -1) {
+                            nameIdx = foundName; valIdx = foundVal; chgIdx = foundChg; pctIdx = foundPct
+                            headerRowIdx = i
+                            AppLogger.d("MarketSync", "Table $tableIdx: Found header at row $i. Mapping: Name=$nameIdx, Val=$valIdx, Chg=$chgIdx, Pct=$pctIdx")
+                            break
                         }
                     }
 
-                    // Defaults if headers not strictly found
-                    if (nameIdx == -1) nameIdx = 0
-                    if (valIdx == -1) valIdx = if (headerText.size >= 5) 4 else 1 
-
-                    rows.drop(1).forEach { row ->
-                        val cells = row.select("td")
-                        if (cells.size > maxOf(nameIdx, valIdx)) {
-                            val rawName = cells[nameIdx].text().trim()
-                            val valueStr = cells[valIdx].text().replace(",", "").trim()
-                            val value = valueStr.toDoubleOrNull() ?: 0.0
-                            
-                            if (rawName.isNotEmpty() && value > 0 && !garbageTerms.contains(rawName.lowercase())) {
-                                val normalized = normalizeIndexName(rawName, primaryName)
-                                if (normalized != null && scrapedList.none { it.index == normalized }) {
+                    if (headerRowIdx != -1) {
+                        var itemsInTable = 0
+                        allRows.drop(headerRowIdx + 1).forEach { row ->
+                            val cells = row.select("td")
+                            if (cells.size > maxOf(nameIdx, valIdx)) {
+                                val rawName = cells[nameIdx].text().trim()
+                                val valStr = cells[valIdx].text().replace(",", "").trim()
+                                val value = valStr.toDoubleOrNull() ?: 0.0
+                                
+                                if (rawName.isNotEmpty() && value > 0 && !garbageTerms.contains(rawName.lowercase())) {
+                                    itemsInTable++
+                                    val name = normalizeIndexName(rawName, primaryName)
                                     val changeStr = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim() else "0"
                                     val pctStr = if (pctIdx != -1 && pctIdx < cells.size) cells[pctIdx].text().replace(",", "").replace("+", "").replace("%", "").trim() else "0"
                                     
-                                    val changeVal = changeStr.toDoubleOrNull() ?: 0.0
-                                    val pctVal = pctStr.toDoubleOrNull() ?: 0.0
-                                    
-                                    // Check for negativity symbols in the cells
+                                    val change = changeStr.toDoubleOrNull() ?: 0.0
+                                    val pct = pctStr.toDoubleOrNull() ?: 0.0
                                     val isNeg = (chgIdx != -1 && cells[chgIdx].text().contains("-")) || (pctIdx != -1 && cells[pctIdx].text().contains("-"))
                                     
-                                    val finalChange = if (isNeg) -Math.abs(changeVal) else changeVal
-                                    val finalPct = if (isNeg) -Math.abs(pctVal) else pctVal
+                                    val finalChg = if (isNeg) -Math.abs(change) else change
+                                    val finalPct = if (isNeg) -Math.abs(pct) else pct
                                     
-                                    scrapedList.add(NepseIndex(normalized, value, finalChange, finalPct, value - finalChange))
+                                    if (scrapedList.none { it.index == name }) {
+                                        scrapedList.add(NepseIndex(name, value, finalChg, finalPct, value - finalChg))
+                                    }
                                 }
                             }
                         }
+                        AppLogger.d("MarketSync", "Table $tableIdx: Parsed $itemsInTable items")
                     }
                 }
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-
-        if (scrapedList.isNotEmpty()) {
-            withContext(Dispatchers.IO) {
-                for (item in scrapedList) {
-                    portfolioDao.insertMarketIndices(listOf(MarketIndexEntity(item.index, item.value, item.previousValue, item.percentChange)))
-                }
+            } catch (e: Exception) { 
+                AppLogger.e("MarketSync", "Scrape failed for $url", e)
+                Log.e("MarketRepo", "Scrape failed for $url", e) 
             }
         }
+        
+        AppLogger.i("MarketSync", "Sync finished. Total unique indices scraped: ${scrapedList.size}")
 
-        return scrapedList.distinctBy { it.index }
+        if (scrapedList.isNotEmpty()) {
+            portfolioDao.insertMarketIndices(scrapedList.map { 
+                MarketIndexEntity(it.index, it.value, it.previousValue, it.change, it.percentChange, "Scraped", timestamp)
+            })
+        }
+        scrapedList
     }
 
-    private suspend fun createNepseIndex(name: String, value: Double, estimatedPrev: Double? = null): NepseIndex {
-        val existing = portfolioDao.getIndexByName(name)
-        val prevValue = existing?.currentValue ?: (estimatedPrev ?: (value * 1.0))
-        val diff = value - prevValue
-        val pct = if (prevValue > 0) (diff / prevValue) * 100.0 else 0.0
-        return NepseIndex(name, value, diff, pct, prevValue)
-    }
-
-    /**
-     * Fetches the latest Last Traded Prices (LTP) and calculates changes.
-     * Uses prioritized Live Trading URLs (e.g., Sharesansar).
-     */
-    suspend fun fetchPriceChanges(): List<ScripPriceChange> {
+    suspend fun fetchPriceChanges(): List<ScripPriceChange> = withContext(Dispatchers.IO) {
+        AppLogger.i("LtpSync", "Starting Scrip LTP Sync")
         val urls = getScraperUrls(ScraperCategory.LTP_UPDATE)
         val changes = mutableListOf<ScripPriceChange>()
-        
         for (baseUrl in urls) {
             try {
                 val url = if (baseUrl.contains("?")) "$baseUrl&t=${System.currentTimeMillis()}" else "$baseUrl?t=${System.currentTimeMillis()}"
-                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36").timeout(20000).get()
-                val scripEntities = mutableListOf<com.example.data.db.ExternalLtp>()
-                val timestamp = System.currentTimeMillis()
+                AppLogger.d("LtpSync", "Requesting URL: $url")
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(20000).get()
+                val tables = doc.select("table")
+                AppLogger.d("LtpSync", "Found ${tables.size} tables on page")
                 
-                doc.select("table").forEach { table ->
+                tables.forEachIndexed { tableIdx, table ->
                     val rows = table.select("tr")
-                    if (rows.isEmpty()) return@forEach
-                    
-                    val header = rows.firstOrNull()?.select("th, td")?.map { it.text().lowercase().trim() } ?: emptyList()
+                    if (rows.isEmpty()) return@forEachIndexed
                     var symIdx = -1; var ltpIdx = -1; var prvIdx = -1
-
-                    header.forEachIndexed { index, text ->
-                        when {
-                            text == "symbol" || text == "scrip" || text == "code" -> if (symIdx == -1) symIdx = index
-                            text == "ltp" || text.contains("last traded") || text.contains("price") || text == "close" -> if (ltpIdx == -1) ltpIdx = index
-                            text.contains("prev") || text.contains("close") && !text.contains("last") -> if (prvIdx == -1) prvIdx = index
+                    var headerIdx = -1
+                    for (i in 0 until minOf(rows.size, 3)) {
+                        val header = rows[i].select("th, td").map { it.text().lowercase().trim() }
+                        header.forEachIndexed { index, text ->
+                            if (text == "symbol" || text == "scrip" || text == "code") symIdx = index
+                            if (text == "ltp" || text.contains("last traded") || (text == "close" && ltpIdx == -1)) ltpIdx = index
+                            if (text.contains("prev") || (text == "close" && ltpIdx != index)) prvIdx = index
+                        }
+                        if (symIdx != -1 && ltpIdx != -1) { 
+                            headerIdx = i
+                            AppLogger.d("LtpSync", "Table $tableIdx: Found header at row $i. Mapping: Symbol=$symIdx, LTP=$ltpIdx, Prev=$prvIdx")
+                            break 
                         }
                     }
-
-                    // Fallbacks for common SS table layouts
-                    if (symIdx == -1) symIdx = 1
-                    if (ltpIdx == -1) ltpIdx = if (header.size >= 6) 5 else 2
-
-                    rows.drop(1).forEach { row ->
-                        val cells = row.select("td")
-                        if (cells.size > maxOf(symIdx, ltpIdx)) {
-                            val symbol = cells[symIdx].text().trim().uppercase()
-                            val ltpStr = cells[ltpIdx].text().replace(",", "").trim()
-                            val ltp = ltpStr.toDoubleOrNull() ?: 0.0
-                            
-                            if (symbol.isNotEmpty() && ltp > 0 && !garbageTerms.contains(symbol.lowercase())) {
-                                val existing = portfolioDao.getExternalLtpBySymbol(symbol)
-                                
-                                if (existing == null || existing.ltp != ltp) {
-                                    val prevStr = if (prvIdx != -1 && prvIdx < cells.size) cells[prvIdx].text().replace(",", "").trim() else ""
-                                    val scrapedPrev = prevStr.toDoubleOrNull()
-                                    val prevLtp = scrapedPrev ?: (existing?.ltp ?: ltp)
-                                    
-                                    changes.add(ScripPriceChange(symbol, ltp, ltp - prevLtp, if(prevLtp > 0) (ltp-prevLtp)/prevLtp*100.0 else 0.0, prevLtp))
-                                    scripEntities.add(com.example.data.db.ExternalLtp(symbol, ltp, prevLtp, "Scraped", timestamp, existing?.isInMeroshareCsv ?: false))
-                                } else {
-                                    changes.add(ScripPriceChange(symbol, existing.ltp, existing.ltp - existing.previousLtp, if(existing.previousLtp > 0) (existing.ltp - existing.previousLtp) / existing.previousLtp * 100.0 else 0.0, existing.previousLtp))
+                    if (headerIdx != -1) {
+                        var scripsInTable = 0
+                        rows.drop(headerIdx + 1).forEach { row ->
+                            val cells = row.select("td")
+                            if (cells.size > maxOf(symIdx, ltpIdx)) {
+                                val symbol = cells[symIdx].text().trim().uppercase()
+                                val ltp = cells[ltpIdx].text().replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                                if (symbol.isNotEmpty() && ltp > 0 && !garbageTerms.contains(symbol.lowercase())) {
+                                    scripsInTable++
+                                    val existing = portfolioDao.getExternalLtpBySymbol(symbol)
+                                    val prevLtp = if (prvIdx != -1 && prvIdx < cells.size) cells[prvIdx].text().replace(",", "").trim().toDoubleOrNull() ?: existing?.ltp ?: ltp else existing?.ltp ?: ltp
+                                    changes.add(ScripPriceChange(symbol, ltp, ltp - prevLtp, if (prevLtp > 0) (ltp - prevLtp) / prevLtp * 100.0 else 0.0, prevLtp))
                                 }
                             }
                         }
+                        AppLogger.d("LtpSync", "Table $tableIdx: Parsed $scripsInTable scrips")
                     }
                 }
-                if (scripEntities.isNotEmpty()) {
-                    portfolioDao.insertExternalLtps(scripEntities)
-                    return changes.distinctBy { it.symbol }
+                if (changes.isNotEmpty()) {
+                    val timestamp = System.currentTimeMillis()
+                    AppLogger.i("LtpSync", "Sync successful. Total unique scrips: ${changes.size}")
+                    portfolioDao.insertExternalLtps(changes.map { com.example.data.db.ExternalLtp(it.symbol, it.ltp, it.previousLtp, it.change, it.percentChange, "Scraped", timestamp) })
+                    return@withContext changes.distinctBy { it.symbol }
                 }
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) {
+                AppLogger.e("LtpSync", "Scrape failed for $baseUrl", e)
+            }
         }
-        return emptyList()
+        AppLogger.w("LtpSync", "Sync finished with 0 items")
+        emptyList<ScripPriceChange>()
     }
 }

@@ -59,6 +59,7 @@ import com.example.data.db.TransactionRecord
 import com.example.data.db.ScripMaster
 import com.example.data.model.*
 import com.example.data.repository.*
+import com.example.data.util.AppLogger
 import com.example.data.work.ScrapeWorker
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.*
@@ -102,6 +103,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val database = AppDatabase.getDatabase(this)
+        AppLogger.init(database.appLogDao())
+
         setContent {
             MyApplicationTheme {
                 val context = LocalContext.current
@@ -644,16 +648,23 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
     val res by vm.results.collectAsStateWithLifecycle()
     val isC by vm.isChecking.collectAsStateWithLifecycle()
     val isS by vm.isSyncing.collectAsStateWithLifecycle()
+    val syncLog by vm.syncLog.collectAsStateWithLifecycle()
+    val syncMsg by vm.syncMessage.collectAsStateWithLifecycle()
     
     var showA by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var exp by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    LaunchedEffect(syncMsg) {
+        syncMsg?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
 
     val filteredIpos = remember(searchQuery, ipos) {
         if (searchQuery.isBlank()) ipos
         else ipos.filter { 
             it.companyName.contains(searchQuery, true) || 
-            it.companyCode?.contains(searchQuery, true) == true ||
+            it.scrip?.contains(searchQuery, true) == true ||
             it.cdscCompanyId?.toString()?.contains(searchQuery) == true
         }
     }
@@ -679,12 +690,21 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
         
         Spacer(Modifier.height(16.dp))
         
+        // Improved Dropdown with better search handling
         ExposedDropdownMenuBox(exp, { exp = it }) {
             OutlinedTextField(
-                value = searchQuery.ifBlank { sel?.companyName ?: "Select IPO to check" },
+                value = if (exp) searchQuery else (sel?.companyName ?: ""),
                 onValueChange = { searchQuery = it; exp = true },
-                label = { Text("Select Company") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(exp) },
+                label = { Text("Search Company") },
+                placeholder = { Text(sel?.companyName ?: "Type to search...") },
+                trailingIcon = { 
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, null, Modifier.size(18.dp)) }
+                        }
+                        ExposedDropdownMenuDefaults.TrailingIcon(exp)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                 colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -694,19 +714,23 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 shape = RoundedCornerShape(12.dp)
             )
             
-            ExposedDropdownMenu(exp, { exp = false }, modifier = Modifier.fillMaxWidth()) {
+            ExposedDropdownMenu(exp, { exp = false }, modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
                 if (filteredIpos.isNotEmpty()) {
-                    filteredIpos.take(15).forEach { ipo ->
+                    filteredIpos.take(100).forEach { ipo ->
                         DropdownMenuItem(
                             text = { 
                                 Column {
                                     Text(ipo.companyName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (!ipo.companyCode.isNullOrBlank()) {
-                                            Text(ipo.companyCode, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                        if (!ipo.scrip.isNullOrBlank()) {
+                                            Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                             Spacer(Modifier.width(8.dp))
                                         }
-                                        Text("ID: ${ipo.cdscCompanyId}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (ipo.cdscCompanyId != null) {
+                                            Text("ID: ${ipo.cdscCompanyId}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        } else {
+                                            Text("ID MISSING (Sync Required)", fontSize = 10.sp, color = Color.Red, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             },
@@ -719,10 +743,52 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                     }
                 } else {
                     DropdownMenuItem(
-                        text = { Text("No IPOs found. Click Refresh to sync.", color = Color.Gray) },
-                        onClick = { vm.syncIpos(); exp = false }
+                        text = { Text("No results found.", color = Color.Gray) },
+                        onClick = { exp = false }
                     )
                 }
+            }
+        }
+
+        if (sel != null && sel?.cdscCompanyId == null) {
+            var showEditId by remember { mutableStateOf(false) }
+            Card(
+                modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
+                onClick = { showEditId = true }
+            ) {
+                Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("This company has no CDSC ID. Click here to enter it manually.", fontSize = 10.sp, color = Color.Red, fontWeight = FontWeight.Bold)
+                }
+            }
+            
+            if (showEditId) {
+                var newId by remember { mutableStateOf("") }
+                AlertDialog(
+                    onDismissRequest = { showEditId = false },
+                    title = { Text("Manual CDSC ID") },
+                    text = { 
+                        Column {
+                            Text("Enter the numeric ID for ${sel?.companyName}", fontSize = 12.sp)
+                            OutlinedTextField(
+                                value = newId,
+                                onValueChange = { if (it.all { c -> c.isDigit() }) newId = it },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                label = { Text("CDSC Company ID") }
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = { 
+                            newId.toIntOrNull()?.let { vm.updateCdscId(sel!!.companyName, it) }
+                            showEditId = false 
+                        }, enabled = newId.isNotBlank()) { Text("Save ID") }
+                    },
+                    dismissButton = { TextButton({ showEditId = false }) { Text("Cancel") } }
+                )
             }
         }
 
@@ -765,8 +831,25 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
             enabled = !isC && boids.isNotEmpty() && sel != null, 
             shape = RoundedCornerShape(16.dp)
         ) {
-            if (isC) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) 
+            if (isC && sel != null) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) 
             else Text("Check Results", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+
+        if (res.isEmpty() && boids.isNotEmpty()) {
+            OutlinedButton(
+                onClick = { vm.startDeepScan() },
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(50.dp),
+                enabled = !isC,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                if (isC && sel == null) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                else {
+                    Icon(Icons.Default.ManageSearch, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Deep Scan (All Recent IPOs)", fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
     if (showA) AddBoidDialog({ n, b -> vm.addBoid(n, b); showA = false }, { showA = false })
@@ -866,9 +949,23 @@ fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
     val currentCurrency = userProfile?.currencySymbol ?: "रु."
     val currentDateFormat = userProfile?.dateFormat ?: "AD"
     val primaryIndex = userProfile?.primaryIndexName ?: "NEPSE Index"
+    val context = LocalContext.current
+    val cs = rememberCoroutineScope()
     
     val currencies = listOf("रु.", "$", "€", "£", "¥", "₹")
     
+    val logLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            cs.launch {
+                val logContent = AppLogger.exportLogs()
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(logContent.toByteArray()) }
+                }
+                Toast.makeText(context, "Logs exported successfully", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         SubScreenHeader("Settings", onBack)
         
@@ -897,6 +994,40 @@ fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                                     shape = RoundedCornerShape(8.dp)
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Debug & Support", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("If the app is not syncing correctly, export logs and send them to the developer.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        
+                        Spacer(Modifier.height(16.dp))
+                        
+                        Button(
+                            onClick = { logLauncher.launch("finfolio_debug_logs.txt") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Icon(Icons.Default.BugReport, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Export Debug Logs")
+                        }
+                        
+                        Spacer(Modifier.height(8.dp))
+                        
+                        OutlinedButton(
+                            onClick = { AppLogger.clearLogs(); Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Clear Internal Logs")
                         }
                     }
                 }
@@ -1046,51 +1177,38 @@ fun SettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
 fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
     val ipos by vm.ipos.collectAsStateWithLifecycle()
     val isS by vm.isSyncing.collectAsStateWithLifecycle()
+    val syncLog by vm.syncLog.collectAsStateWithLifecycle()
     val syncMsg by vm.syncMessage.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
-    var showAddManual by remember { mutableStateOf(false) }
 
     LaunchedEffect(syncMsg) {
         syncMsg?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
     }
 
-    val filteredIpos = remember(searchQuery, ipos) {
-        val base = if (searchQuery.isBlank()) ipos
+    val displayIpos = remember(searchQuery, ipos) {
+        if (searchQuery.isBlank()) ipos
         else ipos.filter { 
             it.companyName.contains(searchQuery, true) || 
-            it.companyCode?.contains(searchQuery, true) == true ||
-            it.cdscCompanyId?.toString()?.contains(searchQuery) == true
+            it.scrip?.contains(searchQuery, true) == true
         }
-        base
-    }
-
-    var showArchived by remember { mutableStateOf(false) }
-    val displayIpos = remember(filteredIpos, showArchived) {
-        if (showArchived) filteredIpos.filter { !it.isActive }
-        else filteredIpos.filter { it.isActive }
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         SubScreenHeader(
-            title = if (showArchived) "Archived IPOs" else "IPO Master List",
+            title = "IPO Master List",
             onBack = onBack,
             trailingIcon = {
-                Row {
-                    IconButton(onClick = { showArchived = !showArchived }) {
-                        Icon(if (showArchived) Icons.Default.Inventory else Icons.Default.Archive, contentDescription = "Toggle Archive")
-                    }
-                    IconButton(onClick = { showAddManual = true }) { Icon(Icons.Default.Add, null) }
-                    IconButton(onClick = { vm.syncIpos() }, enabled = !isS) {
-                        if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Default.Refresh, null)
-                    }
+                IconButton(onClick = { vm.syncIpos() }, enabled = !isS) {
+                    if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Refresh, null)
                 }
             }
         )
 
         if (isS) {
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            Text(syncLog, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 4.dp))
         }
 
         OutlinedTextField(
@@ -1113,22 +1231,11 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 item {
                     Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Icon(if (searchQuery.isEmpty()) Icons.Default.Inventory else Icons.Default.SearchOff, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outlineVariant)
+                            Icon(Icons.Default.Inventory, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outlineVariant)
                             Spacer(Modifier.height(16.dp))
+                            Text(if (searchQuery.isEmpty()) "No IPOs found." else "No results found for '$searchQuery'", fontWeight = FontWeight.Bold)
                             if (searchQuery.isEmpty()) {
-                                Text(if (showArchived) "No archived IPOs." else "No active IPOs found.", fontWeight = FontWeight.Bold)
-                                if (!showArchived) {
-                                    Text("Try syncing from online sources.", fontSize = 12.sp, color = Color.Gray)
-                                    Spacer(Modifier.height(16.dp))
-                                    Button(onClick = { vm.syncIpos() }) {
-                                        Icon(Icons.Default.Refresh, null)
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Sync Now")
-                                    }
-                                }
-                            } else {
-                                Text("No results found for '$searchQuery'", fontWeight = FontWeight.Bold)
-                                Text("Try a different company name or symbol.", fontSize = 12.sp, color = Color.Gray)
+                                Text("Click refresh to sync from Nepali Paisa.", fontSize = 12.sp, color = Color.Gray)
                             }
                         }
                     }
@@ -1145,10 +1252,8 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(ipo.companyName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(ipo.companyCode ?: "NO SYMBOL", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.width(8.dp))
-                                Text("ID: ${ipo.cdscCompanyId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (!ipo.scrip.isNullOrBlank()) {
+                                Text(ipo.scrip, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                         
@@ -1157,14 +1262,6 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                             "allotted", "closed" -> Color(0xFF6B7280)
                             "pipeline" -> Color(0xFFF59E0B)
                             else -> MaterialTheme.colorScheme.primary
-                        }
-
-                        IconButton(onClick = { vm.toggleIpoActive(ipo) }) {
-                            Icon(
-                                if (ipo.isActive) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                null,
-                                tint = if (ipo.isActive) MaterialTheme.colorScheme.primary else Color.Gray
-                            )
                         }
 
                         Badge(
@@ -1179,48 +1276,6 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
             }
         }
     }
-
-    if (showAddManual) {
-        AddManualIpoDialog(
-            onDismiss = { showAddManual = false },
-            onAdd = { n, c, id ->
-                vm.addManualIpo(n, c, id)
-                showAddManual = false
-            }
-        )
-    }
-}
-
-@Composable
-fun AddManualIpoDialog(onDismiss: () -> Unit, onAdd: (String, String, Int) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
-    var idText by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add Manual IPO") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Company Name") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(code, { code = it }, label = { Text("Symbol/Code") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
-                    idText, 
-                    { if (it.all { c -> c.isDigit() }) idText = it }, 
-                    label = { Text("CDSC Company ID") }, 
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onAdd(name, code, idText.toIntOrNull() ?: 0) },
-                enabled = name.isNotBlank() && idText.isNotBlank()
-            ) { Text("Add") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
 }
 
 @Composable
@@ -1998,14 +2053,10 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     val txLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) { csvText = t; isWacc = false; showImport = true } } }
     val waLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) cs.launch { val t = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(it)?.use { it.bufferedReader().readText() } }; if (t != null) { csvText = t; isWacc = true; showImport = true } } }
     val exLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { if (it != null) cs.launch { 
-        val allMetrics = FinancialEngines.computeItemMetrics(transactions, viewModel.allExternalLtps.value)
         val c = buildString { 
-            append("Date,Item,Action,Qty,Amount,Type,Prev LTP,LTP\n")
+            append("Date,Item,Action,Qty,Amount,Type\n")
             transactions.forEach { tx ->
-                val metric = allMetrics.find { it.item.equals(tx.item, true) }
-                val ltp = metric?.ltp ?: 0.0
-                val prevLtp = metric?.prevLtp ?: 0.0
-                append("${tx.date},${tx.item},${tx.action},${tx.qty},${tx.amount},${tx.type},$prevLtp,$ltp\n")
+                append("${tx.date},${tx.item},${tx.action},${tx.qty},${tx.amount},${tx.type}\n")
             } 
         }
         withContext(Dispatchers.IO) { 
@@ -2015,13 +2066,13 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                 }
             } 
         }
-        withContext(Dispatchers.Main) { Toast.makeText(context, "Exported with LTP", Toast.LENGTH_SHORT).show() } 
+        withContext(Dispatchers.Main) { Toast.makeText(context, "Exported Successfully", Toast.LENGTH_SHORT).show() }
     } }
 
     val txY = remember(transactions, filter) { (if (filter == "All") transactions else transactions.filter { it.item.equals(filter, true) }).groupBy { it.date.split("-").firstOrNull() ?: "Unknown" }.toSortedMap(compareByDescending { it }) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Record", "Import/Export", "History")
+    val tabs = listOf("Record", "Advanced", "History")
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedTab, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary, divider = {}) {
@@ -2033,9 +2084,22 @@ fun DataScreen(viewModel: PortfolioViewModel) {
         Box(Modifier.weight(1f).padding(16.dp)) {
             when (selectedTab) {
                 0 -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Text("Record Transaction", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         RowEntryForm(dItems, dTypes, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol) { pAdd = it }
+                        
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp), thickness = 0.5.dp)
+                        
+                        OutlinedButton(
+                            onClick = { txLauncher.launch("*/*") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.FileUpload, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Bulk Import from CSV")
+                        }
+
                         if (showMS) {
                             Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) { 
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { 
@@ -2051,13 +2115,18 @@ fun DataScreen(viewModel: PortfolioViewModel) {
                     }
                 }
                 1 -> {
-                    UnifiedIOCard(txLauncher, waLauncher, msLauncher, exLauncher)
+                    UnifiedIOCard(waLauncher, msLauncher)
                 }
                 2 -> {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("History (${transactions.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Box(Modifier.width(150.dp)) {
+                            Text("History (${transactions.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            
+                            IconButton(onClick = { exLauncher.launch("finfolio_export.csv") }) {
+                                Icon(Icons.Default.FileDownload, "Export History", tint = Color(0xFF2E7D32))
+                            }
+                            
+                            Box(Modifier.width(130.dp)) {
                                 FilterDropdown(filter, dItems) { filter = it }
                             }
                         }
@@ -2081,22 +2150,13 @@ fun DataScreen(viewModel: PortfolioViewModel) {
 }
 
 @Composable
-fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, wa: androidx.activity.result.ActivityResultLauncher<String>, ms: androidx.activity.result.ActivityResultLauncher<String>, ex: androidx.activity.result.ActivityResultLauncher<String>) {
+fun UnifiedIOCard(wa: androidx.activity.result.ActivityResultLauncher<String>, ms: androidx.activity.result.ActivityResultLauncher<String>) {
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(0.3f))) {
         Column(Modifier.padding(16.dp)) {
-            Text("Import/Export Management", fontWeight = FontWeight.Bold)
+            Text("Advanced Data Tools", fontWeight = FontWeight.Bold)
             HorizontalDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
             
-            Text("Import Options", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
-            
-            Button(onClick = { tx.launch("*/*") }, Modifier.fillMaxWidth()) { 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Standard Transaction CSV")
-                    Text("Fields: Date, Item, Action, Qty, Amount, Type, Prev LTP, LTP", fontSize = 9.sp, fontWeight = FontWeight.Normal)
-                }
-            }
-            
+            Text("Specialized Imports", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(12.dp))
             
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2114,17 +2174,8 @@ fun UnifiedIOCard(tx: androidx.activity.result.ActivityResultLauncher<String>, w
                 }
             }
             
-            Text("Note: Portfolio CSV is optional for standard import but mandatory after WACC import to sync current holdings.", 
+            Text("Note: Use Portfolio CSV to sync quantities and adjust balances after a WACC import.", 
                 modifier = Modifier.padding(top = 12.dp), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            HorizontalDivider(Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            
-            Text("Export Options", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2E7D32))
-            Spacer(Modifier.height(8.dp))
-            
-            Button({ ex.launch("finfolio_export.csv") }, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(Color(0xFF2E7D32))) { 
-                Text("Export History with LTP") 
-            }
         }
     }
 }
@@ -2257,7 +2308,7 @@ fun FilterDropdown(f: String, items: List<String>, onS: (String) -> Unit) {
     var exp by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth()) {
         OutlinedButton({ exp = true }, Modifier.fillMaxWidth()) { Text("Scrip: $f"); Icon(Icons.Default.ArrowDropDown, null) }
-        DropdownMenu(exp, { exp = false }) {
+        DropdownMenu(exp, { exp = false }, modifier = Modifier.heightIn(max = 280.dp)) {
             DropdownMenuItem(text = { Text("All") }, onClick = { onS("All"); exp = false })
             items.sorted().forEach { DropdownMenuItem(text = { Text(it) }, onClick = { onS(it); exp = false }) }
         }
@@ -2332,6 +2383,11 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
     val cs = rememberCoroutineScope()
     var showResetDialog by remember { mutableStateOf(false) }
 
+    // Checkpoint log for screen entry
+    LaunchedEffect(Unit) {
+        com.example.data.util.AppLogger.i("ScraperConfig", "User entered Scraper Configuration Screen")
+    }
+
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
@@ -2402,6 +2458,7 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                                         else IconButton(onClick = {
                                             isTesting = true
                                             cs.launch {
+                                                com.example.data.util.AppLogger.d("ScraperConfig", "User triggered test for URL at index $index in $category")
                                                 val res = vm.testScraperUrl(category, editedUrl)
                                                 isTesting = false
                                                 testResult = if (res.isSuccess) true to res.getOrThrow() else false to (res.exceptionOrNull()?.message ?: "Unknown error")
@@ -2411,6 +2468,7 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                                 )
                                 if (urls.size > 1) {
                                     IconButton(onClick = {
+                                        com.example.data.util.AppLogger.w("ScraperConfig", "User requested deletion of URL at index $index in $category")
                                         val newUrls = urls.toMutableList()
                                         newUrls.removeAt(index)
                                         vm.updateScraperUrls(category, newUrls)
@@ -2420,6 +2478,7 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                             
                             if (editedUrl != url) {
                                 TextButton(onClick = {
+                                    com.example.data.util.AppLogger.i("ScraperConfig", "User saving edited URL for $category: $editedUrl")
                                     val newUrls = urls.toMutableList()
                                     newUrls[index] = editedUrl
                                     vm.updateScraperUrls(category, newUrls)
@@ -2433,6 +2492,7 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                         
                         Button(
                             onClick = {
+                                com.example.data.util.AppLogger.i("ScraperConfig", "User adding new fallback URL slot for $category")
                                 val newUrls = urls.toMutableList() + ""
                                 vm.updateScraperUrls(category, newUrls)
                             },
