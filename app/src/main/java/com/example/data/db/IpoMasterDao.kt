@@ -25,14 +25,17 @@ interface IpoMasterDao {
     @Query("SELECT * FROM ipo_master WHERE companyName = :name LIMIT 1")
     suspend fun getByName(name: String): IpoMaster?
 
-    @Query("SELECT * FROM ipo_master WHERE cdscCompanyId = :id LIMIT 1")
-    suspend fun getByCdscId(id: Int): IpoMaster?
+    @Query("SELECT * FROM ipo_master WHERE resultPortalId = :id LIMIT 1")
+    suspend fun getByResultPortalId(id: Int): IpoMaster?
+
+    @Query("SELECT resultPortalId FROM ipo_master WHERE resultPortalId IS NOT NULL ORDER BY allotmentDate DESC, closingDate DESC LIMIT 1")
+    suspend fun getLatestResultPortalId(): Int?
 
     @Query("DELETE FROM ipo_master")
     suspend fun deleteAll()
 
     // --- IPO RESULT CACHE ---
-    // Note: IpoResultCache still uses ipoId (Int) which might need mapping if we use Nepali Paisa names
+    // Note: IpoResultCache still uses ipoId (Int) which might need mapping if we use external listing names
     @Query("SELECT * FROM ipo_result_cache WHERE ipoId = :ipoId AND boid = :boid LIMIT 1")
     suspend fun getIpoResult(ipoId: Int, boid: String): IpoResultCache?
 

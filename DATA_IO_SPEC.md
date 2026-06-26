@@ -1,24 +1,32 @@
 # Import/Export Specification (formerly Data I/O)
 
-This document defines how FinFolio handles transaction recording and external data imports/exports.
+This document defines how FinFolio handles transaction recording and external data imports/exports with a focus on data safety.
 
 ## 1. Manual Transaction Entry
-- **Scrip & Sector Selection**: Uses dropdown buttons for selecting from recently used items to speed up entry.
-- **Manual Add**: Plus (+) buttons allow adding new scrips or sectors via dedicated dialogs.
-- **Sector Auto-sync**: Automatically suggests a sector based on previous entries for the same scrip when a scrip is selected.
-- **Actions**: Buy, Sale, Returns (Bonus/Right/Dividend).
+- **Scrip & Sector Selection**: Uses dropdown buttons for selecting from recently used items.
+- **Sector Auto-sync**: Automatically suggests a sector based on previous entries for the same scrip.
+- **Actions**: Buy, Sale, Returns (Bonus/Right/Split/Dividend), SIP.
 
-## 2. CSV Imports
-- **Standard Transaction CSV**: Fields include `Date, Item, Action, Qty, Amount, Type, Prev LTP (Optional), LTP (Optional)`. Importing this will also update the local market price and trend if the columns are present.
-- **WACC CSV**: Specialized import for Weighted Average Cost Price data. Fields: `Scrip, Qty, Rate, Cost`.
-- **Portfolio CSV**: Meroshare export format for aligning holdings. Fields: `Scrip, Prev LTP, LTP, Balance`.
-- **Smart Portfolio Sync**: Before importing a Portfolio CSV, the system calculates and prompts the user with the number of adjustment records that will be created.
+## 2. CSV Imports & Data Safety
+To prevent data loss during complex imports, FinFolio implements a **Safety-First Protocol**:
+
+### A. Pre-Flight Export
+- Every time a user initiates a "Bulk Import", the app automatically generates a **JSON Snapshot** of the current database in the app's internal cache.
+- If the import causes mathematical inconsistencies (e.g., negative balances), the user is prompted to "Restore to Snapshot".
+
+### B. Standard Transaction CSV
+- **Fields**: `Date, Item, Action, Qty, Amount, Sector`.
+- **Validation Layer**: The importer checks for duplicate entries based on `(Date, Item, Action, Qty)` to prevent double-counting.
+
+### C. Smart Portfolio Sync (Alignment)
+- **Source**: Generic Portfolio CSV export or "My Holdings" export.
+- **Logic**: Aligning local history with external statements. If there is a mismatch in `Balance Qty`, the app prompts to create an "Adjustment" transaction rather than overwriting historical records.
 
 ## 3. Bulk BOID Management
 - **Manual Add**: 16-digit BOID + Holder Name.
 - **Paste Mode**: Smart-parser that extracts valid 16-digit BOIDs from unstructured text.
-- **File Upload**: Text file import for BOID lists.
 
 ## 4. Export
-- **CSV Export**: Generates a standard CSV of all recorded transactions. 
-- **LTP Snapshots**: The export includes `Prev LTP` and `LTP` columns, capturing the market price trends at the time of export. This ensures that portfolio evaluation and performance metrics can be restored accurately across devices even without an immediate internet connection.
+- **Transaction Export**: Generates a standard CSV of all recorded transactions. 
+- **Holdings Export**: Specialized export from the Market Pulse screen focused on current asset valuation.
+- **Format**: `Scrip, Sector, Qty, Previous LTP, LTP, Current Amount`.

@@ -22,10 +22,10 @@ class ScrapeWorker(
             val successLtp = portfolioRepo.refreshLivePrices()
             
             // 2. Refresh Market Indices (For top bar and pulse screen)
-            marketRepo.fetchNepseIndices()
-            marketRepo.fetchPriceChanges()
+            marketRepo.fetchMarketIndices(force = false)
+            marketRepo.fetchPriceChanges(force = false)
             
-            if (successLtp) {
+            if (successLtp.isSuccess) {
                 Result.success()
             } else {
                 Result.retry()

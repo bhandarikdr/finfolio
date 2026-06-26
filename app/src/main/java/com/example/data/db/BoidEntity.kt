@@ -6,5 +6,6 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "Boids")
 data class BoidEntity(
     @PrimaryKey val boid: String,
-    val name: String
+    val name: String,
+    val isDefault: Boolean = false
 )

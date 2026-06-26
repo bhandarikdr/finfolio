@@ -8,6 +8,8 @@ All secondary screens must follow a consistent structure.
     - **Back Button**: An `ArrowBack` icon tinted with the primary theme color.
     - **Title**: Bold, large title (e.g., "Market Pulse", "Bulk IPO Result").
     - **Trailing Action**: (Optional) For refresh or settings buttons.
+- **Section Headers**: Expandable headers within sub-screens (like Indices or Holdings) should use `typography.titleMedium` to distinguish them from item-level text while remaining smaller than the page title.
+- **Subtitle Branding**: The app subtitle in the Top Bar is fixed as "PortFolio Tracker" to provide consistent brand identity.
 - **Backgrounds**: Standard `MaterialTheme.colorScheme.surface`.
 
 ## 2. Typography Hierarchy
@@ -28,6 +30,7 @@ Font sizes are standardized to ensure accessibility and professional readability
     - **Success/Gain**: `0xFF2E7D32` (Deep Green) or `0xFF10B981` (Emerald).
     - **Loss/Error**: `0xFFC62828` (Deep Red) or `0xFFEF4444` (Rose).
     - **Caution/Pending**: `0xFFF59E0B` (Amber).
+    - **Process Steps**: `0xFFF59E0B` (Amber/Yellow) with `Color.Black` text for high-contrast badges (e.g., STEP 1, STEP 2).
 
 ## 4. Component Patterns
 ### List Items & Cards
@@ -39,6 +42,7 @@ Font sizes are standardized to ensure accessibility and professional readability
 - **Row Alignment**: When a dropdown and text field share a row, use a Read-Only `OutlinedTextField` with a `trailingIcon` for the dropdown to ensure perfect vertical alignment.
 - **Smart Selectors**: Prefer dropdowns for Scrips/Sectors to minimize errors, prioritized by "Recent Items".
 - **Focus**: Use clean, focused dialogs for adding new entities that aren't in existing lists.
+- **Batch Actions**: For complex configuration cards (e.g., Scraper URLs), use a per-card "Apply" button that only appears when changes are pending. This prevents accidental partial updates and provides a clear signal of state persistence.
 
 ## 5. Currency & Data Formatting
 - **Currency**: Always use the `formatCurrency(amount, symbol)` helper with `userProfile.currencySymbol`.
@@ -51,8 +55,10 @@ Font sizes are standardized to ensure accessibility and professional readability
 - **Progress**: Always show indeterminate indicators during network or disk operations.
 
 ## 7. Responsive Layouts
-- **Support Panels**: Concise layout, avoiding vertical overflow; ensure all fields are visible without scrolling where possible.
+- **Dashboard Consistency**: Data scope selectors (Overall/Portfolio) must be **fixed at the top** of the scrollable content area to ensure users always know which dataset they are viewing.
+- **Support Panels**: Single-page layout where all core elements (Developer profile, Subject, and Message) are visible without scrolling. Profile elements (Icon, Name, Title) must be **centered** on the page.
 - **Drawer**: High-contrast labels with increased font sizes for primary actions.
 
-## 8. Functional Integrity
-- **Strict Adherence**: Do not change existing functionality unless specifically instructed. Reference this documentation for all UI/logic adjustments to maintain project consistency.
+## 9. Functional Icons
+- **Exporting**: Use `Icons.Default.FileUpload` (Up Arrow) for data exports to represent "sending data out."
+- **Importing/Downloading**: Use `Icons.Default.FileDownload` for data retrieval.

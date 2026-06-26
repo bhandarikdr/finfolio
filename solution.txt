@@ -1,0 +1,324 @@
+Based on the log analysis, here are the key issues and robust solutions:
+
+## Issues Identified
+
+1. **SSL Certificate Errors**: `www.nepalstock.com` failing with `Trust anchor for certification path not found`
+2. **JSON Content Type Handling**: `nepalipaisa.com` returning JSON but Jsoup expecting HTML (`application/json` is rejected)
+3. **WAF/Request Rejection**: CDSC portal returning HTML instead of JSON (potential firewall blocking)
+4. **404 Errors**: `sharesansar.com/ipo-fpo-news` endpoint not found
+5. **No Data Found**: Some URLs returning empty/invalid data
+
+## Robust Solutions
+
+### 1. **Comprehensive Solution for SSL Certificate Issues**
+
+```kotlin
+// Create a custom trust manager that accepts all certificates (for testing only)
+// OR implement proper certificate pinning
+
+class NetworkHelper {
+    companion object {
+        fun getUnsafeOkHttpClient(): OkHttpClient {
+            return try {
+                // Create a trust manager that trusts all certificates
+                val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                    override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                    override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                })
+
+                val sslContext = SSLContext.getInstance("TLS")
+                sslContext.init(null, trustAllCerts, SecureRandom())
+
+                OkHttpClient.Builder()
+                    .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+                    .hostnameVerifier { _, _ -> true }
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .build()
+            } catch (e: Exception) {
+                throw RuntimeException(e)
+            }
+        }
+
+        // For production: Use certificate pinning
+        fun getPinnedOkHttpClient(): OkHttpClient {
+            val certificatePinner = CertificatePinner.Builder()
+                .add("nepalstock.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") // Replace with actual pin
+                .build()
+
+            return OkHttpClient.Builder()
+                .certificatePinner(certificatePinner)
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+        }
+    }
+}
+```
+
+### 2. **Enhanced Scraper with Multiple Content Type Support**
+
+```kotlin
+class RobustScraper(
+    private val okHttpClient: OkHttpClient = NetworkHelper.getUnsafeOkHttpClient()
+) {
+
+    sealed class ScrapeResult {
+        data class Success(val data: String, val contentType: String) : ScrapeResult()
+        data class Error(val exception: Exception, val url: String) : ScrapeResult()
+    }
+
+    suspend fun scrape(url: String, headers: Map<String, String> = emptyMap()): ScrapeResult {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .addHeader("Accept", "text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8")
+                    .addHeader("Accept-Language", "en-US,en;q=0.9")
+                    .apply {
+                        headers.forEach { (key, value) -> addHeader(key, value) }
+                    }
+                    .build()
+
+                val response = okHttpClient.newCall(request).execute()
+
+                response.use { res ->
+                    if (!res.isSuccessful) {
+                        return@withContext ScrapeResult.Error(
+                            Exception("HTTP ${res.code}: ${res.message}"),
+                            url
+                        )
+                    }
+
+                    val contentType = res.header("Content-Type") ?: "text/html"
+                    val body = res.body?.string() ?: ""
+
+                    // Handle different content types
+                    when {
+                        contentType.contains("application/json") -> {
+                            // For JSON responses
+                            ScrapeResult.Success(body, "json")
+                        }
+                        contentType.contains("text/html") -> {
+                            // For HTML responses
+                            ScrapeResult.Success(body, "html")
+                        }
+                        else -> {
+                            // Try to detect content type from content
+                            when {
+                                body.trim().startsWith("{") || body.trim().startsWith("[") -> {
+                                    ScrapeResult.Success(body, "json")
+                                }
+                                body.trim().startsWith("<") -> {
+                                    ScrapeResult.Success(body, "html")
+                                }
+                                else -> {
+                                    ScrapeResult.Success(body, "unknown")
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                ScrapeResult.Error(e, url)
+            }
+        }
+    }
+}
+```
+
+### 3. **CDSC Portal WAF Bypass Strategy**
+
+```kotlin
+class CDSCScraper {
+    private val okHttpClient = OkHttpClient.Builder()
+        .cookieJar(CookieJar {
+            private val cookieStore = mutableMapOf<String, List<Cookie>>()
+            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                cookieStore[url.host] = cookies
+            }
+            override fun loadForRequest(url: HttpUrl): List<Cookie> {
+                return cookieStore[url.host] ?: emptyList()
+            }
+        })
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val response = chain.proceed(request)
+
+            // Handle WAF response
+            if (response.code == 200 && response.header("Content-Type")?.contains("text/html") == true) {
+                val body = response.body?.string()
+                if (body?.contains("Request Rejected") == true) {
+                    // Retry with different headers
+                    val newRequest = request.newBuilder()
+                        .addHeader("Accept", "application/json")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
+                        .addHeader("Referer", "https://iporesult.cdsc.com.np/")
+                        .build()
+                    return@addInterceptor chain.proceed(newRequest)
+                }
+                // Recreate response with body
+                response.newBuilder()
+                    .body(body?.toResponseBody("text/html".toMediaType()))
+                    .build()
+            } else {
+                response
+            }
+        }
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    suspend fun fetchCDSCData(): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // First request to get session cookie
+                val initRequest = Request.Builder()
+                    .url("https://iporesult.cdsc.com.np/result/company/list")
+                    .addHeader("User-Agent", getRandomUserAgent())
+                    .addHeader("Accept", "application/json, text/plain, */*")
+                    .build()
+
+                val response = okHttpClient.newCall(initRequest).execute()
+                val body = response.body?.string() ?: ""
+
+                if (body.contains("Request Rejected")) {
+                    // Wait and retry
+                    delay(2000)
+                    val retryResponse = okHttpClient.newCall(initRequest).execute()
+                    Result.success(retryResponse.body?.string() ?: "")
+                } else {
+                    Result.success(body)
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    private fun getRandomUserAgent(): String {
+        val agents = listOf(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        return agents.random()
+    }
+}
+```
+
+### 4. **Configuration Manager with Fallback Strategy**
+
+```kotlin
+enum class ScraperType {
+    LTP_UPDATE, INDEX_UPDATE, SCRIP_SYNC, IPO_LISTING, CDSC_RESULT, CDSC_COMPANIES
+}
+
+class ConfigurableScraperManager(
+    private val context: Context
+) {
+    private val prefs = context.getSharedPreferences("scraper_configs", Context.MODE_PRIVATE)
+
+    data class ScraperConfig(
+        val urls: List<String>,
+        val parser: String,
+        val fallbackUrls: List<String> = emptyList(),
+        val headers: Map<String, String> = emptyMap(),
+        val timeoutSeconds: Int = 30,
+        val retryCount: Int = 3
+    )
+
+    suspend fun scrapeWithFallback(
+        scraperType: ScraperType,
+        config: ScraperConfig
+    ): ScrapeResult {
+        // Try primary URLs
+        for (url in config.urls) {
+            when (val result = robustScraper.scrape(url, config.headers)) {
+                is ScrapeResult.Success -> {
+                    if (isValidData(result.data, scraperType)) {
+                        return result
+                    }
+                }
+                else -> continue
+            }
+        }
+
+        // Try fallback URLs
+        for (url in config.fallbackUrls) {
+            when (val result = robustScraper.scrape(url, config.headers)) {
+                is ScrapeResult.Success -> {
+                    if (isValidData(result.data, scraperType)) {
+                        return result
+                    }
+                }
+                else -> continue
+            }
+        }
+
+        return ScrapeResult.Error(Exception("All sources failed"), "")
+    }
+
+    private fun isValidData(data: String, type: ScraperType): Boolean {
+        return when (type) {
+            ScraperType.LTP_UPDATE, ScraperType.INDEX_UPDATE -> {
+                data.length > 100 && !data.contains("404") && !data.contains("error")
+            }
+            ScraperType.IPO_LISTING, ScraperType.CDSC_RESULT -> {
+                try {
+                    JSONObject(data) // Check if valid JSON
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            else -> data.length > 100 && !data.contains("Request Rejected")
+        }
+    }
+}
+```
+
+### 5. **Network Security Configuration**
+
+```xml
+<!-- res/xml/network_security_config.xml -->
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config>
+        <domain includeSubdomains="true">nepalstock.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+
+    <domain-config>
+        <domain includeSubdomains="true">sharesansar.com</domain>
+        <domain includeSubdomains="true">merolagani.com</domain>
+        <domain includeSubdomains="true">nepalipaisa.com</domain>
+        <domain includeSubdomains="true">iporesult.cdsc.com.np</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
+```
+
+## Implementation Priority
+
+1. **Immediate Fix**: Implement custom OkHttp client with SSL bypass for `nepalstock.com`
+2. **Content Type Handling**: Add JSON support in Jsoup/OkHttp clients
+3. **CDSC WAF**: Implement cookie handling and retry mechanism
+4. **Error Recovery**: Add proper logging and retry strategies
+5. **Configuration**: Create fallback URL system
+
+## Recommended Testing
+
+1. Test each endpoint individually with custom headers
+2. Implement health checks for each scraper
+3. Add monitoring for failed requests
+4. Create a diagnostic tool to test all endpoints
+
+This solution provides a robust foundation that can handle various network issues while maintaining data scraping capability.

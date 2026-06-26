@@ -14,8 +14,12 @@ data class UserEntity(
     val scraperUrlsJson: String = "", // JSON map of scraper keys to URLs
     val pin: String? = null, // Optional 4-digit PIN lock
     val itemColumnsJson: String = "", // JSON array of visible item columns
-    val typeColumnsJson: String = "", // JSON array of visible type columns
+    val sectorColumnsJson: String = "", // JSON array of visible sector columns
     val selectedSectorFilter: String = "All", // Last selected sector in Matrix
-    val datasetScope: String = "OVERALL", // Last selected scope
-    val primaryIndexName: String = "NEPSE Index" // The main index name to track
+    val dashboardScope: String = "OVERALL", // Last selected scope for Dashboard
+    val matrixScope: String = "OVERALL", // Last selected scope for Matrix
+    val primaryIndexName: String = "NEPSE Index", // The main index name to track
+    val commissionRate: Double = 0.0038, // Default commission rate
+    val flatFee: Double = 25.0, // Default flat fee (e.g., DP fee)
+    val cgtRate: Double = 0.075 // Default capital gains tax rate
 )

@@ -1,5 +1,6 @@
 package com.example.ui.viewmodel
 
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -12,13 +13,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.Flow
 
 class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     val ipos: StateFlow<List<IpoMaster>> = repository.ipoMasterList
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val readyToCheckIpos: StateFlow<List<IpoMaster>> = ipos.map { list ->
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        list.filter { 
+            it.status.equals("Allotted", true) || 
+            (it.allotmentDate != null && it.allotmentDate <= today)
+        }.sortedWith(
+            compareByDescending<IpoMaster> { it.allotmentDate ?: "" }
+            .thenByDescending { it.updatedAt }
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedIpo = MutableStateFlow<IpoMaster?>(null)
     val selectedIpo = _selectedIpo.asStateFlow()
@@ -40,6 +52,9 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     val syncLog = repository.syncLog
 
+    private val _enabledBoids = mutableStateMapOf<String, Boolean>()
+    val enabledBoids: Map<String, Boolean> = _enabledBoids
+
     init {
         // Automatically select the first IPO if available
         viewModelScope.launch {
@@ -56,13 +71,29 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
                 syncIpos()
             }
         }
+
+        // Initialize enabled boids
+        viewModelScope.launch {
+            boids.collect { list ->
+                list.forEach { 
+                    if (!_enabledBoids.containsKey(it.boid)) {
+                        _enabledBoids[it.boid] = it.isEnabledForBulk
+                    }
+                }
+            }
+        }
     }
 
-    fun syncIpos() {
+    fun toggleBoidEnabled(boid: String) {
+        val current = _enabledBoids[boid] ?: true
+        _enabledBoids[boid] = !current
+    }
+
+    fun syncIpos(force: Boolean = false) {
         viewModelScope.launch {
             _isSyncing.value = true
             _syncMessage.value = "Starting sync..."
-            val result = repository.syncIpos()
+            val result = repository.syncIpos(force)
             if (result.isSuccess) {
                 _syncMessage.value = "Sync successful"
             } else {
@@ -78,16 +109,64 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         _selectedIpo.value = ipo
     }
 
-    fun updateCdscId(companyName: String, id: Int) {
+    fun updateResultPortalId(companyName: String, id: Int) {
         viewModelScope.launch {
             val ipo = ipos.value.find { it.companyName == companyName }
             if (ipo != null) {
-                val updated = ipo.copy(cdscCompanyId = id, updatedAt = System.currentTimeMillis())
+                val updated = ipo.copy(resultPortalId = id, updatedAt = System.currentTimeMillis())
                 repository.updateIpo(updated)
                 _selectedIpo.value = updated
-                _syncMessage.value = "Updated CDSC ID for ${ipo.companyName}"
+                _syncMessage.value = "Updated Result Portal ID for ${ipo.companyName}"
             }
         }
+    }
+
+    fun updateAllotmentDate(companyName: String, date: String) {
+        viewModelScope.launch {
+            val ipo = ipos.value.find { it.companyName == companyName }
+            if (ipo != null) {
+                val updated = ipo.copy(allotmentDate = date, updatedAt = System.currentTimeMillis())
+                repository.updateIpo(updated)
+                _selectedIpo.value = updated
+                _syncMessage.value = "Allotment date set for ${ipo.companyName}"
+            }
+        }
+    }
+
+    fun setDefaultBoid(boid: String) {
+        viewModelScope.launch {
+            repository.setDefaultBoid(boid)
+        }
+    }
+
+    private val _searchingIpos = mutableStateMapOf<String, Boolean>()
+    val searchingIpos: Map<String, Boolean> = _searchingIpos
+
+    private var discoveryJob: Job? = null
+
+    fun discoverResultPortalId(ipo: IpoMaster) {
+        // Individual item search
+        _searchingIpos[ipo.companyName] = true
+        
+        viewModelScope.launch {
+            try {
+                val foundId = repository.discoverResultPortalId(ipo.companyName)
+                if (foundId != null) {
+                    updateResultPortalId(ipo.companyName, foundId)
+                    _syncMessage.value = "Found ID for ${ipo.companyName}: $foundId"
+                } else {
+                    _syncMessage.value = "Could not auto-find ID for ${ipo.companyName}"
+                }
+            } catch (e: CancellationException) {
+                // ignore
+            } finally {
+                _searchingIpos.remove(ipo.companyName)
+            }
+        }
+    }
+
+    fun stopDiscovery() {
+        discoveryJob?.cancel()
     }
 
     fun addBoid(name: String, boid: String) {
@@ -127,18 +206,29 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         }
     }
 
-    fun startBulkCheck() {
+    private val _isHybridChecking = MutableStateFlow(false)
+    val isHybridChecking = _isHybridChecking.asStateFlow()
+
+    fun startBulkCheck(hybrid: Boolean = true) {
         val ipo = _selectedIpo.value ?: run {
             showTemporaryMessage("Please select an IPO first")
             return
         }
-        val companyId = ipo.cdscCompanyId ?: run {
+
+        if (hybrid) {
+            _isHybridChecking.value = true
+            _isChecking.value = true // Keep legacy flag for UI backward compatibility
+            return
+        }
+        
+        com.example.data.util.AppLogger.i("IpoCheck", "Legacy Check Results button pressed")
+        val companyId = ipo.resultPortalId ?: run {
             showTemporaryMessage("Company ID missing. Click the warning to enter it.")
             return
         }
-        val currentBoids = boids.value
+        val currentBoids = boids.value.filter { _enabledBoids[it.boid] != false }
         if (currentBoids.isEmpty()) {
-            showTemporaryMessage("No BOIDs added to check.")
+            showTemporaryMessage("No enabled BOIDs to check.")
             return
         }
 
@@ -165,6 +255,29 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         }
     }
 
+    fun onHybridResultReceived(boidEntry: BoidEntry, message: String, success: Boolean) {
+        val currentResults = _results.value.toMutableList()
+        val existingIndex = currentResults.indexOfFirst { it.boidEntry.boid == boidEntry.boid }
+        
+        val newResult = BulkIpoResult(
+            boidEntry = boidEntry,
+            result = IpoResultResponse(success, message),
+            isChecking = false
+        )
+        
+        if (existingIndex != -1) {
+            currentResults[existingIndex] = newResult
+        } else {
+            currentResults.add(newResult)
+        }
+        _results.value = currentResults
+    }
+
+    fun finishHybridCheck() {
+        _isHybridChecking.value = false
+        _isChecking.value = false
+    }
+
     private fun showTemporaryMessage(msg: String) {
         viewModelScope.launch {
             _syncMessage.value = msg
@@ -173,65 +286,75 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         }
     }
 
-    fun startDeepScan() {
-        val recentIposWithId = ipos.value.filter { it.cdscCompanyId != null }.take(8)
+    fun startCheckAllRecentResults() {
+        com.example.data.util.AppLogger.i("IpoCheck", "Check All Recent Results button pressed")
+        val recentIposWithId = ipos.value.filter { it.resultPortalId != null }.take(15)
         val currentBoids = boids.value
         
         if (recentIposWithId.isEmpty()) {
-            showTemporaryMessage("No recent IPOs with CDSC IDs found. Sync first.")
+            showTemporaryMessage("No recent IPOs with Result Portal IDs found. Sync first.")
             return
         }
         if (currentBoids.isEmpty()) {
-            showTemporaryMessage("No BOIDs added to scan.")
+            showTemporaryMessage("No BOIDs added to check.")
             return
         }
 
         viewModelScope.launch {
             _isChecking.value = true
             _results.value = emptyList()
-            val finalResults = mutableListOf<BulkIpoResult>()
             
-            // Initialize results with "Scanning..." state
-            currentBoids.forEach { boid ->
-                finalResults.add(BulkIpoResult(boid, isChecking = true))
-            }
-            _results.value = finalResults
+            val boidResults = currentBoids.map { BulkIpoResult(it, isChecking = true) }.toMutableList()
+            _results.value = boidResults
 
             for (ipo in recentIposWithId) {
-                _syncMessage.value = "Checking ${ipo.companyName}..."
+                _syncMessage.value = "Checking: ${ipo.companyName}..."
                 
-                // We use a latch or similar to wait for each IPO's bulk check to finish
-                // OR we just process them. Since bulkCheckIpoResults uses coroutines internally, 
-                // we can just call it and wait.
-                
-                repository.bulkCheckIpoResults(ipo.cdscCompanyId!!, currentBoids) { index, result ->
+                repository.bulkCheckIpoResults(ipo.resultPortalId!!, currentBoids) { index, result ->
                     viewModelScope.launch {
                         val currentList = _results.value.toMutableList()
                         result.onSuccess { res ->
+                            val existing = currentList[index]
+                            
+                            // If allotted, we definitely want to show it. 
+                            // If multiple are allotted, we aggregate them in the message.
                             if (res.success) {
-                                // If allotted, we update the result. If already allotted from another IPO, 
-                                // we might want to append? For now, just show the first success.
-                                if (currentList[index].result?.success != true) {
-                                    val formattedMsg = "${ipo.scrip ?: ipo.companyName.take(10)}: ${res.message}"
-                                    currentList[index] = currentList[index].copy(
-                                        result = res.copy(message = formattedMsg),
-                                        isChecking = false
-                                    )
+                                val currentMsg = existing.result?.message ?: ""
+                                val newMsg = if (currentMsg.contains("✓")) {
+                                    "$currentMsg\n✓ ${ipo.scrip ?: ipo.companyName.take(8)}: ${res.message}"
+                                } else {
+                                    "✓ ${ipo.scrip ?: ipo.companyName.take(8)}: ${res.message}"
                                 }
+                                
+                                currentList[index] = existing.copy(
+                                    result = res.copy(message = newMsg),
+                                    isChecking = false
+                                )
+                                _results.value = currentList
+                            } else if (existing.result == null || !existing.result.success) {
+                                // Only show Not Allotted if we haven't found any Allotted yet for this BOID
+                                // Or maybe show the most recent "Not Allotted"
+                                val currentMsg = existing.result?.message ?: ""
+                                val newMsg = if (currentMsg.isEmpty()) {
+                                    "✗ ${ipo.scrip ?: ipo.companyName.take(8)}: Not Allotted"
+                                } else {
+                                    currentMsg // Keep existing (might be another Not Allotted or an Allotted)
+                                }
+                                currentList[index] = existing.copy(
+                                    result = res.copy(message = newMsg),
+                                    isChecking = false
+                                )
+                                _results.value = currentList
                             }
                         }
-                        // On failure or not allotted, we don't necessarily want to overwrite a success 
-                        // from a previous IPO in the loop.
-                        _results.value = currentList
                     }
                 }
-                delay(1000) // Pause between companies to be nice to the WAF
+                delay(1200) // Moderate delay to avoid trigger WAF
             }
             
-            // Mark remaining as not checking
             _results.value = _results.value.map { it.copy(isChecking = false) }
             _isChecking.value = false
-            _syncMessage.value = "Deep Scan Complete"
+            _syncMessage.value = "Bulk Check Complete"
             delay(2000)
             _syncMessage.value = null
         }

@@ -16,7 +16,7 @@ class IpoSyncWorker(
             val database = AppDatabase.getDatabase(applicationContext)
             val ipoRepo = IpoRepository(database.portfolioDao(), database.ipoMasterDao())
             
-            val result = ipoRepo.syncIpos()
+            val result = ipoRepo.syncIpos(force = false)
             
             if (result.isSuccess) {
                 Result.success()

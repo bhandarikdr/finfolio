@@ -1,0 +1,736 @@
+# FinFolio Implementation: Technical Risk Mitigation Strategy
+
+## Executive Summary
+Based on the identified risks, I've developed a comprehensive mitigation strategy that prioritizes **data safety**, **performance**, and **maintainability** while acknowledging the ambitious timeline. Here's the revised, risk-aware implementation plan.
+
+---
+
+## 🚨 CRITICAL RISK MITIGATION (Phase 0)
+
+### 1. Data Safety First: Backup/Restore Foundation
+
+**Priority: HIGHEST** - Before any schema changes or data migrations
+
+```kotlin
+// Implement before Phase 1
+class MigrationSafetyNet(
+    private val backupRepository: BackupRepository
+) {
+    suspend fun preMigrationBackup(): BackupResult {
+        // Create full database backup before any schema changes
+        val backup = Backup(
+            id = UUID.randomUUID().toString(),
+            timestamp = Instant.now(),
+            schemaVersion = Database.currentVersion,
+            includes = listOf(
+                "ScripMaster",
+                "TransactionHistory",
+                "ExternalLtp",
+                "MarketIndices",
+                "BOIDMaster"
+            )
+        )
+
+        // Export to external storage (user accessible)
+        val backupFile = backupRepository.createBackup(backup)
+
+        return BackupResult(
+            success = true,
+            filePath = backupFile.absolutePath,
+            message = "Backup created at ${backupFile.absolutePath}"
+        )
+    }
+
+    suspend fun testRestore(backupFile: File): RestoreResult {
+        // Test restoration on a copy before actual migration
+        val testDb = database.copyTo(File(backupFile.parent, "test_${System.currentTimeMillis()}.db"))
+        return restoreDatabase(testDb, backupFile)
+    }
+}
+```
+
+**UI Implementation**:
+```
+┌─────────────────────────────────────────────┐
+│ 🔒 Migration Safety Net                     │
+│                                              │
+│ ⚠️ Major Update Required                     │
+│ This update changes how data is stored.     │
+│                                              │
+│ Step 1: Backup Data                         │
+│ [✓] Create backup of all data               │
+│ [✓] Verify backup integrity                 │
+│                                              │
+│ Step 2: Test Migration                      │
+│ [ ] Test migration on backup (safe)         │
+│ [ ] Verify data integrity                   │
+│                                              │
+│ Step 3: Apply Migration                     │
+│ [ ] Migrate live data                       │
+│ [ ] Create new backup after migration       │
+│                                              │
+│ [Backup Now]  [Test Migration]  [Apply]    │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## 📊 PERFORMANCE RISK MITIGATION
+
+### 2. PortfolioSummary View Optimization
+
+**Issue**: The "God View" will slow down as transactions grow.
+
+**Solution**: Hybrid Approach - Materialized Views + Incremental Updates
+
+```sql
+-- 1. Create denormalized snapshot table
+CREATE TABLE PortfolioSnapshot (
+    symbol VARCHAR(20) PRIMARY KEY,
+    balance INTEGER,
+    wacc DECIMAL(15,2),
+    invested DECIMAL(15,2),
+    lastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (symbol) REFERENCES ScripMaster(symbol)
+);
+
+-- 2. Incremental update function
+CREATE TRIGGER update_portfolio_snapshot
+AFTER INSERT ON TransactionHistory
+BEGIN
+    -- Update snapshot incrementally
+    INSERT OR REPLACE INTO PortfolioSnapshot (symbol, balance, wacc, invested, lastUpdated)
+    SELECT
+        symbol,
+        balance,
+        wacc,
+        invested,
+        CURRENT_TIMESTAMP
+    FROM PortfolioSummaryView
+    WHERE symbol = NEW.symbol;
+END;
+
+-- 3. Refresh on demand (for complex recalculations)
+CREATE PROCEDURE refresh_portfolio_snapshot()
+BEGIN
+    -- Full refresh when needed
+    REPLACE INTO PortfolioSnapshot
+    SELECT * FROM PortfolioSummaryView;
+END;
+```
+
+**Implementation Strategy**:
+
+```kotlin
+class PortfolioManager(
+    private val snapshotRepository: PortfolioSnapshotRepository,
+    private val transactionRepository: TransactionRepository
+) {
+    suspend fun getPortfolio(): List<PortfolioItem> {
+        // 90% of queries: Use snapshot (fast)
+        if (isSnapshotFresh()) {
+            return snapshotRepository.findAll()
+        }
+
+        // 10% of queries: Full recalc (slow) with caching
+        return calculatePortfolioFromTransactions().also {
+            snapshotRepository.saveAll(it)
+            updateSnapshotTimestamp()
+        }
+    }
+
+    suspend fun calculatePortfolioFromTransactions(): List<PortfolioItem> {
+        // Only for complex recalculations
+        return transactionRepository.groupBySymbol()
+            .map { (symbol, transactions) ->
+                PortfolioItem(
+                    symbol = symbol,
+                    balance = calculateBalance(transactions),
+                    wacc = calculateWACC(transactions),
+                    invested = calculateInvested(transactions)
+                )
+            }
+    }
+}
+```
+
+---
+
+### 3. Audit Log Optimization
+
+**Issue**: Logging every LTP change creates massive database bloat.
+
+**Solution**: Smart Logging Strategy
+
+```kotlin
+class SmartAuditService(
+    private val auditRepository: AuditRepository
+) {
+    // Configurable thresholds
+    private val logLevelThresholds = mapOf(
+        AuditLevel.DEBUG to 100,      // Log every 100th change
+        AuditLevel.INFO to 10,        // Log every 10th change
+        AuditLevel.WARNING to 1,      // Log all warnings
+        AuditLevel.ERROR to 1         // Log all errors
+    )
+
+    suspend fun logLTPChange(symbol: String, oldLTP: Double, newLTP: Double) {
+        val changeCount = getChangeCount(symbol)
+
+        // Only log every Nth change for DEBUG level
+        if (changeCount % logLevelThresholds[AuditLevel.DEBUG] != 0) {
+            // Log to in-memory buffer instead of database
+            memoryBuffer.add("LTP: $symbol $oldLTP -> $newLTP")
+            return
+        }
+
+        // Log significant changes (delta > 5%)
+        if (calculateDelta(oldLTP, newLTP) > 5.0) {
+            logSignificantChange(symbol, oldLTP, newLTP)
+            return
+        }
+
+        // Sample logging for regular changes
+        auditRepository.save(
+            AuditLog(
+                entityType = "LTP",
+                entityId = symbol,
+                action = "UPDATE",
+                summary = "LTP changed (delta: ${newLTP - oldLTP})",
+                // Store details in compressed format
+                details = compressDetails(oldLTP, newLTP)
+            )
+        )
+    }
+
+    // Auto-cleanup strategy
+    suspend fun cleanupOldLogs() {
+        // Keep last 7 days of detailed logs
+        auditRepository.deleteOlderThan(7.days)
+
+        // Keep summarized logs for 30 days
+        auditRepository.summarizeOldLogs(olderThan = 30.days) { oldLogs ->
+            // Create daily summaries
+            createDailySummary(oldLogs)
+        }
+
+        // Archive to CSV for historical reference
+        if (shouldArchive()) {
+            createArchiveCsv()
+        }
+    }
+}
+```
+
+**Storage Estimates**:
+- **Without optimization**: 200 scrips × 60 min × 24h × 30 days = 8.6 million rows
+- **With optimization**: 200 scrips × (1 log/hour + significant changes) × 30 days = ~150,000 rows
+- **Storage saved**: 98% reduction
+
+---
+
+## 🔌 SCRAPING & INTEGRATION RISK MITIGATION
+
+### 4. Scraper Resiliency Architecture
+
+**Issue**: External websites change structure or block scrapers.
+
+**Solution**: Multi-Layer Fallback System
+
+```kotlin
+class ResilientScraper(
+    private val primarySource: PrimaryScraper,
+    private val fallbackSources: List<FallbackScraper>,
+    private val cacheManager: CacheManager
+) {
+    suspend fun scrapeLTPs(): Result<List<LTPData>> {
+        // Layer 1: Check cache freshness
+        if (cacheManager.isFresh(threshold = 15.minutes)) {
+            return Result.success(cacheManager.getCachedLTPs())
+        }
+
+        // Layer 2: Primary source (with circuit breaker)
+        try {
+            val result = primarySource.scrape()
+            if (result.isSuccess && result.data.isNotEmpty()) {
+                cacheManager.updateCache(result.data)
+                return result
+            }
+        } catch (e: ScraperException) {
+            log.warn("Primary scraper failed: ${e.message}")
+
+            // Increment failure counter for circuit breaker
+            circuitBreaker.recordFailure()
+
+            // Layer 3: Fallback sources (if circuit breaker is open)
+            if (circuitBreaker.isOpen) {
+                return tryFallbackSources()
+            }
+        }
+
+        // Layer 4: Return cached data with stale flag
+        if (cacheManager.hasData()) {
+            return Result.success(
+                data = cacheManager.getCachedLTPs(),
+                isStale = true,
+                message = "Using cached data (last update: ${cacheManager.lastUpdateTime})"
+            )
+        }
+
+        // Layer 5: Manual override fallback
+        return Result.failure(
+            message = "All scrapers failed. Please check your internet connection.",
+            canRetry = true,
+            manualOverrideAvailable = true
+        )
+    }
+
+    private suspend fun tryFallbackSources(): Result<List<LTPData>> {
+        for (fallback in fallbackSources) {
+            try {
+                val result = fallback.scrape()
+                if (result.isSuccess && result.data.isNotEmpty()) {
+                    cacheManager.updateCache(result.data)
+                    return result
+                }
+            } catch (e: Exception) {
+                log.warn("Fallback scraper ${fallback.name} failed: ${e.message}")
+            }
+        }
+        return Result.failure("All fallback sources failed")
+    }
+}
+```
+
+**User Experience**:
+
+```
+┌─────────────────────────────────────────────┐
+│ 📡 Market Data Status                       │
+│                                              │
+│ Live Data:  [Connected - Updated 2s ago]   │
+│                                              │
+│ ⚠️ Backup Mode Active                       │
+│ Using cached data from 15 minutes ago.      │
+│                                              │
+│ [Retry Now]  [Use Manual LTP]  [Dismiss]   │
+└─────────────────────────────────────────────┘
+```
+
+### 5. IPO Checking Legal & Technical Compliance
+
+**Issue**: Automated IPO checking may violate CDSC Terms of Service.
+
+**Solution**: Compliance-First Approach
+
+```kotlin
+class IpoCheckingService(
+    private val rateLimiter: RateLimiter,
+    private val cacheManager: IpoCacheManager
+) {
+    suspend fun checkResults(boids: List<BOID>): List<IpoResult> {
+        // 1. Respect CDSC's rate limits
+        rateLimiter.waitIfNeeded(rateLimit = 10.seconds)
+
+        // 2. Batch check with user consent
+        val userConsent = getUserConsent()
+        if (!userConsent) {
+            return emptyList()
+        }
+
+        // 3. Check cache first (24-hour TTL)
+        val cached = cacheManager.getCachedResults(boids)
+        val uncached = boids.filter { it !in cached.keys }
+
+        // 4. Check uncached BOIDs with proper delays
+        val results = uncached.map { boid ->
+            delay(500) // Respectful delay
+            checkSingleResult(boid)
+        }
+
+        // 5. Cache new results
+        cacheManager.cacheResults(results)
+
+        return cached.values + results
+    }
+
+    // Provide manual fallback option
+    suspend fun showManualCheckInstructions() {
+        showDialog(
+            title = "IPO Result Check",
+            message = """
+                For manual checking, visit:
+                https://iporesult.cdsc.com.np/result
+
+                Enter your BOID to check manually.
+
+                We'll then help you record the result.
+            """.trimIndent(),
+            confirmButton = "Open Website",
+            cancelButton = "Cancel"
+        )
+    }
+}
+```
+
+---
+
+## 🗄️ SYNCHRONIZATION & STATE MANAGEMENT
+
+### 6. Manual vs Automated LTP Conflict Resolution
+
+**Issue**: User manual updates being overwritten by scraper.
+
+**Solution**: Strict Source Enforcement with Visual Indicators
+
+```kotlin
+class LtpSourceManager(
+    private val ltpRepository: LtpRepository,
+    private val scripRepository: ScripRepository
+) {
+    suspend fun updateLTP(symbol: String, newLTP: Double, source: LtpSource) {
+        val scrip = scripRepository.findBySymbol(symbol)
+        val current = ltpRepository.findBySymbol(symbol)
+
+        // Asset-specific source enforcement
+        when {
+            // Tradable assets: Only scraper can update
+            scrip.assetType == AssetType.TRADABLE && source != LtpSource.SCRAPER -> {
+                throw LtpUpdateException(
+                    "Cannot manually update LTP for tradable asset '$symbol'. " +
+                    "LTP is automatically updated by the market scraper."
+                )
+            }
+
+            // Non-tradable assets: Only manual updates allowed
+            scrip.assetType != AssetType.TRADABLE && source == LtpSource.SCRAPER -> {
+                // Scraper ignores non-tradable assets
+                return
+            }
+
+            // User override with warning for tradable
+            scrip.assetType == AssetType.TRADABLE && source == LtpSource.USER_EDIT -> {
+                // Allow but warn
+                showWarning(
+                    "Manual LTP update for ${scrip.symbol} will be overwritten " +
+                    "by the scraper on next market refresh."
+                )
+            }
+        }
+
+        // Save with source tracking
+        ltpRepository.save(
+            LtpData(
+                symbol = symbol,
+                ltp = newLTP,
+                source = source,
+                timestamp = Instant.now()
+            )
+        )
+    }
+}
+
+// UI Implementation
+@Composable
+fun LTPDisplay(ltpData: LtpData) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("${ltpData.ltp}")
+
+        // Visual indicator for source
+        when (ltpData.source) {
+            LtpSource.SCRAPER -> {
+                Badge("Live", color = Color.Green)
+            }
+            LtpSource.MANUAL_IMPORT -> {
+                Badge("Manual", color = Color.Blue)
+            }
+            LtpSource.USER_EDIT -> {
+                Badge("User Edit", color = Color.Orange)
+            }
+        }
+    }
+}
+```
+
+### 7. AD/BS Date System Implementation
+
+**Issue**: Off-by-one errors with dual calendar systems.
+
+**Solution**: Unified Internal Storage + Formatting Layer
+
+```kotlin
+// 1. Always store in UTC/AD internally
+@Entity
+data class Transaction(
+    @ColumnInfo(name = "transaction_date")
+    val transactionDate: LocalDate // Always AD
+)
+
+// 2. Separate formatting layer
+class DateFormatter(
+    private val userPreference: DateSystemPreference
+) {
+    fun format(date: LocalDate): String {
+        return when (userPreference) {
+            DateSystem.AD -> formatAD(date)
+            DateSystem.BS -> formatBS(date)
+        }
+    }
+
+    fun parse(input: String): LocalDate {
+        return when (userPreference) {
+            DateSystem.AD -> parseAD(input)
+            DateSystem.BS -> parseBS(input)
+        }.also {
+            // Validation: Check for off-by-one errors
+            validateDate(it)
+        }
+    }
+
+    private fun validateDate(date: LocalDate) {
+        // Additional validation to catch BS conversion errors
+        val bsDate = ADtoBS(date)
+        val roundTrip = BStoAD(bsDate)
+
+        if (roundTrip != date) {
+            log.warning("Date conversion mismatch: $date -> $bsDate -> $roundTrip")
+            // Alert user or fallback to AD
+        }
+    }
+}
+
+// 3. Comprehensive testing
+class DateFormatterTest {
+    @Test
+    fun testBSCalendarRoundTrip() {
+        // Test all known BS dates
+        for (year in 2000..2030) {
+            for (month in 1..12) {
+                for (day in 1..lastDayOfBSMonth(year, month)) {
+                    val adDate = BStoAD(BSDate(year, month, day))
+                    val bsDate = ADtoBS(adDate)
+
+                    assertEquals(BSDate(year, month, day), bsDate)
+                }
+            }
+        }
+    }
+}
+```
+
+---
+
+## 🧪 TESTING STRATEGY
+
+### 8. Comprehensive Testing Surface
+
+**Issue**: 7 transaction types × 5 asset types = 35 permutations.
+
+**Solution**: Parameterized Testing + Golden Data
+
+```kotlin
+@RunWith(ParameterizedTest::class)
+class MetricsEngineTest {
+
+    @ParameterizedTest
+    @CsvFileSource(resources = ["/test_data/scenarios.csv"])
+    fun testAllScenarios(
+        assetType: AssetType,
+        transactions: List<Transaction>,
+        expectedMetrics: ExpectedMetrics
+    ) {
+        val actual = metricsEngine.calculateMetrics(
+            symbol = "TEST",
+            assetType = assetType,
+            transactions = transactions
+        )
+
+        assertAll(
+            { assertEquals(expectedMetrics.balance, actual.balance) },
+            { assertEquals(expectedMetrics.wacc, actual.wacc, 0.001) },
+            { assertEquals(expectedMetrics.roi, actual.roi, 0.001) }
+        )
+    }
+
+    // Golden data set for regression testing
+    @Test
+    fun testGoldenDataset() {
+        val goldenResults = loadGoldenResults()
+
+        goldenResults.forEach { (scenario, expected) ->
+            val actual = calculateScenario(scenario)
+            assertScenarioMatch(actual, expected, scenario.name)
+        }
+    }
+}
+```
+
+**Test Scenarios CSV**:
+```csv
+name,assetType,transactions,expectedBalance,expectedWACC,expectedROI
+single_buy,TRADABLE,"BUY 100 @ 100",100,100,0.00
+buy_sell,TRADABLE,"BUY 100 @ 100, SELL 50 @ 150",50,100,50.00
+bonus_share,TRADABLE,"BUY 100 @ 100, BONUS 10",110,100,0.00
+sip_regular,SIP,"SIP 10 @ 100, SIP 10 @ 110",20,105,0.00
+sip_bonus,SIP,"SIP 10 @ 100, BONUS 2",12,100,0.00
+complex,TRADABLE,"BUY 100 @ 100, BONUS 10, RIGHT 20 @ 120, SELL 30 @ 140",100,104,0.00
+```
+
+---
+
+## 📅 REVISED TIMELINE WITH RISK MITIGATION
+
+### Phase 0: Safety & Foundation (Week 1-2)
+- [ ] **Backup/Restore System** (Critical)
+- [ ] **Migration Testing Framework** (Critical)
+- [ ] **Performance Baseline Testing** (Critical)
+
+### Phase 1: Data Layer with Optimizations (Week 3-5)
+- [ ] Database schema with snapshots
+- [ ] Smart audit logging
+- [ ] PortfolioSnapshot view with triggers
+- [ ] LTP source enforcement
+
+### Phase 2: Scraper Resiliency (Week 6-8)
+- [ ] Multi-source fallback system
+- [ ] Circuit breaker implementation
+- [ ] Cache management with stale handling
+- [ ] User override controls
+
+### Phase 3: Import/Export Safety (Week 9-11)
+- [ ] CSV backup/restore
+- [ ] Transaction validation with preview
+- [ ] Rollback on validation failure
+- [ ] Import/export logging
+
+### Phase 4: Metrics with Testing (Week 12-14)
+- [ ] Parameterized test suite
+- [ ] Golden dataset regression tests
+- [ ] Asset-type aware metrics
+- [ ] Performance benchmarks
+
+### Phase 5: UI Polish (Week 15-16)
+- [ ] Source indicators
+- [ ] Error recovery flows
+- [ ] Date system toggle
+- [ ] User documentation
+
+---
+
+## 🛡️ RECOVERY PROCEDURES
+
+### Emergency Recovery Plan
+
+```kotlin
+class EmergencyRecovery {
+    suspend fun dataCorruptionRecovery() {
+        // 1. Disable all automated updates
+        disableScrapers()
+        disableSync()
+
+        // 2. User notification
+        notifyUser(
+            "System detected data inconsistency. " +
+            "Please restore from backup or contact support."
+        )
+
+        // 3. Automatic recovery
+        val latestBackup = findLatestValidBackup()
+        if (latestBackup != null) {
+            showRecoveryOptions(latestBackup)
+        } else {
+            showManualRecoveryInstructions()
+        }
+    }
+
+    suspend fun scraperFailureRecovery() {
+        // 1. Switch to manual mode
+        setManualMode()
+
+        // 2. Cache cleanup
+        clearCorruptedCache()
+
+        // 3. Notify user
+        notifyUser(
+            "Market data is currently unavailable. " +
+            "The app will use cached data and manual inputs."
+        )
+    }
+}
+```
+
+### Rollback Strategy
+
+```sql
+-- Schema version tracking
+CREATE TABLE SchemaVersion (
+    version INTEGER PRIMARY KEY,
+    appliedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    migrationName VARCHAR(100),
+    rollbackScript TEXT
+);
+
+-- Rollback procedure
+CREATE PROCEDURE rollback_to_version(targetVersion INTEGER)
+BEGIN
+    DECLARE currentVersion INTEGER;
+    SELECT version INTO currentVersion FROM SchemaVersion ORDER BY version DESC LIMIT 1;
+
+    WHILE currentVersion > targetVersion DO
+        EXECUTE (SELECT rollbackScript FROM SchemaVersion WHERE version = currentVersion);
+        SET currentVersion = currentVersion - 1;
+    END WHILE;
+END;
+```
+
+---
+
+## ✅ SUCCESS CRITERIA CHECKLIST
+
+### Data Safety
+- [ ] Automated backup before any migration
+- [ ] Tested rollback procedure
+- [ ] Import/export validation with preview
+- [ ] Data integrity checks on app startup
+
+### Performance
+- [ ] Snapshot view responds in < 100ms
+- [ ] Audit log size < 100MB after 30 days
+- [ ] Scraper fallback works within 3 seconds
+- [ ] Batch operations complete without ANR
+
+### Reliability
+- [ ] All 35 test scenarios pass
+- [ ] Edge cases handled gracefully
+- [ ] User manual overrides respected
+- [ ] Date conversions tested for all years
+
+### User Experience
+- [ ] Clear source indicators for LTP
+- [ ] Obvious error recovery flows
+- [ ] Import preview before commit
+- [ ] Visual feedback for all operations
+
+---
+
+## 🎯 FINAL RECOMMENDATION
+
+### Revised Priority Order:
+
+1. **Week 1-2**: Backup/Restore System (Protects against everything)
+2. **Week 3-4**: Performance Optimizations (Snapshot view, audit logging)
+3. **Week 5-6**: Scraper Resiliency (Fallback system)
+4. **Week 7-8**: Import/Export Safety (Validation, preview)
+5. **Week 9-10**: Metrics Engine with Comprehensive Testing
+6. **Week 11-12**: UI Implementation with Source Indicators
+7. **Week 13-14**: Integration Testing (All scenarios)
+8. **Week 15-16**: Polish and Documentation
+
+### Critical Success Factors:
+1. ✅ **Backup system first** - Never start without it
+2. ✅ **Performance benchmarks** - Test early, test often
+3. ✅ **Source tracking** - Never mix manual and automated data
+4. ✅ **Comprehensive testing** - All 35 scenarios must pass
+5. ✅ **User communication** - Clear indicators and recovery flows
+
+This risk-aware approach ensures that even if things go wrong, **user data remains safe** and the application **recoverable**, making the 16-week timeline achievable without compromising quality or user trust.

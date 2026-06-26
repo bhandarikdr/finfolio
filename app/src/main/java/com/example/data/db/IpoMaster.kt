@@ -2,23 +2,19 @@ package com.example.data.db
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(tableName = "ipo_master")
 data class IpoMaster(
-    @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val companyName: String,
-    val companyCode: String? = null,
-    val issueType: String? = null, // IPO, FPO, Right, etc.
+    @PrimaryKey val companyName: String,
+    val shareType: String? = null,
+    val units: String? = null,
+    val openingDate: String? = null,
+    val closingDate: String? = null,
     val issueManager: String? = null,
-    val openingDate: Long? = null,
-    val closingDate: Long? = null,
-    val allotmentDate: Long? = null,
-    val status: String, // Pipeline, Active, Allotted, Closed
-    val cdscCompanyId: Int? = null, // ID used for result checking
-    val resultAvailable: Boolean = false,
-    val source: String = "CDSC", // CDSC_PORTAL, CDSC_LIST, SEBON_PIPELINE
+    val status: String,
+    val scrip: String? = null,
+    val resultPortalId: Int? = null,
+    val allotmentDate: String? = null, // Format: yyyy-MM-dd
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis(),
-    val isActive: Boolean = true
+    val updatedAt: Long = System.currentTimeMillis()
 )

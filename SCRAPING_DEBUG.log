@@ -1,0 +1,54 @@
+# Scraping & Sync Resolution Log
+
+## Issue: Empty Indices List in Market Pulse
+**Date**: 2026-06-21
+**Symptoms**:
+1. Top bar NEPSE Index is accurate.
+2. LTP (Scrip prices) are updating.
+3. Market Pulse screen shows an empty list of sector indices (Banking, Hydro, etc.).
+
+### Investigation
+- The NEPSE Index in the top bar uses a direct selector (`#lblIndexValue`) from Merolagani, which is very stable.
+- The Market Pulse list iterates through all tables on `sharesansar.com/market` to find sector-specific data.
+- **Root Cause 1**: The scraper was too strict with header matching. Some tables use "Sub Index" instead of "Index", causing the name column to be missed.
+- **Root Cause 2**: The `normalizeIndexName` function was missing some variations like "Banking SubIndex" or "Others SubIndex", returning `null` and skipping the data.
+- **Root Cause 3**: The UI filter in `MarketViewModel` used strict equality (`in visibleIndices`). If the scraped name was "Banking SubIndex" and the setting was "Banking", it failed to display.
+
+### Resolution (Session 3)
+1. **Direct Point/Change Scraping**: Redesigned `fetchNepseIndices` to trust online Change/Percent values immediately.
+2. **LTP Snapshot Preservation**: Kept the "Previous LTP" and "Current LTP" logic for Scrips, as this matches the dual-value structure of the Portfolio CSV.
+3. **Market Status Blink**: Implemented infinite pulsing animation for the status dot when `marketStatus` contains "Open" or "Live".
+4. **Resilient Mapping**: Added "SubIndex" and "Sub Index" to `normalizeIndexName` to capture more sector data.
+
+### Resolution (Session 4)
+1. **UI Polishing**: Fixed the Calculator display area to a **fixed height (110.dp)**. This prevents the keypad from shifting down when a result is calculated, ensuring a stable touch interface.
+2. **Column Bulk Actions**: Fixed "Select All" and "Unselect All" in the Column Configuration dialog. Added `setItemColumns` and `setTypeColumns` methods to `PortfolioViewModel` to handle bulk state updates and database persistence reliably.
+3. **Documentation Persistence**: Formalized the rule that all user UI preferences (columns, filters, scopes) must be persisted in `UserEntity` to provide a consistent state across app restarts.
+
+### Resolution (Session 5)
+1. **Robust Index Scraping**: Redesigned `fetchNepseIndices` in `MarketRepository.kt` to scan the first 5 rows of every table for headers (`Indices`, `LTP`, `Close`, etc.) rather than assuming the first row is the header. This ensures both main and sub-indices tables on ShareSansar are correctly identified and parsed.
+2. **Title Case Normalization**: Updated `normalizeIndexName` to return Title Case for any index not matching predefined patterns, ensuring newly added sectors or indices are not ignored.
+3. **IPO Primary Key Refactoring**: Migrated `IpoMaster` to use `companyName` as the Primary Key. This eliminates duplicate records caused by random UUIDs when syncing from different sources (Nepali Paisa vs CDSC) and ensures `OnConflictStrategy.REPLACE` works as intended.
+4. **Enhanced IPO Sync**: Added case-insensitive JSON key matching (`Data`/`data`, `CompanyName`/`companyName`) in `IpoRepository` to handle variations in API responses.
+5. **Flexible Filtering**: Improved `filteredIndices` logic in `MarketViewModel` to handle both "Banking" and "Banking Sub Index" variants when matching against the user's visible indices list.
+6. **Dual-Source Alignment**: Reordered default scraper URLs to prioritize `sharesansar.com/market` for indices and `nepalipaisa.com/api` for IPOs, strictly following the system's dual-source strategy.
+
+### Resolution (Session 6)
+1. **Robust Scraper Testing**: Enhanced `testScraperUrl` in `PortfolioViewModel` to use an `OkHttp` client with custom SSL handling. This resolves `CertPathValidatorException` (Trust anchor not found) issues for sites like `nepalstock.com` during configuration testing.
+2. **Flexible Content Handling**: Added explicit handling for `application/json` content type in the scraper testing logic. This fixes `UnsupportedMimeTypeException` when testing API endpoints like `nepalipaisa.com` that return JSON instead of HTML.
+3. **WAF Detection**: Implemented explicit checks for "Request Rejected" patterns in responses (commonly seen on CDSC portal) to provide meaningful error messages instead of generic parsing failures.
+4. **Batch Configuration UI**: Refactored the Scraper Configuration screen to use a per-category "Apply" button. Changes are now tracked in a local state (`pendingUrls`) and persisted only when the user explicitly clicks "Apply" for a category card, improving UX and reducing redundant database writes.
+5. **Slot-Based Editing**: Improved URL management by allowing users to add empty fallback slots and delete them easily without immediate persistence, aligning with the prioritized fallback strategy.
+
+### Resolution (Session 7)
+1. **Dashboard UX**: Fixed the Dashboard scope switcher at the top of the screen to remain visible during scrolling. Added a new **Net Gain Statistics** visualization to track sector-wise performance.
+2. **Standardized Branding**: Rebranded the app subtitle to **"PortFolio Tracker"** and updated secondary titles in Market Pulse to `titleMedium` for better hierarchy.
+3. **Professional Support Page**: Redesigned the Support page to be a centered, single-view panel without scrolling, optimizing for readability and modern aesthetic.
+4. **Enhanced Data Portability**: Added a **Holdings Export** feature in Market Pulse. This generates a valuation-focused CSV (Scrip, Sector, Qty, LTPs, Amounts) that is fully compatible with the app's internal Portfolio Sync importer, creating a closed-loop data management workflow.
+5. **UI Consistency**: Standardized the use of `FileUpload` icons for all data export actions across History and Market Pulse screens. Updated the Watchlist layout to match the professional dual-column gainer/loser view used in the Holdings section.
+6. **Advanced Tooling UI**: Refactored the Advanced Data Tools into a clear **Two-Step alignment process** (WACC followed by Portfolio Sync) with vertical ordering and step-by-step badges. Added troubleshooting notes for using local exports when online sync fails.
+7. **Label & Icon Harmonization**: Standardized "Required columns:" labels across all import utilities. Inverted the Bulk Import icon to `FileDownload` to distinguish it from exports. Updated search placeholders to accurately reflect functional scope (removed "indices" from search box placeholder).
+
+### Preventive Measures
+- The header search logic is now the "Source of Truth". As long as a table contains the words "Index" and "Close" (or "Value"), it will be parsed correctly regardless of its position on the page.
+- IPO data integrity is now guaranteed by the unique `companyName` key, preventing the "vanishing list" issue during re-syncs.

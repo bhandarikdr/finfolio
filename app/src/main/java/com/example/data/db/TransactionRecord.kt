@@ -9,14 +9,14 @@ import androidx.room.PrimaryKey
     tableName = "Data",
     indices = [
         Index(value = ["item"]),
-        Index(value = ["type"])
+        Index(value = ["sector"])
     ]
 )
 data class TransactionRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val date: String, // Format: YYYY-MM-DD
     val item: String, // Shares scrip name (e.g., AAPL)
-    val type: String, // Sector / Category (e.g., Banks, Hydro)
+    val sector: String, // Sector / Category (e.g., Banks, Hydro)
     val action: String, // "Buy", "Sale", "Returns"
     val qty: Double = 0.0,
     val amount: Double = 0.0,

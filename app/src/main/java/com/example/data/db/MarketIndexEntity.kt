@@ -8,6 +8,8 @@ data class MarketIndexEntity(
     @PrimaryKey val indexName: String,
     val currentValue: Double,
     val previousValue: Double,
+    val pointChange: Double = 0.0,
     val changePercent: Double,
-    val lastUpdated: Long = System.currentTimeMillis()
+    val source: String = "Scraped",
+    val timestamp: Long = System.currentTimeMillis()
 )

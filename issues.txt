@@ -1,0 +1,62 @@
+I have further refined the Primary Index logic to ensure complete synchronization between the database, your profile, and the UI:
+1.
+Database Cleanup on Rename: When you change the Primary Market Index name in Settings:
+◦
+The app now automatically deletes the old index name from the MarketIndices database table.
+◦
+It also removes the old name from your "Visible Indices" list if it was previously selected as a secondary index.
+◦
+This ensures that changing from "NEPSE Index" to "AbC Index" won't leave a "stale" NEPSE entry in your selection list.
+2.
+Config Dialog Priority:
+◦
+The Select Indices configuration checklist now always shows your current Primary Index at the very top, even if it hasn't been scraped yet (in which case it shows 0.00 metrics).
+◦
+The Primary Index is now clearly labeled with "(Primary)", and its visibility is locked (checked) to maintain consistency in the Top Bar and Market Pulse.
+3.
+Correct Metric Attribution: Confirmed that the scraper strictly uses your custom primary name when mapping core market data (NEPSE), while other sector indices remain independent in the database.
+The project builds successfully and the index management is now more robust and intuitive.
+Completed Primary Index Database and UI Refinement
+I refined the primary index logic by ensuring database cleanup on rename, fixing the primary index at the top of the configuration checklist, and locking its visibility. All changes were verified with a successful build.
+
+
+Is there any logical ambiguity regarding the use and implementation of primary index? Is there any implementation hurdle?
+
+From a technical and architectural standpoint, the implementation of the Primary Market Index is now quite robust, but there are a few subtle logical areas where "ambiguity" or "hurdles" could exist depending on your future needs.
+Here is an analysis of the remaining logical considerations:
+1. The "Identity Conflict" Ambiguity
+The Hurdle: What happens if a user renames the Primary Index to something that already exists as a secondary index (e.g., renaming "NEPSE Index" to "Banking Sub-Index")?
+•
+Logical Ambiguity: The database uses indexName as a Primary Key. If the scraper finds real "Banking Sub-Index" data and tries to save it, and you also have a Primary Index named "Banking Sub-Index" that was mapped from NEPSE data, one will overwrite the other.
+•
+Current Solution: We handle this by making the Primary Index "fixed." In the configuration list, we hide or lock duplicates, but if names match exactly, the data might "flicker" between NEPSE values and Sector values depending on which source is scraped last.
+2. Scraper "Strictness" vs. "Flexibility"
+The Hurdle: Different websites use slightly different names for the core index (e.g., "NEPSE Index" vs. "Nepse" vs. "Nepal Stock Exchange").
+•
+Logical Ambiguity: Our current normalization logic is very strict (lower == "nepse index" || lower == "nepse"). If a new fallback source uses "NEPSE Price" or just "Index", the mapping to your custom name might fail.
+•
+Implementation Hurdle: To fix this, we would need a "Fuzzy Matching" engine or a list of "Core Aliases." For now, the "Not Found" warning label we added is the best defense because it alerts the user that the scraper isn't recognizing the source data.
+3. Metric Attribution (Mapping Logic)
+The Hurdle: You mentioned that "User defined index should be set... searched in urls... if no metrics found, default 0.00."
+•
+Logical Ambiguity: There is a distinction between Searching for the Custom Name and Mapping NEPSE to the Custom Name.
+•
+Current Strategy: The app assumes your Custom Name represents the core market index (NEPSE). It scrapes the core index and labels it with your name.
+•
+The Hurdle: If you want to track a completely different index that isn't NEPSE (e.g., "NIFTY 50" from an Indian source), the scraper logic would need to be updated to recognize different table structures entirely. Currently, the scrapers are optimized for Nepali market layouts.
+4. Visibility Persistence Logic
+The Implementation Hurdle: Handling the transition of names in a comma-separated string (visibleIndicesJson) in a singleton database row.
+•
+The Hurdle: When you rename an index, we have to surgically clean that string to prevent "Ghost" entries (indices that are checked but no longer exist).
+•
+Robustness: The current fix in PortfolioRepository handles this by converting the JSON/String to a MutableSet, removing the old name, and re-saving. This is the correct approach for Room/SQLite.
+Summary
+The biggest hurdle is Data Consistency. If the user sets a custom name, they are essentially creating a "Nickname" for the market's core performance. As long as the scraper can identify what "Core" is, the logic holds.
+Is there any ambiguity left? The only remaining ambiguity is User Intent: Does the user want the custom name to replace NEPSE data, or to look for a new type of data?
+•
+Current Implementation: It replaces the NEPSE label with your name but keeps the NEPSE data. This is standard for "Primary Index" behavior in most portfolio trackers.
+The system is now logically consistent and the implementation hurdles (database stale-data and UI anchoring) have been cleared.
+
+No, it's not nickname or just renaming, The user can explicitely set a primary index name, for example NIFTY 50 and set a corresponding url in the scraper configuration (optional). The app places the primary index name to the database and scrapes other indeces from the urls. The metrices pulse of the all indices be fed using the names. The trigger for update of indix be carrid out by saving primary index name in the settings and others indices names when changing or updating indices scraping urls in the scrapper configuration.
+
+Should threre be still any ambuguity or confusion?

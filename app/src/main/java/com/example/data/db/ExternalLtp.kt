@@ -8,7 +8,9 @@ data class ExternalLtp(
     @PrimaryKey val symbol: String, // Scrip / Item symbol
     val ltp: Double,
     val previousLtp: Double = 0.0,
-    val source: String, // "Scraped" or "Meroshare"
+    val pointChange: Double = 0.0,
+    val changePercent: Double = 0.0,
+    val source: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val isInMeroshareCsv: Boolean = false
+    val isInExternalSync: Boolean = false
 )

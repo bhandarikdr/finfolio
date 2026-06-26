@@ -20,7 +20,9 @@ data class IpoResultResponse(
 data class BoidEntry(
     val id: String = java.util.UUID.randomUUID().toString(),
     val name: String,
-    val boid: String
+    val boid: String,
+    val isDefault: Boolean = false,
+    val isEnabledForBulk: Boolean = true
 )
 
 data class BulkIpoResult(

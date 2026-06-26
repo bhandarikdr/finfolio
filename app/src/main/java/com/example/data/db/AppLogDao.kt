@@ -21,4 +21,7 @@ interface AppLogDao {
 
     @Query("DELETE FROM app_logs WHERE timestamp < :expiry")
     suspend fun deleteOldLogs(expiry: Long)
+
+    @Query("DELETE FROM app_logs WHERE timestamp < :expiry AND (:level IS NULL OR level = :level)")
+    suspend fun deleteLogsOlderThan(expiry: Long, level: String?)
 }

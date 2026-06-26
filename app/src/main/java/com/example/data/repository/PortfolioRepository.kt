@@ -6,12 +6,15 @@ import com.example.data.db.ExternalLtp
 import com.example.data.db.IpoMasterDao
 import com.example.data.db.PortfolioDao
 import com.example.data.db.TransactionRecord
-import com.example.data.model.NepseStatus
+import com.example.data.model.MarketStatus
 import com.example.data.model.ScraperCategory
 import com.example.data.model.UserProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -24,7 +27,13 @@ import java.util.*
 
 import com.example.data.db.SectorMapping
 import com.example.data.db.UserEntity
+import com.example.data.model.DatabaseSnapshot
+import com.example.data.util.AppLogger
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.map
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Repository handling user profile, application settings, and generic scraper configurations.
@@ -35,14 +44,41 @@ class PortfolioRepository(
     private val ipoMasterDao: IpoMasterDao
 ) {
 
+    val DEFAULT_PRIMARY_INDEX = "NEPSE Index"
+
+    /** Default financial calculation rates (Nepal Market Standards) */
+    val defaultFinancialRates = mapOf(
+        "commission" to 0.0038,
+        "flat_fee" to 25.0,
+        "cgt" to 0.075
+    )
+
     /** Default scraper URLs categorized by function. Used as fallback if no user overrides exist. */
     val defaultScrapersByCategory = mapOf(
-        ScraperCategory.LTP_UPDATE to listOf("https://www.sharesansar.com/live-trading", "https://www.sharesansar.com/today-share-price", "https://merolagani.com/latestmarket.aspx"),
-        ScraperCategory.INDEX_UPDATE to listOf("https://merolagani.com/latestmarket.aspx", "https://www.sharesansar.com/market"),
-        ScraperCategory.SCRIP_SYNC to listOf("https://www.sharesansar.com/company-list", "https://merolagani.com/CompanyList.aspx"),
-        ScraperCategory.IPO_LISTING to listOf("https://www.sharesansar.com/ipo-fpo-news", "https://merolagani.com/Ipo.aspx"),
-        ScraperCategory.CDSC_COMPANIES to listOf("https://iporesult.cdsc.com.np/result/company/list"),
-        ScraperCategory.CDSC_RESULT to listOf("https://iporesult.cdsc.com.np/result/ipo/result")
+        ScraperCategory.LTP_UPDATE to listOf(
+            "https://www.nepalstock.com/",
+            "https://www.sharesansar.com/live-trading",
+            "https://merolagani.com/latestmarket.aspx"
+        ),
+        ScraperCategory.INDEX_UPDATE to listOf(
+            "https://www.nepalstock.com/",
+            "https://www.sharesansar.com/market", 
+            "https://merolagani.com/latestmarket.aspx"
+        ),
+        ScraperCategory.SCRIP_SYNC to listOf(
+            "https://www.sharesansar.com/company-list", 
+            "https://merolagani.com/CompanyList.aspx"
+        ),
+        ScraperCategory.IPO_LISTING to listOf(
+            "https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5", 
+            "https://www.sharesansar.com/ipo-fpo-news"
+        ),
+        ScraperCategory.IPO_COMPANIES to listOf(
+            "https://iporesult.cdsc.com.np/result/company/list"
+        ),
+        ScraperCategory.IPO_RESULT to listOf(
+            "https://iporesult.cdsc.com.np/result/ipo/result"
+        )
     )
 
     /** 
@@ -85,17 +121,28 @@ class PortfolioRepository(
             itemColumns = entity?.itemColumnsJson?.let { 
                 if (it.isBlank()) emptySet() else it.split(",").toSet()
             } ?: emptySet(),
-            typeColumns = entity?.typeColumnsJson?.let { 
+            sectorColumns = entity?.sectorColumnsJson?.let { 
                 if (it.isBlank()) emptySet() else it.split(",").toSet()
             } ?: emptySet(),
             selectedSectorFilter = entity?.selectedSectorFilter ?: "All",
-            datasetScope = entity?.datasetScope ?: "OVERALL",
-            primaryIndexName = entity?.primaryIndexName ?: "NEPSE Index"
+            dashboardScope = entity?.dashboardScope ?: "OVERALL",
+            matrixScope = entity?.matrixScope ?: "OVERALL",
+            primaryIndexName = entity?.primaryIndexName ?: "NEPSE Index",
+            commissionRate = entity?.commissionRate ?: 0.0038,
+            flatFee = entity?.flatFee ?: 25.0,
+            cgtRate = entity?.cgtRate ?: 0.075
         )
     }
 
-    private val _nepseStatus = MutableStateFlow(NepseStatus())
-    val nepseStatus = _nepseStatus.asStateFlow()
+    private val _marketStatus = MutableStateFlow(MarketStatus())
+    val marketStatus = _marketStatus.asStateFlow()
+
+    private val _snackbarMessage = MutableSharedFlow<String>(replay = 0)
+    val snackbarMessage = _snackbarMessage.asSharedFlow()
+
+    suspend fun triggerSnackbar(message: String) {
+        _snackbarMessage.emit(message)
+    }
 
     suspend fun saveUserProfile(name: String, email: String) {
         withContext(Dispatchers.IO) {
@@ -110,10 +157,14 @@ class PortfolioRepository(
                     scraperUrlsJson = existing?.scraperUrlsJson ?: "",
                     pin = existing?.pin,
                     itemColumnsJson = existing?.itemColumnsJson ?: "",
-                    typeColumnsJson = existing?.typeColumnsJson ?: "",
+                    sectorColumnsJson = existing?.sectorColumnsJson ?: "",
                     selectedSectorFilter = existing?.selectedSectorFilter ?: "All",
-                    datasetScope = existing?.datasetScope ?: "OVERALL",
-                    primaryIndexName = existing?.primaryIndexName ?: "NEPSE Index"
+                    dashboardScope = existing?.dashboardScope ?: "OVERALL",
+                    matrixScope = existing?.matrixScope ?: "OVERALL",
+                    primaryIndexName = existing?.primaryIndexName ?: "NEPSE Index",
+                    commissionRate = existing?.commissionRate ?: 0.0038,
+                    flatFee = existing?.flatFee ?: 25.0,
+                    cgtRate = existing?.cgtRate ?: 0.075
                 )
             )
         }
@@ -132,20 +183,60 @@ class PortfolioRepository(
                     scraperUrlsJson = existing?.scraperUrlsJson ?: "",
                     pin = existing?.pin,
                     itemColumnsJson = existing?.itemColumnsJson ?: "",
-                    typeColumnsJson = existing?.typeColumnsJson ?: "",
+                    sectorColumnsJson = existing?.sectorColumnsJson ?: "",
                     selectedSectorFilter = existing?.selectedSectorFilter ?: "All",
-                    datasetScope = existing?.datasetScope ?: "OVERALL",
-                    primaryIndexName = existing?.primaryIndexName ?: "NEPSE Index"
+                    dashboardScope = existing?.dashboardScope ?: "OVERALL",
+                    matrixScope = existing?.matrixScope ?: "OVERALL",
+                    primaryIndexName = existing?.primaryIndexName ?: "NEPSE Index",
+                    commissionRate = existing?.commissionRate ?: 0.0038,
+                    flatFee = existing?.flatFee ?: 25.0,
+                    cgtRate = existing?.cgtRate ?: 0.075
                 )
             )
         }
+    }
+
+    suspend fun updateFinancialRates(commission: Double, flat: Double, cgt: Double) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(
+                    commissionRate = commission,
+                    flatFee = flat,
+                    cgtRate = cgt
+                ))
+            }
+        }
+    }
+
+    suspend fun resetFinancialRates() {
+        updateFinancialRates(
+            defaultFinancialRates["commission"] ?: 0.0038,
+            defaultFinancialRates["flat_fee"] ?: 25.0,
+            defaultFinancialRates["cgt"] ?: 0.075
+        )
     }
 
     suspend fun updatePrimaryIndexName(newName: String) {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
             if (existing != null) {
-                portfolioDao.saveUserProfile(existing.copy(primaryIndexName = newName))
+                val oldName = existing.primaryIndexName
+                
+                // Cleanup: Remove the old name from MarketIndices table to avoid duplicates
+                portfolioDao.deleteMarketIndexByName(oldName)
+                
+                // Also remove old name from visibleIndices set if it exists
+                val visibleList = existing.visibleIndicesJson.split(",").toMutableSet()
+                visibleList.remove(oldName)
+                
+                portfolioDao.saveUserProfile(existing.copy(
+                    primaryIndexName = newName,
+                    visibleIndicesJson = visibleList.joinToString(",")
+                ))
+
+                // Explicitly trigger a refresh to fetch the new primary index data immediately
+                refreshLivePrices()
             }
         }
     }
@@ -178,11 +269,11 @@ class PortfolioRepository(
         }
     }
 
-    suspend fun updateTypeColumns(cols: Set<String>) {
+    suspend fun updateSectorColumns(cols: Set<String>) {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
             if (existing != null) {
-                portfolioDao.saveUserProfile(existing.copy(typeColumnsJson = cols.joinToString(",")))
+                portfolioDao.saveUserProfile(existing.copy(sectorColumnsJson = cols.joinToString(",")))
             }
         }
     }
@@ -196,11 +287,20 @@ class PortfolioRepository(
         }
     }
 
-    suspend fun updateDatasetScope(scope: String) {
+    suspend fun updateDashboardScope(scope: String) {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
             if (existing != null) {
-                portfolioDao.saveUserProfile(existing.copy(datasetScope = scope))
+                portfolioDao.saveUserProfile(existing.copy(dashboardScope = scope))
+            }
+        }
+    }
+
+    suspend fun updateMatrixScope(scope: String) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null) {
+                portfolioDao.saveUserProfile(existing.copy(matrixScope = scope))
             }
         }
     }
@@ -261,60 +361,171 @@ class PortfolioRepository(
 
     suspend fun getScraperUrl(key: String): String {
         val category = when(key) {
-            "LTP_SHARESANSAR" -> ScraperCategory.LTP_UPDATE
-            "INDEX_MEROLAGANI", "INDICES_SHARESANSAR" -> ScraperCategory.INDEX_UPDATE
+            "LTP_SOURCE_1" -> ScraperCategory.LTP_UPDATE
+            "INDEX_SOURCE_1", "INDEX_SOURCE_2" -> ScraperCategory.INDEX_UPDATE
             "SCRIP_MASTER" -> ScraperCategory.SCRIP_SYNC
-            "IPO_PIPELINE", "NEPALI_PAISA_IPO" -> ScraperCategory.IPO_LISTING
-            "CDSC_COMPANY_LIST" -> ScraperCategory.CDSC_COMPANIES
-            "CDSC_RESULT_CHECK" -> ScraperCategory.CDSC_RESULT
+            "IPO_PIPELINE", "IPO_LISTING_SOURCE" -> ScraperCategory.IPO_LISTING
+            "CDSC_COMPANY_LIST" -> ScraperCategory.IPO_COMPANIES
+            "CDSC_RESULT_CHECK" -> ScraperCategory.IPO_RESULT
             else -> return ""
         }
         return getScraperUrls(category).firstOrNull() ?: ""
     }
 
     val allTransactions: Flow<List<TransactionRecord>> = portfolioDao.getAllTransactions()
+    val allHoldings: Flow<List<com.example.data.db.Holdings>> = portfolioDao.getAllHoldings()
     val allExternalLtps: Flow<List<ExternalLtp>> = portfolioDao.getAllExternalLtps()
     val distinctItems: Flow<List<String>> = portfolioDao.getDistinctItems()
     val allScripSymbols: Flow<List<String>> = portfolioDao.getAllScripMaster().map { list -> list.map { it.symbol } }
     val recentItems: Flow<List<String>> = portfolioDao.getRecentItems()
-    val recentTypes: Flow<List<String>> = portfolioDao.getRecentTypes()
-    val distinctTypes: Flow<List<String>> = portfolioDao.getDistinctTypes()
+    val recentSectors: Flow<List<String>> = portfolioDao.getRecentSectors()
+    val distinctSectors: Flow<List<String>> = portfolioDao.getDistinctSectors()
     val distinctSectorsFromMaster: Flow<List<String>> = portfolioDao.getDistinctSectorsFromMaster()
 
     suspend fun insertTransaction(record: TransactionRecord): Long {
         return withContext(Dispatchers.IO) {
-            portfolioDao.insertTransaction(record)
+            val id = portfolioDao.insertTransaction(record)
+            recalculateHoldingsForScrip(record.item)
+            id
         }
     }
 
     suspend fun updateTransaction(record: TransactionRecord) {
         withContext(Dispatchers.IO) {
             portfolioDao.updateTransaction(record)
+            recalculateHoldingsForScrip(record.item)
         }
     }
 
     suspend fun deleteTransaction(record: TransactionRecord) {
         withContext(Dispatchers.IO) {
             portfolioDao.deleteTransaction(record)
+            recalculateHoldingsForScrip(record.item)
         }
     }
 
     suspend fun clearAllTransactions() {
         withContext(Dispatchers.IO) {
             portfolioDao.clearAllTransactions()
+            portfolioDao.clearAllHoldings()
         }
+    }
+
+    /**
+     * CORE ENGINE: Recalculates the pre-computed Holdings entry for a specific scrip.
+     * Uses the State-Driven Cost Recovery Model.
+     */
+    private suspend fun recalculateHoldingsForScrip(symbol: String) {
+        val transactions = portfolioDao.getAllTransactionsSync()
+            .filter { it.item.uppercase().trim() == symbol.uppercase().trim() }
+
+        if (transactions.isEmpty()) {
+            // Optional: delete holding if no transactions exist
+            return
+        }
+
+        val sector = transactions.firstOrNull()?.sector ?: "Other"
+        var totalBuyAmt = 0.0
+        var totalSaleAmt = 0.0
+        var totalReturnCash = 0.0
+        var totalBuyQty = 0.0
+        var totalSaleQty = 0.0
+        var totalReturnQty = 0.0
+        var lastDate: String? = null
+
+        for (tx in transactions) {
+            lastDate = tx.date
+            when (tx.action) {
+                "Buy" -> {
+                    totalBuyQty += tx.qty
+                    totalBuyAmt += tx.amount
+                }
+                "Sale" -> {
+                    totalSaleQty += tx.qty
+                    totalSaleAmt += tx.amount
+                }
+                "Returns" -> {
+                    totalReturnQty += tx.qty
+                    totalReturnCash += tx.amount
+                }
+            }
+        }
+
+        portfolioDao.insertHoldings(
+            com.example.data.db.Holdings(
+                symbol = symbol.uppercase().trim(),
+                sector = sector,
+                totalBuyAmount = totalBuyAmt,
+                totalSaleAmount = totalSaleAmt,
+                returnsCash = totalReturnCash,
+                totalBuyQty = totalBuyQty,
+                totalSaleQty = totalSaleQty,
+                returnsQty = totalReturnQty,
+                lastTransactionDate = lastDate
+            )
+        )
     }
 
     suspend fun flushAllData() {
         withContext(Dispatchers.IO) {
             portfolioDao.clearAllTransactions()
             portfolioDao.clearAllExternalLtps()
+            portfolioDao.clearAllHoldings()
             // Kept: clearAllMarketIndices() - Per user request to preserve index data
             portfolioDao.clearAllSectorMappings()
             portfolioDao.clearAllBoids()
             ipoMasterDao.deleteAll()
             ipoMasterDao.clearResultCache()
             // Kept: UserProfile settings (name, email, pin, scrapers) preserved
+        }
+    }
+
+    /**
+     * Phase 1.4: Pre-Flight Migration Script.
+     * Populates the Holdings table from all existing transactions.
+     */
+    suspend fun performV2Migration(): Int {
+        AppLogger.i("Migration", "Starting V2 Schema Migration (Populating Holdings)")
+        return withContext(Dispatchers.IO) {
+            val scrips = portfolioDao.getAllTransactionsSync().map { it.item.uppercase().trim() }.distinct()
+            portfolioDao.clearAllHoldings()
+            scrips.forEach { recalculateHoldingsForScrip(it) }
+            AppLogger.i("Migration", "Migration complete. Processed ${scrips.size} scrips.")
+            scrips.size
+        }
+    }
+
+    /**
+     * Phase 0.2: Snapshot State Exporter.
+     * Creates a full JSON backup of the current database state.
+     */
+    suspend fun createFullBackup(context: Context): Result<String> {
+        AppLogger.i("Backup", "Creating full database snapshot...")
+        return withContext(Dispatchers.IO) {
+            try {
+                val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                val adapter = moshi.adapter(DatabaseSnapshot::class.java)
+                
+                val snapshot = DatabaseSnapshot(
+                    timestamp = System.currentTimeMillis(),
+                    appVersion = "2.0",
+                    transactions = portfolioDao.getAllTransactionsSync(),
+                    holdings = emptyList(), // No need to backup pre-computed table
+                    scripMaster = emptyList(), // Master list can be re-synced
+                    boids = portfolioDao.getAllBoidsSync(),
+                    userProfile = portfolioDao.getUserProfileSync()
+                )
+                
+                val json = adapter.toJson(snapshot)
+                val file = File(context.cacheDir, "finfolio_backup_${System.currentTimeMillis()}.json")
+                FileOutputStream(file).use { it.write(json.toByteArray()) }
+                
+                AppLogger.i("Backup", "Snapshot created successfully: ${file.name}")
+                Result.success(file.absolutePath)
+            } catch (e: Exception) {
+                AppLogger.e("Backup", "Snapshot failed", e)
+                Result.failure(e)
+            }
         }
     }
 
@@ -326,7 +537,7 @@ class PortfolioRepository(
 
     suspend fun getSectorForScrip(symbol: String): String {
         return withContext(Dispatchers.IO) {
-            val existing = portfolioDao.getExistingTypeBySymbol(symbol.uppercase().trim())
+            val existing = portfolioDao.getExistingSectorBySymbol(symbol.uppercase().trim())
             if (existing != null && existing != "Other") return@withContext existing
             
             val masterSector = portfolioDao.getSectorFromMaster(symbol.uppercase().trim())
@@ -334,6 +545,10 @@ class PortfolioRepository(
         }
     }
 
+    /** 
+     * STRATEGY: Global Scraping Refusal / Filtering
+     * Used to reject invalid CSV or Scraper rows.
+     */
     private val garbageTerms = listOf("symbol", "s.no", "name", "sector", "company", "action", "total", "index", "indices", "type")
 
     suspend fun importTransactionCsv(inputStream: InputStream, overwrite: Boolean, isWaccSchema: Boolean = false): Result<Int> {
@@ -357,10 +572,16 @@ class PortfolioRepository(
                 val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
                 if (isWaccSchema) {
+                    /**
+                     * STRATEGY: WACC CSV Mapping
+                     * Scans for Scrip/Symbol, Quantity, Rate/Price, and Amount/Cost.
+                     * Optionally parses "Sector" if present.
+                     */
                     val scripIdx = header.indexOfFirst { it.contains("scrip") || it.contains("symbol") }
-                    val qtyIdx = header.indexOfFirst { it.contains("quantity") || it.contains("qty") }
+                    val qtyIdx = header.indexOfFirst { it.contains("quantity") || it.contains("qty") || it.contains("balance") }
                     val rateIdx = header.indexOfFirst { it.contains("rate") || it.contains("price") }
                     val costIdx = header.indexOfFirst { it.contains("cost") || it.contains("amount") }
+                    val sectorIdx = header.indexOfFirst { it.contains("sector") || it.contains("type") }
                     val dateIdx = header.indexOfFirst { it.contains("date") }
 
                     if (scripIdx == -1) return@withContext Result.failure(Exception("Invalid WACC CSV: Symbol column missing"))
@@ -379,17 +600,22 @@ class PortfolioRepository(
                             }
                             
                             val date = cols.getOrNull(dateIdx)?.takeIf { it.isNotBlank() } ?: todayStr
+                            val sector = if (sectorIdx != -1 && sectorIdx < cols.size && cols[sectorIdx].isNotBlank()) cols[sectorIdx] else getSectorForScrip(symbol)
                             
-                            records.add(TransactionRecord(date = date, item = symbol, type = getSectorForScrip(symbol), action = "Buy", qty = qty, amount = amount))
+                            records.add(TransactionRecord(date = date, item = symbol, sector = sector, action = "Buy", qty = qty, amount = amount))
                         }
                     }
                 } else {
+                    /**
+                     * STRATEGY: Standard Transaction CSV Mapping
+                     * Comprehensive scan for all transaction metadata.
+                     */
                     val dateIdx = header.indexOfFirst { it.contains("date") }
                     val itemIdx = header.indexOfFirst { it.contains("item") || it.contains("symbol") || it.contains("scrip") }
                     val actionIdx = header.indexOfFirst { it.contains("action") || it.contains("buy/sell") }
-                    val qtyIdx = header.indexOfFirst { it.contains("qty") || it.contains("quantity") }
+                    val qtyIdx = header.indexOfFirst { it.contains("qty") || it.contains("quantity") || it.contains("balance") }
                     val amountIdx = header.indexOfFirst { it.contains("amount") || it.contains("total") }
-                    val typeIdx = header.indexOfFirst { it.contains("type") || it.contains("category") || it.contains("sector") }
+                    val sectorIdx = header.indexOfFirst { it.contains("sector") || it.contains("type") || it.contains("category") }
                     val ltpIdx = header.indexOfFirst { it == "ltp" || it == "price" || it.contains("last traded") }
                     val prevLtpIdx = header.indexOfFirst { it.contains("prev") && it.contains("ltp") || it.contains("previous") }
 
@@ -401,7 +627,7 @@ class PortfolioRepository(
                             val symbol = cols[itemIdx].uppercase().trim()
                             if (symbol.isBlank() || garbageTerms.contains(symbol.lowercase())) continue
 
-                            val type = if (typeIdx != -1 && typeIdx < cols.size && cols[typeIdx].isNotBlank()) cols[typeIdx] else getSectorForScrip(symbol)
+                            val sector = if (sectorIdx != -1 && sectorIdx < cols.size && cols[sectorIdx].isNotBlank()) cols[sectorIdx] else getSectorForScrip(symbol)
                             val actionRaw = if (actionIdx != -1 && actionIdx < cols.size) cols[actionIdx] else "Buy"
                             val qty = cols.getOrNull(qtyIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
                             val amount = cols.getOrNull(amountIdx)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
@@ -416,28 +642,51 @@ class PortfolioRepository(
                                     } else {
                                         if (existing != null && existing.ltp != ltpVal) existing.ltp else existing?.previousLtp ?: 0.0
                                     }
-                                    portfolioDao.insertExternalLtp(ExternalLtp(symbol = symbol, ltp = ltpVal, previousLtp = finalPrevLtp, source = "CSV_Import", timestamp = System.currentTimeMillis()))
+                                    val pointChg = ltpVal - finalPrevLtp
+                                    val pctChg = if (finalPrevLtp > 0) (pointChg / finalPrevLtp) * 100.0 else 0.0
+                                    portfolioDao.insertExternalLtp(ExternalLtp(
+                                        symbol = symbol,
+                                        ltp = ltpVal,
+                                        previousLtp = finalPrevLtp,
+                                        pointChange = pointChg,
+                                        changePercent = pctChg,
+                                        source = "CSV_Import",
+                                        timestamp = System.currentTimeMillis()
+                                    ))
                                 }
                             }
 
-                            val normalizedAction = when {
-                                actionRaw.equals("sale", ignoreCase = true) || actionRaw.equals("sell", ignoreCase = true) -> "Sale"
-                                actionRaw.equals("returns", ignoreCase = true) || actionRaw.equals("return", ignoreCase = true) || actionRaw.equals("bonus", ignoreCase = true) -> "Returns"
-                                else -> "Buy"
-                            }
-                            records.add(TransactionRecord(date = date, item = symbol, type = type, action = normalizedAction, qty = qty, amount = amount))
+                /**
+                 * STRATEGY: Transaction Normalization
+                 * Logic for mapping action aliases to internal Enums (Buy, Sale, Returns).
+                 */
+                val normalizedAction = when {
+                    actionRaw.equals("sale", ignoreCase = true) || actionRaw.equals("sell", ignoreCase = true) -> "Sale"
+                    actionRaw.equals("returns", ignoreCase = true) || actionRaw.equals("return", ignoreCase = true) || actionRaw.equals("bonus", ignoreCase = true) -> "Returns"
+                    else -> "Buy"
+                }
+                            records.add(TransactionRecord(date = date, item = symbol, sector = sector, action = normalizedAction, qty = qty, amount = amount))
                         }
                     }
                 }
 
-                if (overwrite) portfolioDao.clearAllTransactions()
+                if (overwrite) {
+                    portfolioDao.clearAllTransactions()
+                    portfolioDao.clearAllHoldings()
+                }
+                
                 records.forEach { portfolioDao.insertTransaction(it) }
+                
+                // Recalculate holdings for all imported scrips
+                val affectedScrips = records.map { it.item.uppercase().trim() }.distinct()
+                affectedScrips.forEach { recalculateHoldingsForScrip(it) }
+                
                 Result.success(records.size)
             } catch (e: Exception) { Result.failure(e) }
         }
     }
 
-    suspend fun calculateMeroshareAdjustments(inputStream: InputStream): Result<Int> {
+    suspend fun calculatePortfolioSyncAdjustments(inputStream: InputStream): Result<Int> {
         return withContext(Dispatchers.IO) {
             try {
                 val reader = BufferedReader(InputStreamReader(inputStream))
@@ -484,7 +733,7 @@ class PortfolioRepository(
         }
     }
 
-    suspend fun importMeroshareCsv(inputStream: InputStream): Result<Int> {
+    suspend fun importPortfolioSyncCsv(inputStream: InputStream): Result<Int> {
         return withContext(Dispatchers.IO) {
             try {
                 val reader = BufferedReader(InputStreamReader(inputStream))
@@ -496,6 +745,10 @@ class PortfolioRepository(
                 if (headerLine.contains(";") && (headerLine.count { it == ';' } > headerLine.count { it == ',' })) separator = ";"
                 val header = parseCsvRow(headerLine, separator).map { it.lowercase().replace("\"", "").trim() }
 
+                /**
+                 * STRATEGY: Portfolio Sync CSV Mapping
+                 * Maps scrip, price, and balance for portfolio alignment.
+                 */
                 val scripIdx = header.indexOfFirst { it.contains("scrip") || it.contains("symbol") || it.contains("item") || it.contains("name") }
                 val ltpIdx = header.indexOfFirst { it.contains("last transaction price") || it.contains("ltp") || it.contains("price") || it.contains("rate") || it.contains("valu") }
                 val prevLtpIdx = header.indexOfFirst { it.contains("prev") || it.contains("previous") }
@@ -519,8 +772,19 @@ class PortfolioRepository(
                         val importedQty = if (qtyIdx != -1 && qtyIdx < cols.size) cols[qtyIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0 else 0.0
                         val existing = portfolioDao.getExternalLtpBySymbol(scrip)
                         val finalPrevLtp = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) cols[prevLtpIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: existing?.ltp ?: ltpValue else existing?.ltp ?: ltpValue
+                        val ptChg = ltpValue - finalPrevLtp
+                        val pctChg = if (finalPrevLtp > 0) (ptChg / finalPrevLtp) * 100.0 else 0.0
 
-                        newLtpRecords.add(ExternalLtp(symbol = scrip, ltp = ltpValue, previousLtp = finalPrevLtp, source = "Meroshare", timestamp = timestamp, isInMeroshareCsv = true))
+                        newLtpRecords.add(ExternalLtp(
+                            symbol = scrip,
+                            ltp = ltpValue,
+                            previousLtp = finalPrevLtp,
+                            pointChange = ptChg,
+                            changePercent = pctChg,
+                            source = "PortfolioSync",
+                            timestamp = timestamp,
+                            isInExternalSync = true
+                        ))
 
                         if (qtyIdx != -1) {
                             val scripTx = groupedTx[scrip] ?: emptyList()
@@ -531,7 +795,7 @@ class PortfolioRepository(
                                 val totalBuyQty = scripTx.filter { it.action == "Buy" || it.action == "Returns" }.sumOf { it.qty }
                                 val avgCost = if (totalBuyQty > 0) totalBuyAmount / totalBuyQty else 0.0
                                 val (action, adjQty, adjAmount) = if (diff < 0) Triple("Sale", Math.abs(diff), Math.abs(diff) * (if (avgCost > 0) avgCost else ltpValue)) else Triple("Returns", diff, 0.0)
-                                portfolioDao.insertTransaction(TransactionRecord(date = todayStr, item = scrip, type = scripTx.firstOrNull()?.type ?: getSectorForScrip(scrip), action = action, qty = adjQty, amount = adjAmount, isSystemAdjustment = true))
+                                portfolioDao.insertTransaction(TransactionRecord(date = todayStr, item = scrip, sector = scripTx.firstOrNull()?.sector ?: getSectorForScrip(scrip), action = action, qty = adjQty, amount = adjAmount, isSystemAdjustment = true))
                             }
                         }
                     }
@@ -545,17 +809,22 @@ class PortfolioRepository(
                             val totalBuyAmount = scripTx.filter { it.action == "Buy" }.sumOf { it.amount }
                             val totalBuyQty = scripTx.filter { it.action == "Buy" || it.action == "Returns" }.sumOf { it.qty }
                             val avgCost = if (totalBuyQty > 0) totalBuyAmount / totalBuyQty else 0.0
-                            portfolioDao.insertTransaction(TransactionRecord(date = todayStr, item = scrip, type = scripTx.firstOrNull()?.type ?: "Other", action = "Sale", qty = currentBalance, amount = currentBalance * avgCost, isSystemAdjustment = true))
+                            portfolioDao.insertTransaction(TransactionRecord(date = todayStr, item = scrip, sector = scripTx.firstOrNull()?.sector ?: "Other", action = "Sale", qty = currentBalance, amount = currentBalance * avgCost, isSystemAdjustment = true))
                         }
                     }
                 }
 
-                portfolioDao.deleteExternalLtpBySource("Meroshare")
-                portfolioDao.resetMeroshareCsvFlag()
+                portfolioDao.deleteExternalLtpBySource("PortfolioSync")
+                portfolioDao.resetExternalSyncFlag()
                 portfolioDao.insertExternalLtps(newLtpRecords)
+                
+                // Recalculate holdings for all scrips involved in the import
+                val allAffectedScrips = (csvScrips + groupedTx.keys).distinct()
+                allAffectedScrips.forEach { recalculateHoldingsForScrip(it) }
+
                 for (rec in newLtpRecords) {
                     val existingScraped = portfolioDao.getExternalLtpBySymbol(rec.symbol)
-                    if (existingScraped != null && existingScraped.source == "Scraped") portfolioDao.insertExternalLtp(existingScraped.copy(isInMeroshareCsv = true))
+                    if (existingScraped != null && existingScraped.source == "Scraped") portfolioDao.insertExternalLtp(existingScraped.copy(isInExternalSync = true))
                 }
                 Result.success(newLtpRecords.size)
             } catch (e: Exception) { Result.failure(e) }
@@ -584,7 +853,12 @@ class PortfolioRepository(
         return tokens
     }
 
-    suspend fun refreshLivePrices(): Boolean {
+    /**
+     * LIVE PRICE SYNC (Enhanced Accuracy UX):
+     * Refreshes market status and primary index data.
+     * Returns true if data was actually updated, false if discarded (no change).
+     */
+    suspend fun refreshLivePrices(): Result<Boolean> {
         return withContext(Dispatchers.IO) {
             try {
                 var indexValue = "0.00"
@@ -593,50 +867,76 @@ class PortfolioRepository(
                 var isPositive = true
                 var marketStatus = "Market Closed"
                 var marketDate = SimpleDateFormat("MMM dd | hh:mm a", Locale.US).format(Date())
+                var success = false
 
                 val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-                val indexUrls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
-                for (url in indexUrls) {
+                val statusUrls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
+                val primaryName = portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
+
+                for (url in statusUrls) {
                     try {
+                        AppLogger.d("MarketStatus", "Attempting scrape from: $url")
                         val doc = Jsoup.connect(url).userAgent(userAgent).timeout(10000).get()
-                        if (url.contains("merolagani.com")) {
-                            val idxValEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
-                            if (idxValEl != null && idxValEl.text().isNotBlank()) {
-                                indexValue = idxValEl.text().trim()
-                                ptChange = doc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()?.text()?.trim() ?: ""
-                                pctChange = doc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()?.text()?.trim() ?: "0.00%"
-                                isPositive = !pctChange.contains("-")
-                                val statusEl = doc.select("#ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()
-                                if (statusEl != null) {
-                                    marketStatus = if (statusEl.text().contains("Live", true)) "Market Open" else "Market Closed"
-                                    marketDate = statusEl.text().substringBefore("(").replace("As of", "").trim()
-                                }
-                                break
-                            }
-                        } else if (url.contains("sharesansar.com")) {
-                            val ssRows = doc.select("table tr")
-                            val nepseRow = ssRows.find { it.text().contains("NEPSE Index", true) && !it.text().contains("Sub-Index", true) }
-                            val cells = nepseRow?.select("td")
-                            if (cells != null && cells.size >= 5) {
-                                indexValue = cells[4].text().trim()
-                                ptChange = cells[5].text().trim()
-                                pctChange = cells[6].text().trim()
-                                isPositive = !pctChange.contains("-")
-                            } else if (cells != null && cells.size >= 4) {
-                                indexValue = cells[1].text().trim()
-                                ptChange = cells[2].text().trim()
-                                pctChange = cells[3].text().trim()
-                                isPositive = !pctChange.contains("-")
-                            }
-                            
-                            val ssStatus = doc.select(".market-status, .market-update button").firstOrNull()?.text()?.trim()
-                            if (!ssStatus.isNullOrBlank()) marketStatus = ssStatus
-                            val ssDate = doc.select(".market-update .date, .date").firstOrNull()?.text()?.replace("As of :", "")?.trim()
-                            if (!ssDate.isNullOrBlank()) marketDate = ssDate
-                            if (indexValue != "0.00") break
+                        
+                        // 1. Market Status Identification
+                        val statusEl = doc.select(".market-status, .live-market, :containsOwn(Market Open), :containsOwn(Market Closed), #ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()
+                        if (statusEl != null) {
+                            val text = statusEl.text()
+                            marketStatus = if (text.contains("Open", true) || text.contains("Live", true)) "Market Open" else "Market Closed"
                         }
-                    } catch (e: Exception) {}
+
+                        // 2. Primary Index Value Extraction (Prioritize exact match for primaryName)
+                        val tables = doc.select("table")
+                        var foundPrimaryInTable = false
+                        for (table in tables) {
+                            val rows = table.select("tr")
+                            val row = rows.find { it.text().contains(primaryName, ignoreCase = true) }
+                            if (row != null) {
+                                val cells = row.select("td")
+                                if (cells.size >= 2) {
+                                    // Heuristic: Find the first few numbers in the row
+                                    val numbers = cells.map { it.text().replace(",", "").replace("%", "").replace("+", "").trim() }
+                                        .filter { it.toDoubleOrNull() != null }
+                                    
+                                    if (numbers.isNotEmpty()) {
+                                        indexValue = numbers[0]
+                                        if (numbers.size >= 2) {
+                                            val rawChg = numbers[1]
+                                            ptChange = rawChg
+                                        }
+                                        if (numbers.size >= 3) {
+                                            pctChange = numbers[2] + "%"
+                                        }
+                                        isPositive = !row.text().contains("-")
+                                        foundPrimaryInTable = true
+                                        break
+                                    }
+                                }
+                            }
+                        }
+
+                        // Fallback to legacy site-specific scrapers only if primaryName is "NEPSE Index"
+                        if (!foundPrimaryInTable && (primaryName == "NEPSE Index" || primaryName == "NEPSE")) {
+                            if (url.contains("merolagani.com")) {
+                                val idxValEl = doc.select("#ctl00_ContentPlaceHolder1_lblIndexValue").firstOrNull()
+                                if (idxValEl != null && idxValEl.text().isNotBlank()) {
+                                    indexValue = idxValEl.text().trim()
+                                    ptChange = doc.select("#ctl00_ContentPlaceHolder1_lblIndexChange").firstOrNull()?.text()?.trim() ?: ""
+                                    pctChange = doc.select("#ctl00_ContentPlaceHolder1_lblIndexPercent").firstOrNull()?.text()?.trim() ?: "0.00%"
+                                    isPositive = !pctChange.contains("-")
+                                }
+                            }
+                        }
+                        
+                        if (indexValue != "0.00") {
+                            com.example.data.util.AppLogger.d("MarketStatus", "Found primary index '$primaryName' at $url: $indexValue")
+                            // We don't break here; we continue to aggregate LTP from other sources if needed, 
+                            // but we have our primary index value.
+                        }
+                    } catch (e: Exception) {
+                        com.example.data.util.AppLogger.e("MarketStatus", "Failed: $url -> Error: ${e.message}")
+                    }
                 }
 
                 // Sanitization
@@ -644,27 +944,45 @@ class PortfolioRepository(
                 ptChange = ptChange.replace("(", "").replace(")", "").replace("+", "").replace("-", "").trim()
                 if (ptChange.isNotEmpty()) ptChange = if (isPositive) "+$ptChange" else "-$ptChange"
 
-                _nepseStatus.value = NepseStatus(index = indexValue, change = ptChange, percentChange = pctChange, date = marketDate, status = marketStatus, isPositive = isPositive)
+                _marketStatus.value = MarketStatus(index = indexValue, change = ptChange, percentChange = pctChange, date = marketDate, status = marketStatus, isPositive = isPositive)
 
-                // Sync NEPSE with DB
+                // Sync Primary Index with DB
                 try {
                     val idxVal = indexValue.toDoubleOrNull() ?: 0.0
+                    val pointChg = ptChange.replace("+", "").replace(",", "").toDoubleOrNull() ?: 0.0
+                    val pct = pctChange.replace("%", "").replace("+", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                    
                     if (idxVal > 0) {
-                        val existing = portfolioDao.getIndexByName("NEPSE Index")
-                        val prevVal = existing?.currentValue ?: (idxVal - (ptChange.toDoubleOrNull() ?: 0.0))
-                        portfolioDao.insertMarketIndices(listOf(com.example.data.db.MarketIndexEntity("NEPSE Index", idxVal, prevVal, pctChange.replace("%","").toDoubleOrNull() ?: 0.0)))
+                        val existing = portfolioDao.getIndexByName(primaryName)
+                        val isSameValue = existing != null && Math.abs(existing.currentValue - idxVal) < 0.01
+                        val isInvalidZero = existing != null && Math.abs(existing.pointChange) > 0.01 && Math.abs(pointChg) < 0.01
+                        
+                        if (!isSameValue && !isInvalidZero) {
+                            val prevVal = idxVal - pointChg
+                            portfolioDao.insertMarketIndices(listOf(com.example.data.db.MarketIndexEntity(
+                                indexName = primaryName,
+                                currentValue = idxVal,
+                                previousValue = prevVal,
+                                pointChange = pointChg,
+                                changePercent = pct,
+                                source = "Scraped_Live",
+                                timestamp = System.currentTimeMillis()
+                            )))
+                            success = true
+                        }
                     }
-                } catch (e: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.e("MarketStatus", "Failed to sync Primary Index to DB", e)
+                }
 
-                // 3. LTP Scrip Prices (Priority Fallback List)
-                val urls = getScraperUrls(ScraperCategory.LTP_UPDATE)
+                // 3. LTP Scrip Prices (Aggregate from all URLs)
+                val ltpUrls = getScraperUrls(ScraperCategory.LTP_UPDATE)
+                val allScrapedLtps = mutableListOf<ExternalLtp>()
                 
-                var success = false
-                for (baseUrl in urls) {
+                for (baseUrl in ltpUrls) {
                     try {
                         val url = if (baseUrl.contains("?")) "$baseUrl&t=${System.currentTimeMillis()}" else "$baseUrl?t=${System.currentTimeMillis()}"
                         val doc = Jsoup.connect(url).userAgent(userAgent).timeout(20000).get()
-                        val scrapedLtps = mutableListOf<ExternalLtp>()
                         val timestamp = System.currentTimeMillis()
 
                         doc.select("table").forEach { table ->
@@ -683,25 +1001,40 @@ class PortfolioRepository(
                                         val symbol = cols[symIdx].text().trim().uppercase()
                                         val ltp = cols[ltpIdx].text().replace(",", "").trim().toDoubleOrNull() ?: 0.0
                                         if (symbol.isNotEmpty() && ltp > 0 && !garbageTerms.contains(symbol.lowercase())) {
+                                            val prevVal = if (prvIdx != -1 && prvIdx < cols.size) cols[prvIdx].text().replace(",", "").trim().toDoubleOrNull() ?: ltp else ltp
+                                            val ptChg = ltp - prevVal
+                                            val pctChg = if (prevVal > 0) (ptChg / prevVal) * 100.0 else 0.0
+                                            
                                             val existing = portfolioDao.getExternalLtpBySymbol(symbol)
-                                            val prevVal = if (prvIdx != -1 && prvIdx < cols.size) cols[prvIdx].text().replace(",", "").trim().toDoubleOrNull() ?: existing?.ltp ?: ltp else existing?.ltp ?: ltp
-                                            scrapedLtps.add(ExternalLtp(symbol = symbol, ltp = ltp, previousLtp = prevVal, source = "Scraped", timestamp = timestamp, isInMeroshareCsv = existing?.isInMeroshareCsv ?: false))
+                                            allScrapedLtps.add(ExternalLtp(
+                                                symbol = symbol,
+                                                ltp = ltp,
+                                                previousLtp = prevVal,
+                                                pointChange = ptChg,
+                                                changePercent = pctChg,
+                                                source = "Scraped",
+                                                timestamp = timestamp,
+                                                isInExternalSync = existing?.isInExternalSync ?: false
+                                            ))
                                         }
                                     }
                                 }
                             }
                         }
-
-                        if (scrapedLtps.isNotEmpty()) {
-                            portfolioDao.insertExternalLtps(scrapedLtps)
-                            success = true
-                            if (scrapedLtps.size > 100) return@withContext true
-                        }
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) {
+                        AppLogger.e("LtpSync", "Failed to scrape LTP from $baseUrl", e)
+                    }
                 }
-                success
+
+                if (allScrapedLtps.isNotEmpty()) {
+                    portfolioDao.insertExternalLtps(allScrapedLtps)
+                    success = true
+                    AppLogger.i("LtpSync", "Successfully aggregated ${allScrapedLtps.size} LTP records")
+                }
+
+                Result.success(success)
             } catch (e: Exception) {
-                false
+                Result.failure(e)
             }
         }
     }

@@ -1,22 +1,23 @@
 # FinFolio
 
-A comprehensive portfolio tracker managing transactions, parsing live markets, importing CSVs, and displaying customizable matrices. Designed with a focus on Nepali stock market functionality and aesthetic.
+A comprehensive portfolio tracker managing transactions, parsing live markets, importing CSVs, and displaying customizable matrices. The app is a generic "blank canvas" that adapts its behavior, pulses, and terminology entirely based on your configuration.
 
 ## Features
 
-- **Transaction Management**: Track Buy, Sale, and Returns (including Dividends and Bonus shares).
-- **Live Market Data**: Integration for parsing live market prices and capturing snapshots during export.
-- **CSV Import/Export**: Support for importing/exporting transaction history, WACC, and Meroshare exports. Exports now include an `LTP` column to ensure portfolio evaluation can be restored even for manually updated scrips.
-- **Privacy & Security**: Optional 4-digit PIN lock to secure the app. "Flush All Data" feature in settings to reset the app state and wipe all local records.
+- **High-Performance Engine**: Uses a pre-computed `Holdings` table for $O(1)$ dashboard loads and real-time metric updates.
+- **Transaction Management**: Track Buy, Sale, SIP, and Returns (including Dividends, Bonus shares, and Splits).
+- **Resilient Market Data**: Multi-source failover scraper for live prices with support for manual LTP overrides on non-tradable assets.
+- **Hybrid IPO Checker**: Integrated solution for checking IPO results with CAPTCHA support via WebView automation.
+- **Privacy & Security**: Optional 4-digit PIN lock and local-first data storage.
 
 ## Advanced Metrics
 
-The app uses a **Cost Recovery Model** for Nepali stock market analytics and supporting non-unit investments (FDs/Pension).
+The app uses a **State-Driven Cost Recovery Model** for analytics.
 
 | Metric                            | Formula / Logic                                                                         |
 |:----------------------------------|:----------------------------------------------------------------------------------------|
 | **1. Balance Qty**                | `Buy Qty + Returns Qty - Sale Qty`                                                      |
-| **2. Avg Cost Price**             | `Buy Amount / (Buy Qty + Returns Qty)`                                                  |
+| **2. Avg Cost Price (WACC)**      | `Buy Amount / (Buy Qty + Returns Qty)` (Adjusted for Splits/Bonus)                       |
 | **3. Net Invest (Individual)**    | `MAX(0, Buy Amt - Sale Amt)`                                                            |
 | **4. Evaluation (Individual)**    | `IF Avg CP > 0 THEN (Qty * LTP) ELSE MAX(0, Buy Amt - Sale Amt)`                        |
 | **5. Realized Gain**              | `(Sale Amt - Buy Amt) + Returns Cash + Net Invest`                                      |
@@ -27,39 +28,27 @@ The app uses a **Cost Recovery Model** for Nepali stock market analytics and sup
 | **10. Profit Amount**             | `Receivable - Net Invest`                                                               |
 | **11. Profit % (ROI)**            | `(Profit Amount / Net Invest) * 100`                                                    |
 | **12. Growth %**                  | `(Net Gain / Buy Amount) * 100`                                                         |
-| **Net Investment (Selected)**     | `SUM(Net Invest Selected)`                                                              |
-| **Current Evaluation (Selected)** | `SUM(Evaluation Selected)`                                                              |
-| **Net Gain (Selected)**           | `SUM(Net Gain Selected)`                                                                |
-| **Net Profit (Selected)**         | `SUM(Net Profit Selected)`                                                              |
-
-*Note: For cash-only investments (Avg CP = 0), Evaluation represents your remaining principal. Returns are reflected as gains without reducing the perceived worth of the principal investment.*
-
-## Getting Started
-
-### Prerequisites
-
-- [Android Studio Ladybug](https://developer.android.com/studio) or newer.
-- Android device or emulator running API 24 (Nougat) or higher.
-
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/finfolio.git
-   ```
-2. Open the project in Android Studio.
-3. Create a `.env` file in the root directory (refer to `.env.example`):
-   ```
-   GEMINI_API_KEY=your_api_key_here
-   ```
-4. Build and run the app.
 
 ## Project Structure
 
-- `app/src/main/java/com/example/data`: Database, Repository, and Financial Engines.
+- `app/src/main/java/com/example/data`: Room Database, Repositories, and the **Holdings Engine**.
 - `app/src/main/java/com/example/ui`: Jetpack Compose UI components and ViewModels.
-- `app/src/main/res`: Custom assets including the Nepali-themed adaptive icon.
 
-## License
+## Documentation
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- [Robust Implementation Plan](ROBUST_IMPLEMENTATION_PLAN.md)
+- [Metrics Specification](METRICS_SPEC.md)
+- [Market Pulse Specification](MARKET_PULSE_SPEC.md)
+- [IPO Master Specification](IPO_MASTER_SPEC.md)
+- [Bulk IPO Check Specification](BULK_IPO_SPEC.md)
+- [Import/Export Specification](DATA_IO_SPEC.md)
+- [Dashboard Specification](DASHBOARD_SPEC.md)
+- [User Profile and Settings Specification](USER_PROFILE_SETTINGS_SPEC.md)
+
+## Recent Improvements (Latest Release)
+
+- **UI Reliability**: Fixed `ExpandableHeader` implementation across all screens ensuring consistent color coding.
+- **Market Agnostic**: Refactored the core engine to support any global market by removing hardcoded site-specific logic.
+- **Index Customization**: The Primary Market Index is now fully customizable with user-defined names.
+- **Configuration Persistence**: The app now strictly respects user-defined indices visibility settings, persisting manual unselection even across market refreshes.
+- **High-Fidelity Scraping**: Improved aggregation logic to pull data from all configured URLs simultaneously.

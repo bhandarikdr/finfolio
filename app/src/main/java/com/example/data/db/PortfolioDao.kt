@@ -45,20 +45,20 @@ interface PortfolioDao {
     @Query("SELECT item FROM Data GROUP BY item ORDER BY MAX(id) DESC LIMIT 15")
     fun getRecentItems(): Flow<List<String>>
 
-    @Query("SELECT type FROM Data GROUP BY type ORDER BY MAX(id) DESC LIMIT 10")
-    fun getRecentTypes(): Flow<List<String>>
+    @Query("SELECT sector FROM Data GROUP BY sector ORDER BY MAX(id) DESC LIMIT 10")
+    fun getRecentSectors(): Flow<List<String>>
 
     @Query("SELECT DISTINCT item FROM Data ORDER BY item ASC")
     fun getDistinctItems(): Flow<List<String>>
 
-    @Query("SELECT DISTINCT type FROM Data ORDER BY type ASC")
-    fun getDistinctTypes(): Flow<List<String>>
+    @Query("SELECT DISTINCT sector FROM Data ORDER BY sector ASC")
+    fun getDistinctSectors(): Flow<List<String>>
 
-    @Query("SELECT type FROM Data WHERE item = :symbol LIMIT 1")
-    suspend fun getExistingTypeBySymbol(symbol: String): String?
+    @Query("SELECT sector FROM Data WHERE item = :symbol LIMIT 1")
+    suspend fun getExistingSectorBySymbol(symbol: String): String?
 
-    @Query("UPDATE Data SET type = :newType WHERE item = :symbol")
-    suspend fun updateSectorBySymbol(symbol: String, newType: String)
+    @Query("UPDATE Data SET sector = :newSector WHERE item = :symbol")
+    suspend fun updateSectorBySymbol(symbol: String, newSector: String)
 
 
     // --- EXTERNAL LTP RECORDS ---
@@ -77,8 +77,8 @@ interface PortfolioDao {
     @Query("DELETE FROM ExternalLtp WHERE source = :source")
     suspend fun deleteExternalLtpBySource(source: String)
 
-    @Query("UPDATE ExternalLtp SET isInMeroshareCsv = 0")
-    suspend fun resetMeroshareCsvFlag()
+    @Query("UPDATE ExternalLtp SET isInExternalSync = 0")
+    suspend fun resetExternalSyncFlag()
 
     // --- USER PROFILE ---
     @Query("SELECT * FROM UserProfile WHERE id = 0 LIMIT 1")
@@ -132,13 +132,41 @@ interface PortfolioDao {
     @Query("SELECT * FROM MarketIndices WHERE indexName = :name LIMIT 1")
     suspend fun getIndexByName(name: String): MarketIndexEntity?
 
+    @Query("DELETE FROM MarketIndices WHERE indexName = :name")
+    suspend fun deleteMarketIndexByName(name: String)
+
     // --- BOIDS ---
     @Query("SELECT * FROM Boids")
     fun getAllBoids(): Flow<List<BoidEntity>>
+
+    @Query("SELECT * FROM Boids")
+    suspend fun getAllBoidsSync(): List<BoidEntity>
+
+    @Query("SELECT * FROM Boids WHERE isDefault = 1 LIMIT 1")
+    suspend fun getDefaultBoidSync(): BoidEntity?
+
+    @Query("UPDATE Boids SET isDefault = 0")
+    suspend fun clearDefaultBoid()
+
+    @Query("UPDATE Boids SET isDefault = 1 WHERE boid = :boid")
+    suspend fun setDefaultBoid(boid: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBoid(boid: BoidEntity)
 
     @Delete
     fun deleteBoid(boid: BoidEntity)
+
+    // --- HOLDINGS (PRE-COMPUTED) ---
+    @Query("SELECT * FROM Holdings ORDER BY symbol ASC")
+    fun getAllHoldings(): Flow<List<Holdings>>
+
+    @Query("SELECT * FROM Holdings WHERE symbol = :symbol LIMIT 1")
+    suspend fun getHoldingsBySymbol(symbol: String): Holdings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHoldings(holdings: Holdings)
+
+    @Query("DELETE FROM Holdings")
+    suspend fun clearAllHoldings()
 }

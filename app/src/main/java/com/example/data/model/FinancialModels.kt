@@ -1,7 +1,6 @@
 package com.example.data.model
 
 import com.example.data.db.ExternalLtp
-import com.example.data.db.TransactionRecord
 
 /**
  * Categories for data scrapers used throughout the app.
@@ -9,11 +8,11 @@ import com.example.data.db.TransactionRecord
  */
 enum class ScraperCategory(val displayName: String, val description: String) {
     LTP_UPDATE("Live Price (LTP) Update", "Fetches latest market prices for portfolio stocks."),
-    INDEX_UPDATE("Market Index Update", "Updates NEPSE and sector indices."),
+    INDEX_UPDATE("Market Index Update", "Updates market and sector indices."),
     SCRIP_SYNC("Scrip Master Sync", "Downloads list of all listed companies."),
     IPO_LISTING("IPO Pipeline", "Tracks upcoming and ongoing IPOs."),
-    CDSC_COMPANIES("IPO Result Company List", "Required to map companies for IPO allotment checks."),
-    CDSC_RESULT("IPO Result Checker", "Endpoint for verifying IPO allotment status.")
+    IPO_COMPANIES("IPO Result Company List", "Required to map companies for IPO allotment checks."),
+    IPO_RESULT("IPO Result Checker", "Endpoint for verifying IPO allotment status.")
 }
 
 /**
@@ -30,13 +29,17 @@ data class UserProfile(
     val scraperUrls: Map<ScraperCategory, List<String>> = emptyMap(),
     val pin: String? = null,
     val itemColumns: Set<String> = emptySet(),
-    val typeColumns: Set<String> = emptySet(),
+    val sectorColumns: Set<String> = emptySet(),
     val selectedSectorFilter: String = "All",
-    val datasetScope: String = "OVERALL",
-    val primaryIndexName: String = "NEPSE Index"
+    val dashboardScope: String = "OVERALL",
+    val matrixScope: String = "OVERALL",
+    val primaryIndexName: String = "NEPSE Index",
+    val commissionRate: Double = 0.0038,
+    val flatFee: Double = 25.0,
+    val cgtRate: Double = 0.075
 )
 
-data class NepseStatus(
+data class MarketStatus(
     val index: String = "0.00",
     val change: String = "0.00",
     val percentChange: String = "0.00%",
@@ -47,7 +50,7 @@ data class NepseStatus(
 
 data class ItemMetrics(
     val item: String,
-    val type: String,
+    val sector: String,
     val buyAmount: Double,
     val buyCount: Int,
     val buyQty: Double,
@@ -72,11 +75,11 @@ data class ItemMetrics(
     val receivableAmount: Double,
     val profitAmount: Double,
     val profitPercent: Double,
-    val isInMeroshareCsv: Boolean
+    val isInExternalSync: Boolean
 )
 
 data class TypeMetrics(
-    val type: String,
+    val sector: String,
     val itemCount: Int,
     val buyAmount: Double,
     val saleAmount: Double,
@@ -98,82 +101,55 @@ data class TypeMetrics(
 object FinancialEngines {
 
     /**
-     * Compute comprehensive metrics for each distinct item, matching the formulas exactly.
+     * Optimized: Compute metrics using pre-computed Holdings table.
      */
-    fun computeItemMetrics(
-        transactions: List<TransactionRecord>,
-        ltpList: List<ExternalLtp>
+    fun computeItemMetricsFromHoldings(
+        holdings: List<com.example.data.db.Holdings>,
+        ltpList: List<ExternalLtp>,
+        commissionRate: Double = 0.0038,
+        flatFee: Double = 25.0,
+        cgtRate: Double = 0.075
     ): List<ItemMetrics> {
         val ltpMap = mutableMapOf<String, ExternalLtp>()
-        // Prioritize by timestamp: latest data wins across all sources (Scraped, Meroshare, CSV Import)
         ltpList.sortedBy { it.timestamp }.forEach { ltpMap[it.symbol.uppercase().trim()] = it }
 
-        val meroshareFlags = ltpList.groupBy { it.symbol.uppercase().trim() }
-            .mapValues { (_, list) -> list.any { it.isInMeroshareCsv } }
+        val externalSyncFlags = ltpList.groupBy { it.symbol.uppercase().trim() }
+            .mapValues { (_, list) -> list.any { it.isInExternalSync } }
 
-        val groupedTx = transactions.groupBy { it.item.uppercase().trim() }
+        return holdings.map { h ->
+            val symbol = h.symbol
+            val sector = h.sector
 
-        return groupedTx.map { (symbol, txs) ->
-            val type = txs.firstOrNull()?.type ?: "UNKNOWN"
+            val buyAmount = h.totalBuyAmount
+            val buyQty = h.totalBuyQty
+            val saleAmount = h.totalSaleAmount
+            val saleQty = h.totalSaleQty
+            val returnsCash = h.returnsCash
+            val returnsQty = h.returnsQty
 
-            val buyRecords = txs.filter { it.action == "Buy" }
-            val buyAmount = buyRecords.sumOf { it.amount }
-            val buyCount = buyRecords.size
-            val buyQty = buyRecords.sumOf { it.qty }
-
-            val saleRecords = txs.filter { it.action == "Sale" }
-            val saleAmount = saleRecords.sumOf { it.amount }
-            val saleCount = saleRecords.size
-            val saleQty = saleRecords.sumOf { it.qty }
-
-            // "Returns" covers everything including Dividends and Bonus shares
-            val returnRecords = txs.filter { it.action == "Returns" }
-            val returnsCash = returnRecords.sumOf { it.amount }
-            val returnCount = returnRecords.size
-            val returnsQty = returnRecords.sumOf { it.qty }
-
-            // Intermediate Matrix Computations
-            // Balance Qty = Buy + Returns - Sale
             val balanceQty = (buyQty + returnsQty - saleQty).coerceAtLeast(0.0)
             val avgCp = if (buyQty + returnsQty == 0.0) 0.0 else buyAmount / (buyQty + returnsQty)
             val avgSp = if (saleQty == 0.0) 0.0 else saleAmount / saleQty
             
-            // Net Invest: Capital outlay still at risk (Cost Recovery Model)
-            // Logic: Total Buy Amount minus Total Sale Amount.
             val netInvest = (buyAmount - saleAmount).coerceAtLeast(0.0)
 
-            // Fetching LTP Value
             val ltpValRecord = ltpMap[symbol]
             val ltp = ltpValRecord?.ltp ?: 0.0
             val prevLtp = ltpValRecord?.previousLtp ?: 0.0
-            val isInMs = meroshareFlags[symbol] ?: false
+            val isInSync = externalSyncFlags[symbol] ?: false
 
-            // Evaluation: Current Market Value
-            // Logic: If units exist (Avg CP > 0), use Qty * LTP. 
-            // For items without units (Avg CP = 0), Evaluation is the unrecovered capital (Net Invest).
             val evaluation = if (avgCp > 0.0) (balanceQty * ltp) else netInvest
-
-            // Realized Gain: Profit from capital recovery
-            // Formula: (Total Sales - Total Buys) + Returns Cash + Net Invest
             val realizedGain = (saleAmount - buyAmount) + returnsCash + netInvest
-            
-            // Unrealized Gain: Paper profit based on unrecovered capital
             val unrealizedGain = evaluation - netInvest
             
-            // Estimated Deductions (Commission, DP Fee, and CGT on profit)
-            // Note: Only applied for unit-based (equity) investments where holdings exist.
             val deductions = if (avgCp > 0.0 && evaluation > 0.0) {
-                if (unrealizedGain > 0.0) (evaluation * 0.0038) + 25.0 + (unrealizedGain * 0.075)
-                else (evaluation * 0.0038) + 25.0
+                if (unrealizedGain > 0.0) (evaluation * commissionRate) + flatFee + (unrealizedGain * cgtRate)
+                else (evaluation * commissionRate) + flatFee
             } else 0.0
             
-            // Net Gain: The true "bottom line" profit (Total absolute wealth increase)
             val netGain = realizedGain + unrealizedGain - deductions
             val growth = if (buyAmount == 0.0) 0.0 else (netGain / buyAmount) * 100.0
             val receivableAmount = (evaluation - deductions).coerceAtLeast(0.0)
-            
-            // Profit: Current gain on at-risk capital after deductions
-            // Formula: Receivable - Net Invest
             val profitAmount = receivableAmount - netInvest
 
             val profitPercent = when {
@@ -184,32 +160,17 @@ object FinancialEngines {
 
             ItemMetrics(
                 item = symbol,
-                type = type,
-                buyAmount = buyAmount,
-                buyCount = buyCount,
-                buyQty = buyQty,
-                saleAmount = saleAmount,
-                saleCount = saleCount,
-                saleQty = saleQty,
-                returnsCash = returnsCash,
-                returnCount = returnCount,
-                returnsQty = returnsQty,
-                balanceQty = balanceQty,
-                avgCp = avgCp,
-                avgSp = avgSp,
-                ltp = ltp,
-                prevLtp = prevLtp,
-                netInvest = netInvest,
-                evaluation = evaluation,
-                realizedGain = realizedGain,
-                unrealizedGain = unrealizedGain,
-                deductions = deductions,
-                netGain = netGain,
-                growth = growth,
-                receivableAmount = receivableAmount,
-                profitAmount = profitAmount,
-                profitPercent = profitPercent,
-                isInMeroshareCsv = isInMs
+                sector = sector,
+                buyAmount = buyAmount, buyCount = 0, buyQty = buyQty,
+                saleAmount = saleAmount, saleCount = 0, saleQty = saleQty,
+                returnsCash = returnsCash, returnCount = 0, returnsQty = returnsQty,
+                balanceQty = balanceQty, avgCp = avgCp, avgSp = avgSp,
+                ltp = ltp, prevLtp = prevLtp,
+                netInvest = netInvest, evaluation = evaluation,
+                realizedGain = realizedGain, unrealizedGain = unrealizedGain,
+                deductions = deductions, netGain = netGain, growth = growth,
+                receivableAmount = receivableAmount, profitAmount = profitAmount,
+                profitPercent = profitPercent, isInExternalSync = isInSync
             )
         }.sortedBy { it.item }
     }
@@ -218,9 +179,9 @@ object FinancialEngines {
      * Compute collapsed and grouped metrics by Type categories, matching the formula specifications.
      */
     fun computeTypeMetrics(itemMetrics: List<ItemMetrics>): List<TypeMetrics> {
-        val groupedByType = itemMetrics.groupBy { it.type.uppercase().trim() }
+        val groupedBySector = itemMetrics.groupBy { it.sector.uppercase().trim() }
 
-        return groupedByType.map { (sector, items) ->
+        return groupedBySector.map { (sector, items) ->
             val itemCount = items.size
             val buyAmount = items.sumOf { it.buyAmount }
             val saleAmount = items.sumOf { it.saleAmount }
@@ -244,7 +205,7 @@ object FinancialEngines {
             }
 
             TypeMetrics(
-                type = sector,
+                sector = sector,
                 itemCount = itemCount,
                 buyAmount = buyAmount,
                 saleAmount = saleAmount,
@@ -262,6 +223,6 @@ object FinancialEngines {
                 profitAmount = profitAmount,
                 profitPercent = profitPercent
             )
-        }.sortedBy { it.type }
+        }.sortedBy { it.sector }
     }
 }
