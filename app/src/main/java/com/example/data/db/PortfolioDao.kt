@@ -154,8 +154,8 @@ interface PortfolioDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBoid(boid: BoidEntity)
 
-    @Delete
-    fun deleteBoid(boid: BoidEntity)
+    @Query("DELETE FROM Boids WHERE boid = :boid")
+    suspend fun deleteBoidByString(boid: String)
 
     // --- HOLDINGS (PRE-COMPUTED) ---
     @Query("SELECT * FROM Holdings ORDER BY symbol ASC")

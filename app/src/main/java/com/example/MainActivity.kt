@@ -246,7 +246,7 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
                 marketViewModel.refreshMarketData()
                 Toast.makeText(context, "Refreshing market data...", Toast.LENGTH_SHORT).show()
             }) { Icon(Icons.Default.Refresh, null) } }) },
-            bottomBar = { NavigationBar { tabs.forEachIndexed { i, tab -> NavigationBarItem(selected = pagerState.currentPage == i, onClick = { cs.launch { pagerState.animateScrollToPage(i) } }, label = { Text(tab.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }) }, icon = { Icon(when(tab){ NavigationTab.DASHBOARD -> Icons.Default.Dashboard; NavigationTab.MATRIX -> Icons.Default.TableChart; NavigationTab.DATA -> Icons.AutoMirrored.Filled.Input; NavigationTab.MORE -> Icons.Default.MoreHoriz }, null) }) } } }
+            bottomBar = { NavigationBar { tabs.forEachIndexed { i, tab -> NavigationBarItem(selected = pagerState.currentPage == i, onClick = { if (tab == NavigationTab.MORE) currentSubView = null; cs.launch { pagerState.animateScrollToPage(i) } }, label = { Text(tab.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }) }, icon = { Icon(when(tab){ NavigationTab.DASHBOARD -> Icons.Default.Dashboard; NavigationTab.MATRIX -> Icons.Default.TableChart; NavigationTab.DATA -> Icons.AutoMirrored.Filled.Input; NavigationTab.MORE -> Icons.Default.MoreHoriz }, null) }) } } }
         ) { inner ->
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().padding(inner), userScrollEnabled = true) { page ->
                 when (tabs[page]) {
@@ -1658,9 +1658,9 @@ fun IpoMasterScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
         val upcoming = displayIpos.filter { !it.openingDate.isNullOrBlank() && it.openingDate > today }.sortedBy { it.openingDate }
         val currentIssues = displayIpos.filter { 
             it !in upcoming && (
-                it.status.lowercase() in listOf("open", "active", "closed", "applying") || 
+                (it.status.lowercase() in listOf("open", "active", "closed", "applying") && it.allotmentDate.isNullOrBlank()) || 
                 (!it.allotmentDate.isNullOrBlank() && it.allotmentDate >= weekAgo) ||
-                (it.openingDate.isNullOrBlank() && !it.status.equals("Allotted", true))
+                (it.openingDate.isNullOrBlank() && !it.status.equals("Allotted", true) && it.allotmentDate.isNullOrBlank())
             )
         }.sortedByDescending { it.openingDate ?: "" }
         
@@ -1835,51 +1835,56 @@ fun IpoMasterCard(ipo: IpoMaster, vm: BulkIpoViewModel, context: android.content
                     }
                 }
                 
-                Badge(containerColor = statusColor.copy(alpha = 0.1f), contentColor = statusColor) {
-                    Text(statusText, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+            Badge(containerColor = statusColor.copy(alpha = 0.1f), contentColor = statusColor) {
+                Text(statusText, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        Spacer(Modifier.height(8.dp))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("Opening Date", fontSize = 9.sp, color = Color.Gray)
+                Text(ipo.openingDate ?: "N/A", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Closing Date", fontSize = 9.sp, color = Color.Gray)
+                Text(ipo.closingDate ?: "N/A", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Allotment Date", fontSize = 9.sp, color = Color.Gray)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showDatePicker = true }) {
+                    Text(ipo.allotmentDate ?: "Set", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (ipo.allotmentDate == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                    Icon(Icons.Default.EditCalendar, null, modifier = Modifier.padding(start = 2.dp).size(12.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
+        }
 
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(Modifier.height(12.dp))
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text("Opening Date", fontSize = 10.sp, color = Color.Gray)
-                    Text(ipo.openingDate ?: "N/A", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Closing Date", fontSize = 10.sp, color = Color.Gray)
-                    Text(ipo.closingDate ?: "N/A", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Allotment Date", fontSize = 10.sp, color = Color.Gray)
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showDatePicker = true }) {
-                        Text(ipo.allotmentDate ?: "Set Date", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (ipo.allotmentDate == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                        Icon(Icons.Default.EditCalendar, null, modifier = Modifier.padding(start = 4.dp).size(14.dp), tint = MaterialTheme.colorScheme.primary)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Result Portal ID", fontSize = 9.sp, color = Color.Gray)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (ipo.resultPortalId != null) ipo.resultPortalId.toString() else "Not Mapped", 
+                            fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (ipo.resultPortalId == null) Color.Red else MaterialTheme.colorScheme.onSurface)
+                        
+                        Spacer(Modifier.width(8.dp))
+                        if (isSearchingItem) {
+                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Default.AutoFixHigh, 
+                                "Auto Find", 
+                                tint = MaterialTheme.colorScheme.primary, 
+                                modifier = Modifier.size(18.dp).clickable { vm.discoverResultPortalId(ipo) }
+                            )
+                        }
                     }
-                }
-            }
-
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("Result Portal ID", fontSize = 10.sp, color = Color.Gray)
-                    Text(if (ipo.resultPortalId != null) ipo.resultPortalId.toString() else "Not Mapped", 
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (ipo.resultPortalId == null) Color.Red else MaterialTheme.colorScheme.onSurface)
                 }
                 
                 var showIdInput by remember { mutableStateOf(false) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isSearchingItem) {
-                         CircularProgressIndicator(Modifier.size(24.dp).padding(4.dp), strokeWidth = 2.dp)
-                    } else {
-                        IconButton(onClick = { vm.discoverResultPortalId(ipo) }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.AutoFixHigh, "Auto Find", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    IconButton(onClick = { showIdInput = true }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) }
-                }
+                IconButton(onClick = { showIdInput = true }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) }
                 
                 if (showIdInput) {
                     PortalIdEditDialog(ipo.companyName, ipo.resultPortalId?.toString() ?: "", { vm.updateResultPortalId(ipo.companyName, it) }, { showIdInput = false })

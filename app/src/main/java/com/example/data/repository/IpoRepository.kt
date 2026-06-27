@@ -84,7 +84,7 @@ class IpoRepository(
     }
 
     suspend fun removeBoid(boid: String) {
-        portfolioDao.deleteBoid(BoidEntity(boid, ""))
+        portfolioDao.deleteBoidByString(boid)
     }
 
     suspend fun updateIpo(ipo: IpoMaster) {
@@ -446,6 +446,7 @@ class IpoRepository(
         
         AppLogger.i("IpoDiscovery", "Starting sequential discovery for $companyName using $defaultBoid. Range: $startRange to $endRange")
         
+        var foundId: Int? = null
         for (id in candidates) {
             try {
                 val result = checkIpoResultInternal(id, defaultBoid)
@@ -454,19 +455,30 @@ class IpoRepository(
                     // "You have not been allotted shares of [Company Name]"
                     if (it.message.contains(companyName, ignoreCase = true) || 
                         it.message.contains(companyName.split(" ").first(), ignoreCase = true)) {
-                        AppLogger.i("IpoDiscovery", "Found ID $id for $companyName. Message: ${it.message}")
-                        return@withContext id
+                        AppLogger.i("IpoDiscovery", "SUCCESS: Found matching ID $id for $companyName. Msg: ${it.message}")
+                        foundId = id
+                        return@onSuccess
+                    } else {
+                        AppLogger.i("IpoDiscovery", "Checking ID $id: Wrong company ($it.message)", throttle = true)
+                    }
+                }.onFailure {
+                    AppLogger.w("IpoDiscovery", "Checking ID $id: Request failed (${it.message})", throttle = true)
+                    if (it.message?.contains("Rejected") == true || it.message?.contains("403") == true) {
+                        AppLogger.e("IpoDiscovery", "Sequential discovery aborted: CDSC WAF Block detected.")
+                        return@withContext null
                     }
                 }
+                
+                if (foundId != null) return@withContext foundId
             } catch (e: Exception) {
-                AppLogger.d("IpoDiscovery", "Candidate $id failed: ${e.message}")
+                AppLogger.e("IpoDiscovery", "Error checking candidate $id", e)
             }
             
             // Respectful delay to avoid WAF blocking (3 seconds per request)
-            // 50 attempts * 3s = 150 seconds max.
             delay(3000)
         }
         
+        AppLogger.w("IpoDiscovery", "Sequential discovery finished: No matching ID found for $companyName in range $startRange-$endRange")
         null
     }
 
