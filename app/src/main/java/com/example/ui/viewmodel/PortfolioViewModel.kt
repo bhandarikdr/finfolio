@@ -156,19 +156,17 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     val recentSectors: StateFlow<List<String>> = repository.recentSectors
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val distinctSectors: StateFlow<List<String>> = combine(
-        repository.distinctSectors,
-        repository.distinctSectorsFromMaster
-    ) { fromData, fromMaster ->
-        val garbage = listOf("sector", "type", "total", "action", "company", "s.no", "name", "symbol", "index", "indices")
-        (fromData + fromMaster)
-            .filter { 
-                val clean = it.lowercase().trim()
-                it.isNotBlank() && !garbage.contains(clean) && it.replace(",", "").toDoubleOrNull() == null 
-            }
-            .distinct()
-            .sorted()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val distinctSectors: StateFlow<List<String>> = repository.distinctSectors
+        .map { fromData ->
+            val garbage = listOf("sector", "type", "total", "action", "company", "s.no", "name", "symbol", "index", "indices")
+            fromData
+                .filter { 
+                    val clean = it.lowercase().trim()
+                    it.isNotBlank() && !garbage.contains(clean) && it.replace(",", "").toDoubleOrNull() == null 
+                }
+                .distinct()
+                .sorted()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
 
     // UI States and Filters - Independent Dashboard and Matrix Scopes

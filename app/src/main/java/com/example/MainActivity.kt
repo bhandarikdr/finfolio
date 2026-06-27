@@ -761,19 +761,31 @@ fun GlobalMarketSearchDialog(
 @Composable
 fun IndicesConfigDialog(all: List<com.example.data.repository.MarketIndex>, vis: Set<String>, primaryIndexName: String, onT: (String) -> Unit, onSetAll: (Set<String>) -> Unit, onD: () -> Unit) {
     val sortedAll = remember(all, primaryIndexName) {
-        val primary = all.find { it.index.equals(primaryIndexName, true) || it.index.contains(primaryIndexName, true) }
-            ?: com.example.data.repository.MarketIndex(primaryIndexName, 0.0, 0.0, 0.0)
-            
-        listOf(primary) + all.filter { it.index != primary.index }.sortedBy { it.index }
+        val pName = primaryIndexName.ifBlank { "NEPSE Index" }
+        
+        // 1. Find the best match for primary
+        val primary = all.find { it.index.equals(pName, true) }
+            ?: all.find { it.index.contains(pName, true) }
+            ?: com.example.data.repository.MarketIndex(pName, 0.0, 0.0, 0.0)
+
+        // 2. Filter out anything that is essentially the primary
+        val others = all.filter { 
+            val isExactPrimary = it.index.equals(primary.index, true)
+            val isSimilarToPrimary = it.index.equals(pName, true) || (pName.length > 3 && it.index.contains(pName, true))
+            !isExactPrimary && !isSimilarToPrimary
+        }.sortedBy { it.index }
+
+        // 3. Combine and final deduplication by name
+        (listOf(primary) + others).distinctBy { it.index.lowercase().trim() }
     }
 
     Dialog(onDismissRequest = onD) {
         Card(shape = RoundedCornerShape(16.dp)) {
             Column(Modifier.padding(16.dp)) {
-                Text("Select Indices", fontWeight = FontWeight.Bold)
+                Text("Select Indices (${sortedAll.size})", fontWeight = FontWeight.Bold)
                 
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onSetAll(all.map { it.index }.toSet()) }, modifier = Modifier.weight(1f)) {
+                    TextButton(onClick = { onSetAll(sortedAll.map { it.index }.toSet()) }, modifier = Modifier.weight(1f)) {
                         Text("Select All", fontSize = 11.sp)
                     }
                     TextButton(onClick = { onSetAll(setOf()) }, modifier = Modifier.weight(1f)) {
@@ -783,7 +795,7 @@ fun IndicesConfigDialog(all: List<com.example.data.repository.MarketIndex>, vis:
 
                 LazyColumn(Modifier.weight(1f, false).padding(top = 4.dp).heightIn(max = 240.dp)) { 
                     items(sortedAll) { idx -> 
-                        val isPrimary = idx.index.equals(primaryIndexName, true) || idx.index.contains(primaryIndexName, true)
+                        val isPrimary = idx.index.equals(sortedAll.first().index, true)
                         Row(
                             Modifier.fillMaxWidth()
                                 .clickable(enabled = !isPrimary) { onT(idx.index) }
@@ -909,6 +921,7 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, on
     }
 
     var showA by remember { mutableStateOf(false) }
+    var pBoidDel by remember { mutableStateOf<com.example.data.model.BoidEntry?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var exp by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -1112,13 +1125,14 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, on
                         checkResult = res.find { it.boidEntry.boid == boid.boid },
                         onToggle = { vm.toggleBoidEnabled(boid.boid) },
                         onSetDefault = { vm.setDefaultBoid(boid.boid) }, 
-                        onR = { vm.removeBoid(boid) }
+                        onR = { pBoidDel = boid }
                     ) 
                 }
             }
         }
     }
     if (showA) AddBoidDialog({ n, b -> vm.addBoid(n, b); showA = false }, { showA = false })
+    if (pBoidDel != null) AlertDialog({ pBoidDel = null }, title = { Text("Confirm Deletion") }, text = { Text("Remove family BOID for '${pBoidDel!!.name}'? This will also clear its result cache.") }, confirmButton = { Button({ vm.removeBoid(pBoidDel!!); pBoidDel = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton({ pBoidDel = null }) { Text("Cancel") } })
 }
 
 @Composable
@@ -2271,13 +2285,8 @@ fun MatrixScreen(vm: PortfolioViewModel) {
                 }
                 DropdownMenu(exp, { exp = false }, modifier = Modifier.heightIn(max = 280.dp)) {
                     DropdownMenuItem(text = { Text("All") }, onClick = { vm.setSelectedSectorFilter("All"); exp = false })
-                    // Sort items between All and Other
-                    val sortedSectors = dSectors.filter { it.lowercase() != "other" }.sorted()
-                    val hasOther = dSectors.any { it.lowercase() == "other" }
-                    
-                    sortedSectors.forEach { DropdownMenuItem(text = { Text(it) }, onClick = { vm.setSelectedSectorFilter(it); exp = false }) }
-                    if (hasOther) {
-                        DropdownMenuItem(text = { Text("Other") }, onClick = { vm.setSelectedSectorFilter("Other"); exp = false })
+                    dSectors.forEach { sector ->
+                        DropdownMenuItem(text = { Text(sector) }, onClick = { vm.setSelectedSectorFilter(sector); exp = false })
                     }
                 } 
             }
