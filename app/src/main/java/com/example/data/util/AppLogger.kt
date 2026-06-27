@@ -13,17 +13,41 @@ object AppLogger {
     private val scope = CoroutineScope(Dispatchers.IO)
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
 
+    private val throttledLogs = mutableMapOf<String, Long>()
+    private val THROTTLE_INTERVAL = 60 * 60 * 1000L // 1 hour
+
     fun init(dao: AppLogDao) {
         logDao = dao
         d("Logger", "AppLogger initialized")
     }
 
-    fun i(tag: String, msg: String) = log("INFO", tag, msg)
-    fun d(tag: String, msg: String) = log("DEBUG", tag, msg)
-    fun w(tag: String, msg: String) = log("WARN", tag, msg)
-    fun e(tag: String, msg: String, tr: Throwable? = null) {
+    fun i(tag: String, msg: String, throttle: Boolean = false) {
+        if (throttle && !shouldLog(tag, msg)) return
+        log("INFO", tag, msg)
+    }
+    fun d(tag: String, msg: String, throttle: Boolean = false) {
+        if (throttle && !shouldLog(tag, msg)) return
+        log("DEBUG", tag, msg)
+    }
+    fun w(tag: String, msg: String, throttle: Boolean = false) {
+        if (throttle && !shouldLog(tag, msg)) return
+        log("WARN", tag, msg)
+    }
+    fun e(tag: String, msg: String, tr: Throwable? = null, throttle: Boolean = false) {
+        if (throttle && !shouldLog(tag, msg)) return
         val fullMsg = if (tr != null) "$msg \nException: ${tr.message}\nStacktrace: ${tr.stackTraceToString()}" else msg
         log("ERROR", tag, fullMsg)
+    }
+
+    private fun shouldLog(tag: String, message: String): Boolean {
+        val key = "$tag:$message"
+        val now = System.currentTimeMillis()
+        val last = throttledLogs[key] ?: 0L
+        if (now - last > THROTTLE_INTERVAL) {
+            throttledLogs[key] = now
+            return true
+        }
+        return false
     }
 
     private fun log(level: String, tag: String, msg: String) {

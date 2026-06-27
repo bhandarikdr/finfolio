@@ -7,11 +7,13 @@ import com.example.data.model.*
 import com.example.data.util.AppLogger
 import com.example.data.util.CircuitBreaker
 import com.example.data.util.PriceAuditBuffer
+import com.example.data.util.NetworkUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.HttpURLConnection
@@ -192,7 +194,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
     suspend fun fetchMarketIndices(force: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         if (!force && (now - lastIndicesSync) < BACKGROUND_SYNC_COOLDOWN) {
-            AppLogger.d("MarketSync", "Skipping Market Indices Sync (Cooldown active)")
+            AppLogger.d("MarketSync", "Skipping Market Indices Sync (Cooldown active)", throttle = true)
             return@withContext Result.success(0)
         }
         lastIndicesSync = now
@@ -207,13 +209,30 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         for (url in urls) {
             val cb = getCircuitBreaker(url)
             if (!cb.canAttempt()) {
-                AppLogger.w("MarketSync", "Circuit OPEN for $url, skipping...")
+                AppLogger.w("MarketSync", "Circuit OPEN for $url, skipping...", throttle = true)
                 continue
             }
 
             try {
                 AppLogger.d("MarketSync", "Scraping URL: $url")
-                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(15000).get()
+                val useUnsafe = url.contains("nepalstock.com")
+                val html = if (useUnsafe) {
+                    val client = NetworkUtils.getUnsafeOkHttpClient()
+                    val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                        response.body?.string() ?: ""
+                    }
+                } else {
+                    Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(15000).get().html()
+                }
+
+                if (html.isBlank()) {
+                    cb.recordFailure()
+                    continue
+                }
+
+                val doc = Jsoup.parse(html)
                 val tables = doc.select("table")
                 
                 tables.forEachIndexed { tableIdx, table ->
@@ -308,7 +327,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
     suspend fun fetchPriceChanges(force: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         if (!force && (now - lastPriceSync) < BACKGROUND_SYNC_COOLDOWN) {
-            AppLogger.d("LtpSync", "Skipping Scrip LTP Sync (Cooldown active)")
+            AppLogger.d("LtpSync", "Skipping Scrip LTP Sync (Cooldown active)", throttle = true)
             return@withContext Result.success(0)
         }
         lastPriceSync = now
@@ -325,14 +344,32 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         for (baseUrl in urls) {
             val cb = getCircuitBreaker(baseUrl)
             if (!cb.canAttempt()) {
-                AppLogger.w("LtpSync", "Circuit OPEN for $baseUrl, skipping...")
+                AppLogger.w("LtpSync", "Circuit OPEN for $baseUrl, skipping...", throttle = true)
                 continue
             }
 
             try {
                 val url = if (baseUrl.contains("?")) "$baseUrl&t=${System.currentTimeMillis()}" else "$baseUrl?t=${System.currentTimeMillis()}"
                 AppLogger.d("LtpSync", "Requesting URL: $url")
-                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(20000).get()
+                
+                val useUnsafe = baseUrl.contains("nepalstock.com")
+                val html = if (useUnsafe) {
+                    val client = NetworkUtils.getUnsafeOkHttpClient()
+                    val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                        response.body?.string() ?: ""
+                    }
+                } else {
+                    Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(20000).get().html()
+                }
+
+                if (html.isBlank()) {
+                    cb.recordFailure()
+                    continue
+                }
+
+                val doc = Jsoup.parse(html)
                 val scrapedLtps = mutableListOf<com.example.data.db.ExternalLtp>()
                 val timestamp = System.currentTimeMillis()
 

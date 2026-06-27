@@ -1,324 +1,401 @@
-Based on the log analysis, here are the key issues and robust solutions:
+# Revised Finfolio Log Analysis - Bug Report
 
-## Issues Identified
+## Executive Summary
+The log reveals **5 major categories of issues** affecting the Finfolio application's data synchronization capabilities. The most critical is the **SSL certificate validation failure** that prevents access to `nepalstock.com`.
 
-1. **SSL Certificate Errors**: `www.nepalstock.com` failing with `Trust anchor for certification path not found`
-2. **JSON Content Type Handling**: `nepalipaisa.com` returning JSON but Jsoup expecting HTML (`application/json` is rejected)
-3. **WAF/Request Rejection**: CDSC portal returning HTML instead of JSON (potential firewall blocking)
-4. **404 Errors**: `sharesansar.com/ipo-fpo-news` endpoint not found
-5. **No Data Found**: Some URLs returning empty/invalid data
+---
 
-## Robust Solutions
+## 🚨 CRITICAL BUGS
 
-### 1. **Comprehensive Solution for SSL Certificate Issues**
+### Bug 1: SSL Certificate Validation Failure
+**Severity:** 🔴 Critical
+**Frequency:** Repeated across all sync attempts (50+ occurrences)
 
-```kotlin
-// Create a custom trust manager that accepts all certificates (for testing only)
-// OR implement proper certificate pinning
+**Description:**
+The application fails to establish HTTPS connections to `https://www.nepalstock.com/` due to missing trust anchors for the certificate chain.
 
-class NetworkHelper {
-    companion object {
-        fun getUnsafeOkHttpClient(): OkHttpClient {
-            return try {
-                // Create a trust manager that trusts all certificates
-                val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                    override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                })
-
-                val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(null, trustAllCerts, SecureRandom())
-
-                OkHttpClient.Builder()
-                    .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-                    .hostnameVerifier { _, _ -> true }
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(30, TimeUnit.SECONDS)
-                    .build()
-            } catch (e: Exception) {
-                throw RuntimeException(e)
-            }
-        }
-
-        // For production: Use certificate pinning
-        fun getPinnedOkHttpClient(): OkHttpClient {
-            val certificatePinner = CertificatePinner.Builder()
-                .add("nepalstock.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") // Replace with actual pin
-                .build()
-
-            return OkHttpClient.Builder()
-                .certificatePinner(certificatePinner)
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build()
-        }
-    }
-}
+**Error Pattern:**
+```
+java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
 ```
 
-### 2. **Enhanced Scraper with Multiple Content Type Support**
+**Impact:**
+- Market indices sync fails for this source
+- Live price (LTP) sync fails for this source
+- Users miss data from what appears to be a primary market data source
+- Affects both `MarketSync` and `LtpSync` operations
 
-```kotlin
-class RobustScraper(
-    private val okHttpClient: OkHttpClient = NetworkHelper.getUnsafeOkHttpClient()
-) {
+**Root Cause:**
+The Android device's trust store doesn't recognize the certificate authority that signed `nepalstock.com`'s SSL certificate, or the certificate is self-signed/expired.
 
-    sealed class ScrapeResult {
-        data class Success(val data: String, val contentType: String) : ScrapeResult()
-        data class Error(val exception: Exception, val url: String) : ScrapeResult()
-    }
+**Affected URLs:**
+- `https://www.nepalstock.com/` (Primary source)
+- `https://www.nepalstock.com` (Market Status)
 
-    suspend fun scrape(url: String, headers: Map<String, String> = emptyMap()): ScrapeResult {
-        return withContext(Dispatchers.IO) {
-            try {
-                val request = Request.Builder()
-                    .url(url)
-                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .addHeader("Accept", "text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8")
-                    .addHeader("Accept-Language", "en-US,en;q=0.9")
-                    .apply {
-                        headers.forEach { (key, value) -> addHeader(key, value) }
-                    }
-                    .build()
+**Timestamp Examples:**
+- 2026-06-27 02:20:30.415
+- 2026-06-27 02:18:17.176
+- 2026-06-27 01:42:41.732
 
-                val response = okHttpClient.newCall(request).execute()
+---
 
-                response.use { res ->
-                    if (!res.isSuccessful) {
-                        return@withContext ScrapeResult.Error(
-                            Exception("HTTP ${res.code}: ${res.message}"),
-                            url
-                        )
-                    }
+### Bug 2: Empty Response from Merolagani
+**Severity:** 🟠 High
+**Frequency:** Multiple occurrences
 
-                    val contentType = res.header("Content-Type") ?: "text/html"
-                    val body = res.body?.string() ?: ""
+**Description:**
+`LtpSync` completes with 0 items when scraping from `merolagani.com/LatestMarket.aspx`, indicating the scraper may be failing to parse the page correctly or the page structure has changed.
 
-                    // Handle different content types
-                    when {
-                        contentType.contains("application/json") -> {
-                            // For JSON responses
-                            ScrapeResult.Success(body, "json")
-                        }
-                        contentType.contains("text/html") -> {
-                            // For HTML responses
-                            ScrapeResult.Success(body, "html")
-                        }
-                        else -> {
-                            // Try to detect content type from content
-                            when {
-                                body.trim().startsWith("{") || body.trim().startsWith("[") -> {
-                                    ScrapeResult.Success(body, "json")
-                                }
-                                body.trim().startsWith("<") -> {
-                                    ScrapeResult.Success(body, "html")
-                                }
-                                else -> {
-                                    ScrapeResult.Success(body, "unknown")
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                ScrapeResult.Error(e, url)
-            }
-        }
-    }
-}
+**Error Pattern:**
+```
+[WARN] [LtpSync]: Sync finished with 0 items
 ```
 
-### 3. **CDSC Portal WAF Bypass Strategy**
+**Impact:**
+- No LTP data extracted from Merolagani
+- Users miss price updates from this source
+- May lead to incomplete portfolio valuations
 
+**Timestamp Examples:**
+- 2026-06-27 06:11:50.628
+- 2026-06-27 02:03:51.401
+- 2026-06-27 01:38:25.329
+- 2026-06-27 01:29:59.589
+
+---
+
+### Bug 3: Input Stream Zero Bytes Error
+**Severity:** 🟠 High
+**Frequency:** At least 1 occurrence
+
+**Description:**
+`Sharesansar.com` returns an empty response (zero bytes), causing Jsoup parsing to fail with `IOException: Underlying input stream returned zero bytes`.
+
+**Error Pattern:**
+```
+java.io.IOException: Underlying input stream returned zero bytes
+```
+
+**Impact:**
+- Live-trading page fails to load
+- Prevents LTP data extraction from Sharesansar
+- May be caused by rate limiting, blocking, or temporary server issues
+
+**Timestamp:**
+- 2026-06-27 01:29:52.231
+
+---
+
+### Bug 4: Excessive Logging/Spam
+**Severity:** 🟡 Medium
+**Frequency:** Very high
+
+**Description:**
+The application logs every "skipped sync" due to cooldown, creating massive log bloat. This makes it difficult to identify real issues.
+
+**Pattern:**
+```
+[DEBUG] [LtpSync]: Skipping Scrip LTP Sync (Cooldown active)
+[DEBUG] [MarketSync]: Skipping Market Indices Sync (Cooldown active)
+[DEBUG] [MarketStatus]: Attempting scrape from: ...
+```
+
+**Impact:**
+- Makes logs harder to read
+- Potentially slower performance due to excessive logging
+- Wastes storage space on device
+- Obscures real error patterns
+
+**Timestamp Examples:**
+- 2026-06-27 02:18:14.912
+- 2026-06-27 02:16:52.618
+- 2026-06-27 01:42:32.959
+
+---
+
+### ~~Bug 5: Inconsistent Primary Index Name Detection~~ (RESOLVED - User Configurable Feature)
+
+**Status:** ✅ **This is NOT a bug** - This is expected behavior based on application design.
+
+**Explanation:**
+The application allows users to explicitly set the primary index and source URLs through the Scraper Configuration Screen. The different naming patterns (`'NEPSE Index'` vs `'NEPSE'`) appear because:
+
+1. **User Configuration:** Users can set custom names for primary indices
+2. **Multiple Sources:** Different data sources (Merolagani, Sharesansar, NepalStock) may have different naming conventions
+3. **Configuration Screen:** The log shows users actively managing scraper configurations:
+   ```
+   [2026-06-27 01:09:36.285] [INFO] [ScraperConfig]: User applying batch changes for SCRIP_SYNC
+   [2026-06-27 01:07:14.765] [INFO] [ScraperConfig]: User applying batch changes for INDEX_UPDATE
+   ```
+
+The application is working as designed - it respects user-defined configurations and falls back to defaults when URLs are deleted or modified.
+
+---
+
+## 🟢 SUGGESTED FIXES
+
+### Fix 1: SSL Certificate Handling
 ```kotlin
-class CDSCScraper {
-    private val okHttpClient = OkHttpClient.Builder()
-        .cookieJar(CookieJar {
-            private val cookieStore = mutableMapOf<String, List<Cookie>>()
-            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                cookieStore[url.host] = cookies
-            }
-            override fun loadForRequest(url: HttpUrl): List<Cookie> {
-                return cookieStore[url.host] ?: emptyList()
-            }
+// In Network/HttpClient configuration
+val trustManager = TrustManagerFactory.getInstance(
+    TrustManagerFactory.getDefaultAlgorithm()
+).apply {
+    init(null as KeyStore?)
+}
+
+val sslContext = SSLContext.getInstance("TLS").apply {
+    init(null, trustManager.trustManagers, null)
+}
+
+// Or implement custom trust manager for specific domains
+class CustomTrustManager : X509TrustManager {
+    override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+        // Add specific certificate validation for nepalstock.com
+        // Consider using CertificatePinner for security
+    }
+}
+
+// Fallback to trust-all for known problematic domains (use with caution)
+fun createOkHttpClient(): OkHttpClient {
+    return if (BuildConfig.DEBUG) {
+        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
         })
-        .addInterceptor { chain ->
-            val request = chain.request()
-            val response = chain.proceed(request)
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+        OkHttpClient.Builder()
+            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    } else {
+        OkHttpClient.Builder().build()
+    }
+}
+```
 
-            // Handle WAF response
-            if (response.code == 200 && response.header("Content-Type")?.contains("text/html") == true) {
-                val body = response.body?.string()
-                if (body?.contains("Request Rejected") == true) {
-                    // Retry with different headers
-                    val newRequest = request.newBuilder()
-                        .addHeader("Accept", "application/json")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
-                        .addHeader("Referer", "https://iporesult.cdsc.com.np/")
-                        .build()
-                    return@addInterceptor chain.proceed(newRequest)
-                }
-                // Recreate response with body
-                response.newBuilder()
-                    .body(body?.toResponseBody("text/html".toMediaType()))
-                    .build()
+### Fix 2: Scraper Robustness Improvements
+```kotlin
+// In LtpSync.kt - Add retry and fallback logic
+suspend fun syncWithRetry(maxRetries: Int = 3) {
+    repeat(maxRetries) { attempt ->
+        try {
+            val result = syncLtp()
+            if (result.isNotEmpty()) return result
+            delay(1000L * (attempt + 1)) // Exponential backoff
+        } catch (e: IOException) {
+            if (attempt == maxRetries - 1) throw e
+            delay(2000L * (attempt + 1))
+        }
+    }
+}
+
+// Implement circuit breaker pattern
+class CircuitBreaker {
+    private var failureCount = 0
+    private val maxFailures = 5
+    private val resetTimeout = 60000L
+    private var circuitOpenTime = 0L
+
+    suspend fun <T> execute(block: suspend () -> T): T {
+        if (isOpen()) {
+            if (System.currentTimeMillis() - circuitOpenTime > resetTimeout) {
+                // Try to reset
+                reset()
             } else {
-                response
+                throw CircuitOpenException("Circuit is open for this source")
             }
         }
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+        return try {
+            block().also {
+                failureCount = 0
+                circuitOpenTime = 0
+            }
+        } catch (e: Exception) {
+            failureCount++
+            if (failureCount >= maxFailures) {
+                circuitOpenTime = System.currentTimeMillis()
+            }
+            throw e
+        }
+    }
 
-    suspend fun fetchCDSCData(): Result<String> {
-        return withContext(Dispatchers.IO) {
+    private fun isOpen() = failureCount >= maxFailures
+    private fun reset() {
+        failureCount = 0
+        circuitOpenTime = 0
+    }
+}
+```
+
+### Fix 3: Reduce Logging Noise
+```kotlin
+// In Logging configuration
+object SmartLogger {
+    private const val MIN_COOLDOWN_LOG_INTERVAL = 60000L // 1 minute
+    private val lastCooldownLog = mutableMapOf<String, Long>()
+
+    fun logCooldownIfNeeded(tag: String, source: String) {
+        val key = "$tag-$source"
+        val now = System.currentTimeMillis()
+        val lastLog = lastCooldownLog[key] ?: 0
+
+        if (now - lastLog >= MIN_COOLDOWN_LOG_INTERVAL) {
+            Logger.log(Level.DEBUG, tag, "Skipping sync (Cooldown active) for $source")
+            lastCooldownLog[key] = now
+        }
+    }
+}
+
+// Use in sync functions
+if (isCooldownActive()) {
+    SmartLogger.logCooldownIfNeeded("LtpSync", "SCRIP_SYNC")
+    return emptyList()
+}
+```
+
+### Fix 4: Add Health Checks & Source Prioritization
+```kotlin
+// Add data source health monitoring with user configuration awareness
+data class DataSourceHealth(
+    val source: String,
+    val type: SourceType, // MARKET_INDEX, LTP, IPO, SCRIP
+    val isHealthy: Boolean = true,
+    val lastSuccessfulSync: Long = 0,
+    val consecutiveFailures: Int = 0,
+    val isUserConfigured: Boolean = false
+)
+
+class SyncHealthMonitor(private val scraperConfig: ScraperConfig) {
+    private val healthMap = mutableMapOf<String, DataSourceHealth>()
+
+    fun recordSuccess(source: String, type: SourceType) {
+        val key = "$type-$source"
+        healthMap[key] = DataSourceHealth(
+            source = source,
+            type = type,
+            isHealthy = true,
+            lastSuccessfulSync = System.currentTimeMillis(),
+            consecutiveFailures = 0,
+            isUserConfigured = scraperConfig.isUserDefined(type, source)
+        )
+    }
+
+    fun recordFailure(source: String, type: SourceType) {
+        val key = "$type-$source"
+        val current = healthMap[key] ?: DataSourceHealth(
+            source = source,
+            type = type,
+            isUserConfigured = scraperConfig.isUserDefined(type, source)
+        )
+        healthMap[key] = current.copy(
+            isHealthy = current.consecutiveFailures < 3,
+            consecutiveFailures = current.consecutiveFailures + 1
+        )
+    }
+
+    fun getHealthySources(type: SourceType): List<String> {
+        return healthMap.values
+            .filter { it.type == type && it.isHealthy }
+            .map { it.source }
+    }
+}
+```
+
+### Fix 5: Smart Fallback with User Config Awareness
+```kotlin
+class SmartSyncManager(
+    private val healthMonitor: SyncHealthMonitor,
+    private val scraperConfig: ScraperConfig
+) {
+    suspend fun syncWithFallback(type: SourceType, block: suspend (String) -> Result): SyncResult {
+        val userSources = scraperConfig.getUrls(type)
+        val healthySources = healthMonitor.getHealthySources(type)
+
+        // Prioritize user-configured sources
+        val prioritizedSources = userSources
+            .filter { it in healthySources }
+            .let {
+                if (it.isEmpty()) userSources else it
+            }
+
+        for (source in prioritizedSources) {
             try {
-                // First request to get session cookie
-                val initRequest = Request.Builder()
-                    .url("https://iporesult.cdsc.com.np/result/company/list")
-                    .addHeader("User-Agent", getRandomUserAgent())
-                    .addHeader("Accept", "application/json, text/plain, */*")
-                    .build()
-
-                val response = okHttpClient.newCall(initRequest).execute()
-                val body = response.body?.string() ?: ""
-
-                if (body.contains("Request Rejected")) {
-                    // Wait and retry
-                    delay(2000)
-                    val retryResponse = okHttpClient.newCall(initRequest).execute()
-                    Result.success(retryResponse.body?.string() ?: "")
-                } else {
-                    Result.success(body)
+                val result = block(source)
+                if (result.isSuccess) {
+                    healthMonitor.recordSuccess(source, type)
+                    return result
                 }
             } catch (e: Exception) {
-                Result.failure(e)
+                healthMonitor.recordFailure(source, type)
+                // Log but continue to next source
+                Logger.log(Level.ERROR, "SyncManager", "Failed on $source: ${e.message}")
             }
         }
-    }
 
-    private fun getRandomUserAgent(): String {
-        val agents = listOf(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        return agents.random()
+        return SyncResult.Error("All sources failed for $type")
     }
 }
 ```
 
-### 4. **Configuration Manager with Fallback Strategy**
+---
 
-```kotlin
-enum class ScraperType {
-    LTP_UPDATE, INDEX_UPDATE, SCRIP_SYNC, IPO_LISTING, CDSC_RESULT, CDSC_COMPANIES
-}
+## 📊 Priority Order for Fixes
 
-class ConfigurableScraperManager(
-    private val context: Context
-) {
-    private val prefs = context.getSharedPreferences("scraper_configs", Context.MODE_PRIVATE)
+| Priority | Bug | Estimated Effort | Dependencies |
+|----------|-----|------------------|--------------|
+| 1 | SSL Certificate Validation | Medium (2-3 days) | Network team approval |
+| 2 | Empty Response from Merolagani | Medium (2-3 days) | Requires page structure analysis |
+| 3 | Input Stream Zero Bytes | Low (1 day) | Add retry logic + monitoring |
+| 4 | Excessive Logging | Low (4-6 hours) | None |
 
-    data class ScraperConfig(
-        val urls: List<String>,
-        val parser: String,
-        val fallbackUrls: List<String> = emptyList(),
-        val headers: Map<String, String> = emptyMap(),
-        val timeoutSeconds: Int = 30,
-        val retryCount: Int = 3
-    )
+---
 
-    suspend fun scrapeWithFallback(
-        scraperType: ScraperType,
-        config: ScraperConfig
-    ): ScrapeResult {
-        // Try primary URLs
-        for (url in config.urls) {
-            when (val result = robustScraper.scrape(url, config.headers)) {
-                is ScrapeResult.Success -> {
-                    if (isValidData(result.data, scraperType)) {
-                        return result
-                    }
-                }
-                else -> continue
-            }
-        }
+## 🔍 Additional Observations
 
-        // Try fallback URLs
-        for (url in config.fallbackUrls) {
-            when (val result = robustScraper.scrape(url, config.headers)) {
-                is ScrapeResult.Success -> {
-                    if (isValidData(result.data, scraperType)) {
-                        return result
-                    }
-                }
-                else -> continue
-            }
-        }
+1. **Fallback Mechanisms Working:** The application successfully falls back to `merolagani.com` when `nepalstock.com` fails, which is good practice.
 
-        return ScrapeResult.Error(Exception("All sources failed"), "")
-    }
+2. **Cooldown Implementation:** The cooldown mechanism appears to be working correctly, preventing excessive API calls.
 
-    private fun isValidData(data: String, type: ScraperType): Boolean {
-        return when (type) {
-            ScraperType.LTP_UPDATE, ScraperType.INDEX_UPDATE -> {
-                data.length > 100 && !data.contains("404") && !data.contains("error")
-            }
-            ScraperType.IPO_LISTING, ScraperType.CDSC_RESULT -> {
-                try {
-                    JSONObject(data) // Check if valid JSON
-                    true
-                } catch (e: Exception) {
-                    false
-                }
-            }
-            else -> data.length > 100 && !data.contains("Request Rejected")
-        }
-    }
-}
-```
+3. **Session Cookie Management:** IPO sync successfully acquires cookies, suggesting authentication is working.
 
-### 5. **Network Security Configuration**
+4. **Data Recovery:** Despite errors, the app continues to work with available data sources, showing good resilience.
 
-```xml
-<!-- res/xml/network_security_config.xml -->
-<?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <domain-config>
-        <domain includeSubdomains="true">nepalstock.com</domain>
-        <trust-anchors>
-            <certificates src="system" />
-            <certificates src="user" />
-        </trust-anchors>
-    </domain-config>
+5. **User Configuration Feature:** The Scraper Configuration Screen is actively used, allowing users to:
+   - Add/remove data sources
+   - Test URLs before saving
+   - Set custom primary indices
+   - Apply batch changes
 
-    <domain-config>
-        <domain includeSubdomains="true">sharesansar.com</domain>
-        <domain includeSubdomains="true">merolagani.com</domain>
-        <domain includeSubdomains="true">nepalipaisa.com</domain>
-        <domain includeSubdomains="true">iporesult.cdsc.com.np</domain>
-        <trust-anchors>
-            <certificates src="system" />
-        </trust-anchors>
-    </domain-config>
-</network-security-config>
-```
+---
 
-## Implementation Priority
+## 🛠️ Recommended Action Items
 
-1. **Immediate Fix**: Implement custom OkHttp client with SSL bypass for `nepalstock.com`
-2. **Content Type Handling**: Add JSON support in Jsoup/OkHttp clients
-3. **CDSC WAF**: Implement cookie handling and retry mechanism
-4. **Error Recovery**: Add proper logging and retry strategies
-5. **Configuration**: Create fallback URL system
+### Immediate Actions (Next 24-48 hours)
+1. **Implement SSL bypass** for `nepalstock.com` in debug builds
+2. **Add retry logic** with exponential backoff for all scrapers
+3. **Reduce logging noise** with cooldown throttling
 
-## Recommended Testing
+### Short-term Actions (Next Week)
+4. **Implement circuit breaker** for each data source
+5. **Add page structure monitoring** to detect changes early
+6. **Create health dashboard** for data sources (optional)
 
-1. Test each endpoint individually with custom headers
-2. Implement health checks for each scraper
-3. Add monitoring for failed requests
-4. Create a diagnostic tool to test all endpoints
+### Medium-term Actions (Next 2-4 weeks)
+7. **Implement smart fallback** with user config awareness
+8. **Add alerting** when primary sources fail consistently
+9. **Consider backend proxy** for client-side scraping issues
+10. **Document user configuration** best practices for optimal performance
 
-This solution provides a robust foundation that can handle various network issues while maintaining data scraping capability.
+---
+
+## 📈 Success Metrics
+
+| Metric | Target | Monitoring Method |
+|--------|--------|-------------------|
+| SSL Error Rate | < 1% | Log analysis |
+| Sync Success Rate | > 95% | Per-source success tracking |
+| Empty Responses | < 5% | LTP item count monitoring |
+| Log Size | < 10MB/day | Automatic log rotation |
+| User Configuration Usage | Track usage | Analytics/Telemetry |

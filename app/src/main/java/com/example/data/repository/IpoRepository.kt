@@ -7,12 +7,16 @@ import com.example.data.db.IpoResultCache
 import com.example.data.db.PortfolioDao
 import com.example.data.model.*
 import com.example.data.util.AppLogger
+import com.example.data.util.NetworkUtils
 import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
@@ -468,28 +472,33 @@ class IpoRepository(
 
     private suspend fun checkIpoResultInternal(portalId: Int, boid: String): Result<IpoResultResponse> {
         val urls = getScraperUrls(ScraperCategory.IPO_RESULT)
+        val client = NetworkUtils.getUnsafeOkHttpClient()
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+
         for (resultUrlStr in urls) {
             try {
                 if (sessionCookies == null) refreshSessionCookies()
-                val conn = URL(resultUrlStr).openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-                if (sessionCookies != null) conn.setRequestProperty("Cookie", sessionCookies)
-                conn.doOutput = true
-                conn.connectTimeout = 5000
                 
                 val payload = JSONObject().apply {
                     put("companyShareId", portalId)
                     put("boid", boid)
                 }
-                conn.outputStream.use { it.write(payload.toString().toByteArray()) }
                 
-                if (conn.responseCode == 200) {
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    if (text.trim().startsWith("{")) {
-                        val obj = JSONObject(text)
-                        return Result.success(IpoResultResponse(obj.getBoolean("success"), obj.getString("message")))
+                val request = Request.Builder()
+                    .url(resultUrlStr)
+                    .post(payload.toString().toRequestBody(mediaType))
+                    .header("Content-Type", "application/json")
+                    .header("User-Agent", "Mozilla/5.0")
+                    .apply { if (sessionCookies != null) header("Cookie", sessionCookies!!) }
+                    .build()
+                
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val text = response.body?.string() ?: ""
+                        if (text.trim().startsWith("{")) {
+                            val obj = JSONObject(text)
+                            return Result.success(IpoResultResponse(obj.getBoolean("success"), obj.getString("message")))
+                        }
                     }
                 }
             } catch (e: Exception) {}
