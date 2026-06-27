@@ -425,7 +425,9 @@ fun MarketScreen(vm: MarketViewModel, pvm: PortfolioViewModel, onBack: () -> Uni
                         val live = changes.find { it.symbol.equals(met.item, true) }
                         val ltp = live?.ltp ?: met.ltp
                         val prevLtp = live?.previousLtp ?: met.ltp
-                        append("${met.item},${met.sector},${met.balanceQty},${prevLtp},${met.balanceQty * prevLtp},${ltp},${met.balanceQty * ltp}\n")
+                        val prevAmt = String.format(Locale.US, "%.2f", met.balanceQty * prevLtp)
+                        val currAmt = String.format(Locale.US, "%.2f", met.balanceQty * ltp)
+                        append("${met.item},${met.sector},${met.balanceQty},${prevLtp},${prevAmt},${ltp},${currAmt}\n")
                     }
                 }
                 withContext(Dispatchers.IO) {
@@ -2415,7 +2417,7 @@ fun ColumnConfigurationDialog(isItem: Boolean, active: Set<String>, onT: (String
     Dialog(onDismissRequest = onD) { 
         Card(shape = RoundedCornerShape(16.dp)) { 
             Column(Modifier.padding(16.dp)) { 
-                Text("Configure Columns", fontWeight = FontWeight.Bold)
+                Text("Columns (${active.size + 1})", fontWeight = FontWeight.Bold)
                 
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { onSet(opts.toSet()) }, modifier = Modifier.weight(1f)) {
@@ -2427,6 +2429,12 @@ fun ColumnConfigurationDialog(isItem: Boolean, active: Set<String>, onT: (String
                 }
 
                 LazyColumn(Modifier.weight(1f, fill = false).padding(top = 4.dp).heightIn(max = 240.dp)) {
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { 
+                            Checkbox(true, { }, enabled = false)
+                            Text("Scrip", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) 
+                        }
+                    }
                     items(opts) { c -> 
                         Row(Modifier.fillMaxWidth().clickable { onT(c) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { 
                             Checkbox(active.contains(c), { onT(c) })

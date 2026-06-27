@@ -1,62 +1,383 @@
-I have further refined the Primary Index logic to ensure complete synchronization between the database, your profile, and the UI:
-1.
-Database Cleanup on Rename: When you change the Primary Market Index name in Settings:
-◦
-The app now automatically deletes the old index name from the MarketIndices database table.
-◦
-It also removes the old name from your "Visible Indices" list if it was previously selected as a secondary index.
-◦
-This ensures that changing from "NEPSE Index" to "AbC Index" won't leave a "stale" NEPSE entry in your selection list.
-2.
-Config Dialog Priority:
-◦
-The Select Indices configuration checklist now always shows your current Primary Index at the very top, even if it hasn't been scraped yet (in which case it shows 0.00 metrics).
-◦
-The Primary Index is now clearly labeled with "(Primary)", and its visibility is locked (checked) to maintain consistency in the Top Bar and Market Pulse.
-3.
-Correct Metric Attribution: Confirmed that the scraper strictly uses your custom primary name when mapping core market data (NEPSE), while other sector indices remain independent in the database.
-The project builds successfully and the index management is now more robust and intuitive.
-Completed Primary Index Database and UI Refinement
-I refined the primary index logic by ensuring database cleanup on rename, fixing the primary index at the top of the configuration checklist, and locking its visibility. All changes were verified with a successful build.
+# Finfolio Log Analysis - Critical Issues Report
 
+## Issue 1: LTP Data Corruption - Flat Logic Not Enforced
 
-Is there any logical ambiguity regarding the use and implementation of primary index? Is there any implementation hurdle?
+### Problem Description
+When the user first refreshes, correct LTPs, point changes, and change percentages are loaded. However, immediately after, **all point changes and change percentages reset to 0.00**, indicating the "flat logic" (preventing display of changes when price hasn't actually changed) is not being properly enforced.
 
-From a technical and architectural standpoint, the implementation of the Primary Market Index is now quite robust, but there are a few subtle logical areas where "ambiguity" or "hurdles" could exist depending on your future needs.
-Here is an analysis of the remaining logical considerations:
-1. The "Identity Conflict" Ambiguity
-The Hurdle: What happens if a user renames the Primary Index to something that already exists as a secondary index (e.g., renaming "NEPSE Index" to "Banking Sub-Index")?
-•
-Logical Ambiguity: The database uses indexName as a Primary Key. If the scraper finds real "Banking Sub-Index" data and tries to save it, and you also have a Primary Index named "Banking Sub-Index" that was mapped from NEPSE data, one will overwrite the other.
-•
-Current Solution: We handle this by making the Primary Index "fixed." In the configuration list, we hide or lock duplicates, but if names match exactly, the data might "flicker" between NEPSE values and Sector values depending on which source is scraped last.
-2. Scraper "Strictness" vs. "Flexibility"
-The Hurdle: Different websites use slightly different names for the core index (e.g., "NEPSE Index" vs. "Nepse" vs. "Nepal Stock Exchange").
-•
-Logical Ambiguity: Our current normalization logic is very strict (lower == "nepse index" || lower == "nepse"). If a new fallback source uses "NEPSE Price" or just "Index", the mapping to your custom name might fail.
-•
-Implementation Hurdle: To fix this, we would need a "Fuzzy Matching" engine or a list of "Core Aliases." For now, the "Not Found" warning label we added is the best defense because it alerts the user that the scraper isn't recognizing the source data.
-3. Metric Attribution (Mapping Logic)
-The Hurdle: You mentioned that "User defined index should be set... searched in urls... if no metrics found, default 0.00."
-•
-Logical Ambiguity: There is a distinction between Searching for the Custom Name and Mapping NEPSE to the Custom Name.
-•
-Current Strategy: The app assumes your Custom Name represents the core market index (NEPSE). It scrapes the core index and labels it with your name.
-•
-The Hurdle: If you want to track a completely different index that isn't NEPSE (e.g., "NIFTY 50" from an Indian source), the scraper logic would need to be updated to recognize different table structures entirely. Currently, the scrapers are optimized for Nepali market layouts.
-4. Visibility Persistence Logic
-The Implementation Hurdle: Handling the transition of names in a comma-separated string (visibleIndicesJson) in a singleton database row.
-•
-The Hurdle: When you rename an index, we have to surgically clean that string to prevent "Ghost" entries (indices that are checked but no longer exist).
-•
-Robustness: The current fix in PortfolioRepository handles this by converting the JSON/String to a MutableSet, removing the old name, and re-saving. This is the correct approach for Room/SQLite.
-Summary
-The biggest hurdle is Data Consistency. If the user sets a custom name, they are essentially creating a "Nickname" for the market's core performance. As long as the scraper can identify what "Core" is, the logic holds.
-Is there any ambiguity left? The only remaining ambiguity is User Intent: Does the user want the custom name to replace NEPSE data, or to look for a new type of data?
-•
-Current Implementation: It replaces the NEPSE label with your name but keeps the NEPSE data. This is standard for "Primary Index" behavior in most portfolio trackers.
-The system is now logically consistent and the implementation hurdles (database stale-data and UI anchoring) have been cleared.
+### Root Cause Analysis
 
-No, it's not nickname or just renaming, The user can explicitely set a primary index name, for example NIFTY 50 and set a corresponding url in the scraper configuration (optional). The app places the primary index name to the database and scrapes other indeces from the urls. The metrices pulse of the all indices be fed using the names. The trigger for update of indix be carrid out by saving primary index name in the settings and others indices names when changing or updating indices scraping urls in the scrapper configuration.
+Based on the logs, the issue appears to be in the synchronization flow:
 
-Should threre be still any ambuguity or confusion?
+1. **Initial Sync** (07:59:41.919): Successfully scraped 323 items from Sharesansar
+   ```
+   [2026-06-27 07:59:41.919] [INFO] [LtpSync]: Sync successful from https://www.sharesansar.com/live-trading. Scraped 323 items.
+   ```
+
+2. **Subsequent Sync** (08:07:44.810): Successfully aggregated 748 LTP records
+   ```
+   [2026-06-27 08:07:48.267] [INFO] [LtpSync]: Successfully aggregated 748 LTP records
+   ```
+
+3. **The Problem**: When aggregating from multiple sources (Sharesansar + Merolagani), the app is likely:
+   - Not properly matching symbols across sources
+   - Using different price formats or fields
+   - Overwriting previous values with defaults when source data is incomplete
+   - Not maintaining previous values when new sync returns 0 items
+
+### Bug Location (Hypothesized)
+In `PortfolioRepository.kt` around the `refreshLivePrices` function (line 985 as shown in stacktrace):
+
+```kotlin
+// Current problematic implementation (hypothesis)
+suspend fun refreshLivePrices() {
+    val scrapedData = scrapeFromAllSources()
+    
+    // PROBLEM: When one source returns incomplete data, 
+    // it overwrites existing values with 0.00
+    scrapedData.forEach { (symbol, price) ->
+        val current = getScrip(symbol)
+        if (price != null && price > 0) {
+            current.ltp = price
+            // Calculate change from previous close
+            current.pointChange = price - current.closePrice
+            current.changePercent = (price - current.closePrice) / current.closePrice * 100
+        } else {
+            // BUG: This resets values to 0 when price is null/0
+            current.pointChange = 0.0
+            current.changePercent = 0.0
+        }
+    }
+}
+```
+
+### Solution
+
+```kotlin
+class PortfolioRepository {
+    private val priceCache = mutableMapOf<String, CachedPrice>()
+    
+    data class CachedPrice(
+        val ltp: Double,
+        val pointChange: Double,
+        val changePercent: Double,
+        val lastUpdateTime: Long
+    )
+    
+    suspend fun refreshLivePrices() {
+        val scrapedData = scrapeFromAllSources()
+        val currentTime = System.currentTimeMillis()
+        
+        scrapedData.forEach { (symbol, newPrice) ->
+            val scrip = getScrip(symbol) ?: return@forEach
+            
+            // 1. Validate price data
+            if (newPrice != null && newPrice > 0) {
+                // 2. Calculate changes based on CLOSE price, not previous LTP
+                val closePrice = scrip.closePrice ?: newPrice
+                val pointChange = newPrice - closePrice
+                val changePercent = if (closePrice > 0) {
+                    (pointChange / closePrice) * 100
+                } else 0.0
+                
+                // 3. Update with validated data
+                scrip.ltp = newPrice
+                scrip.pointChange = pointChange
+                scrip.changePercent = changePercent
+                
+                // 4. Cache the updated price
+                priceCache[symbol] = CachedPrice(
+                    ltp = newPrice,
+                    pointChange = pointChange,
+                    changePercent = changePercent,
+                    lastUpdateTime = currentTime
+                )
+            } else {
+                // 5. CRITICAL FIX: Don't reset - preserve existing values
+                // Only update if we have valid new data, otherwise keep old values
+                val cached = priceCache[symbol]
+                if (cached != null && (currentTime - cached.lastUpdateTime) < 60000) {
+                    // Keep cached values for up to 1 minute
+                    scrip.ltp = cached.ltp
+                    scrip.pointChange = cached.pointChange
+                    scrip.changePercent = cached.changePercent
+                }
+                // If no cache and no new data, leave existing values unchanged
+            }
+        }
+        
+        // 6. Additional validation: Check for stale data
+        validateAndCleanStaleData(currentTime)
+    }
+    
+    private fun validateAndCleanStaleData(currentTime: Long) {
+        priceCache.entries.removeIf { 
+            currentTime - it.value.lastUpdateTime > 300000 // 5 minutes stale
+        }
+    }
+}
+```
+
+### Additional Fix for Scraper Aggregation
+
+```kotlin
+class SmartAggregator {
+    // Map to track which symbols have valid data from each source
+    private val sourceValidity = mutableMapOf<String, MutableSet<String>>()
+    
+    fun aggregateScrapedData(allData: List<SourceData>): Map<String, Double> {
+        val result = mutableMapOf<String, Double>()
+        val validSources = mutableMapOf<String, MutableList<Double>>()
+        
+        allData.forEach { source ->
+            source.data.forEach { (symbol, price) ->
+                if (price > 0) {
+                    validSources.getOrPut(symbol) { mutableListOf() }.add(price)
+                    sourceValidity.getOrPut(symbol) { mutableSetOf() }.add(source.name)
+                }
+            }
+        }
+        
+        // Use median or consensus price when multiple sources available
+        validSources.forEach { (symbol, prices) ->
+            result[symbol] = when {
+                prices.size >= 3 -> calculateMedian(prices)
+                prices.size == 2 -> prices.average()
+                else -> prices.firstOrNull() ?: 0.0
+            }
+        }
+        
+        return result
+    }
+    
+    private fun calculateMedian(prices: List<Double>): Double {
+        val sorted = prices.sorted()
+        return if (sorted.size % 2 == 0) {
+            (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2
+        } else {
+            sorted[sorted.size / 2]
+        }
+    }
+}
+```
+
+---
+
+## Issue 2: IPO Master List Suddenly Empty
+
+### Problem Description
+After fresh install and history load, the IPO master list is showing empty despite previous successful syncs.
+
+### Root Cause Analysis
+
+Looking at the logs, we can see:
+
+1. **IPO Sync Success** (07:35:45.063): The IPO listing sync was successful
+   ```
+   [2026-06-27 07:35:45.063] [DEBUG] [IpoSync]: Requesting URL: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
+   [2026-06-27 07:35:45.056] [INFO] [IpoSync]: Starting IPO Listing Sync
+   ```
+
+2. **IPO Result Mapping Success** (07:35:46.519):
+   ```
+   [2026-06-27 07:35:46.519] [INFO] [IpoSync]: Starting IPO Result Mapping Sync
+   [2026-06-27 07:35:47.073] [DEBUG] [IpoSync]: Acquired Session Cookies: TS5c725768027=...
+   ```
+
+3. **Later Cooldown Logs** (08:15:41-08:17:09):
+   ```
+   [2026-06-27 08:17:09.858] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
+   [2026-06-27 08:16:00.817] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
+   ```
+
+### The Issue
+
+The IPO master list is empty because of a **database inconsistency**:
+
+1. The sync appears successful (log shows success)
+2. But the UI shows empty list
+3. This indicates a **data persistence issue** - the scraped data is not being properly saved to the database
+
+### Bug Location
+
+In the IPO synchronization flow, likely in `IpoSync.kt` or the repository layer:
+
+```kotlin
+// Current problematic implementation (hypothesis)
+class IpoSync {
+    suspend fun syncIPOs() {
+        val ipoList = fetchIPOList()
+        val mappedResults = mapIPOResults(ipoList)
+        
+        // BUG: Only saves IPO results, but doesn't update the master list
+        saveIPOData(mappedResults)
+        // Missing: updateIpoMasterList(ipoList)
+    }
+}
+```
+
+### Solution
+
+```kotlin
+class IpoSync(
+    private val ipoRepository: IpoRepository,
+    private val ipoMasterListRepository: IpoMasterListRepository
+) {
+    
+    suspend fun syncIPOs() {
+        try {
+            // 1. Fetch fresh data
+            val ipoList = fetchIPOListFromSource()
+            val mappedResults = fetchAndMapIPOResults()
+            
+            // 2. Validate data before saving
+            if (ipoList.isNullOrEmpty()) {
+                Logger.log(Level.WARN, "IpoSync", "Received empty IPO list from source")
+                
+                // Check if we have cached data
+                val cachedList = ipoRepository.getCachedIPOs()
+                if (cachedList.isNotEmpty()) {
+                    Logger.log(Level.INFO, "IpoSync", "Using cached IPO data")
+                    return
+                }
+                return
+            }
+            
+            // 3. Save both data sets with transaction
+            ipoRepository.transaction {
+                // Save IPO master list
+                val updatedCount = ipoMasterListRepository.saveAll(ipoList)
+                Logger.log(Level.INFO, "IpoSync", "Saved $updatedCount IPOs to master list")
+                
+                // Save IPO results
+                val resultsCount = ipoRepository.saveAll(mappedResults)
+                Logger.log(Level.INFO, "IpoSync", "Saved $resultsCount IPO results")
+                
+                // Verify data was saved
+                val verifyCount = ipoMasterListRepository.count()
+                if (verifyCount == 0 && ipoList.isNotEmpty()) {
+                    throw RuntimeException("Failed to save IPO master list - database write failed")
+                }
+            }
+            
+            // 4. Notify UI of data change
+            notifyDataChanged()
+            
+        } catch (e: Exception) {
+            Logger.log(Level.ERROR, "IpoSync", "IPO sync failed: ${e.message}", e)
+            
+            // 5. Fallback to cached data
+            val cachedData = ipoRepository.getCachedIPOs()
+            if (cachedData.isNotEmpty()) {
+                ipoMasterListRepository.saveAll(cachedData)
+                Logger.log(Level.INFO, "IpoSync", "Fallback: Restored ${cachedData.size} IPOs from cache")
+            }
+            
+            throw e
+        }
+    }
+    
+    private fun notifyDataChanged() {
+        // Use LiveData or Flow to notify observers
+        _ipoMasterListFlow.value = ipoMasterListRepository.getAll()
+    }
+}
+```
+
+### Database Migration Fix
+
+```kotlin
+// Ensure IPO master list table is properly set up
+@Entity(tableName = "ipo_master_list")
+data class IPOMasterEntity(
+    @PrimaryKey val id: String,
+    val symbol: String,
+    val companyName: String,
+    val issueDate: String,
+    val closeDate: String,
+    val issuePrice: Double,
+    val totalUnits: Long,
+    val status: String, // "OPEN", "CLOSED", "UPCOMING"
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface IPOMasterDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(ipos: List<IPOMasterEntity>)
+    
+    @Query("SELECT * FROM ipo_master_list WHERE status != 'CLOSED' ORDER BY issueDate DESC")
+    suspend fun getActiveIPOs(): List<IPOMasterEntity>
+    
+    @Query("SELECT COUNT(*) FROM ipo_master_list")
+    suspend fun count(): Int
+    
+    @Query("DELETE FROM ipo_master_list WHERE lastUpdated < :staleTime")
+    suspend fun deleteStale(staleTime: Long)
+}
+```
+
+---
+
+## Additional Critical Finding
+
+### Scraper Config Validation Issue
+
+The logs show multiple test failures for `nepalstock.com`:
+
+```
+[2026-06-27 07:18:40.729] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://www.nepalstock.com/
+[2026-06-27 07:18:30.152] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://www.nepalstock.com/
+```
+
+**Recommendation:** The app should automatically disable/failover from `nepalstock.com` since it's consistently failing SSL validation. Add a health check mechanism:
+
+```kotlin
+class ScraperHealthManager {
+    private val sourceHealth = mutableMapOf<String, HealthStatus>()
+    private val MAX_CONSECUTIVE_FAILURES = 3
+    
+    data class HealthStatus(
+        var consecutiveFailures: Int = 0,
+        var isHealthy: Boolean = true,
+        var lastCheckTime: Long = 0
+    )
+    
+    fun recordFailure(source: String) {
+        val status = sourceHealth.getOrPut(source) { HealthStatus() }
+        status.consecutiveFailures++
+        status.isHealthy = status.consecutiveFailures < MAX_CONSECUTIVE_FAILURES
+        status.lastCheckTime = System.currentTimeMillis()
+        
+        if (!status.isHealthy) {
+            Logger.log(Level.WARN, "HealthManager", "Source marked unhealthy: $source")
+            // Automatically disable this source
+            ScraperConfig.disableSource(source)
+        }
+    }
+    
+    fun recordSuccess(source: String) {
+        val status = sourceHealth.getOrPut(source) { HealthStatus() }
+        status.consecutiveFailures = 0
+        status.isHealthy = true
+        status.lastCheckTime = System.currentTimeMillis()
+        
+        // Re-enable if it was disabled
+        if (!ScraperConfig.isEnabled(source)) {
+            ScraperConfig.enableSource(source)
+        }
+    }
+}
+```
+
+---
+
+## Priority Implementation Order
+
+| Priority | Issue | Effort | Impact |
+|----------|-------|--------|--------|
+| 🔴 1 | LTP Flat Logic Not Enforced | 4 hours | Critical - User trust |
+| 🔴 2 | IPO Master List Empty | 3 hours | Critical - Data loss |
+| 🟠 3 | SSL Certificate Validation | 2 days | High - Data availability |
+| 🟡 4 | Scraper Health Monitoring | 4 hours | Medium - Reliability |
+| 🟡 5 | Excessive Logging | 2 hours | Medium - Performance |

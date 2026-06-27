@@ -13,7 +13,8 @@ To ensure 100% accuracy, WACC and Profit are calculated using a specialized hand
 - **Buy/Sale**: Standard weighted average cost adjustment.
 - **Bonus/Right/Split**: Adjustment of `totalQuantity` and proportional reduction of `avgCostPrice`.
 - **SIP (Monthly Investment)**: Incremental cost basis update.
-- **Negative Balance Protection**: If a sale exceeds owned quantity, the system flags it as an "Inconsistency" rather than calculating invalid metrics.
+- **Negative Balance Protection**: If a sale exceeds owned quantity, the system flags it as an "Inconsistency".
+- **Financial Precision**: All monetary values (WACC, Net Invest, Evaluation, Gains, and Profits) must be rounded to exactly **2 decimal places** using `Math.round(v * 100.0) / 100.0` before persistence or visualization to prevent floating-point artifacts.
 
 ## 3. Column Options
 Users can toggle visibility for the following columns:

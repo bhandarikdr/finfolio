@@ -37,15 +37,22 @@ class MarketViewModel(private val repository: MarketRepository, private val port
         val primaryName = profile.primaryIndexName.ifBlank { "NEPSE Index" }
         val visible = profile.visibleIndices.toSet()
         
+        // Find the best match for the primary index
         val primaryMatch = all.find { it.index.equals(primaryName, true) } 
             ?: all.find { it.index.contains(primaryName, true) }
             ?: MarketIndex(primaryName, 0.0, 0.0, 0.0)
             
-        // Other indices: Only if user has selected them and they are not the primary
-        val others = all.filter { it.index != primaryMatch.index && it.index in visible }
+        // Other indices: Only if user has selected them and they are not essentially the primary
+        val others = all.filter { 
+            val isPrimary = it.index.equals(primaryMatch.index, true) || 
+                            it.index.equals(primaryName, true) ||
+                            (primaryName.length > 3 && it.index.contains(primaryName, true))
+            
+            !isPrimary && it.index in visible 
+        }
         
         // Strict order: Primary first, then others
-        (listOf(primaryMatch) + others).distinctBy { it.index }
+        (listOf(primaryMatch) + others).distinctBy { it.index.lowercase().trim() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val priceChanges: StateFlow<List<ScripPriceChange>> = portfolioRepository.allExternalLtps.map { list ->

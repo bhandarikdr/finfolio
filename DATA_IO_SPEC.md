@@ -29,4 +29,5 @@ To prevent data loss during complex imports, FinFolio implements a **Safety-Firs
 ## 4. Export
 - **Transaction Export**: Generates a standard CSV of all recorded transactions. 
 - **Holdings Export**: Specialized export from the Market Pulse screen focused on current asset valuation.
-- **Format**: `Scrip, Sector, Qty, Previous LTP, LTP, Current Amount`.
+- **Precision Standard**: All calculated numeric fields in exports (Amounts, Rates, Values) must be formatted to exactly **2 decimal places** using `String.format(Locale.US, "%.2f", value)` to ensure compatibility and readability.
+- **Format**: `Scrip, Sector, Qty, Previous LTP, Previous Amount, LTP, Current Amount`.

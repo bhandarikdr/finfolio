@@ -15,6 +15,7 @@ The IPO list is populated from user-configured sources in **Settings -> Scraper 
 - **Event-Driven**: Sync is triggered manually by the user or upon first app launch if the database is empty.
 - **Order Preservation**: The app preserves the order of items returned by the API (often chronological) using an internal timestamp.
 - **Deduplication**: Companies are uniquely identified by their name (Primary Key).
+- **Verification**: After every successful sync, the repository must query the database count and log the total number of IPOs committed. This provides a diagnostic audit trail to distinguish between scraping failures and UI observation issues.
 
 ## 2. Technical Implementation
 

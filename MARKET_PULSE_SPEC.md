@@ -51,10 +51,10 @@ To prevent database bloat:
 2. A **Weekly Worker** prunes any `AuditLog` entries of type `LTP_CHANGE` older than 7 days.
 3. Transaction logs are preserved permanently.
 
-### Optimization (Strict Flat Logic)
-1. Newly scraped LTP values are compared against the existing values.
-2. The database is updated **ONLY if the LTP has changed** or if it provides a valid non-zero change while the database has none.
-3. **Stale Data Protection**: If a scraper returns zero-change data (common after market close) while the database contains valid intra-day movement, the update is rejected to preserve the daily performance metrics.
+### Optimization (Strict Flat Logic & Smart Aggregation)
+1. **Change Validation**: Newly scraped LTP values are compared against existing values. The database is updated **ONLY if the LTP has changed** or if the source provides a valid non-zero change while the database has none.
+2. **Smart Aggregation**: When syncing from multiple URLs, the engine prefers data from sources showing active price movement (non-zero change). If one source returns stale `0.00` data (common after market close) but another contains valid movement, the valid metrics are preserved.
+3. **Index Deduplication**: The primary index is strictly unique. The UI filter automatically excludes any secondary indices that match the primary name via exact match, case-insensitive match, or sub-string match to prevent duplicate cards.
 
 ## 5. UI Interaction
 - **Last Sync Indicator**: Displays "Synced X mins ago" or "Offline - Using Cache".

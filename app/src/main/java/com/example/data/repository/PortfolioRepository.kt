@@ -9,6 +9,7 @@ import com.example.data.db.TransactionRecord
 import com.example.data.model.MarketStatus
 import com.example.data.model.ScraperCategory
 import com.example.data.model.UserProfile
+import com.example.data.util.NetworkUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -16,7 +17,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.InputStream
@@ -642,8 +645,8 @@ class PortfolioRepository(
                                     } else {
                                         if (existing != null && existing.ltp != ltpVal) existing.ltp else existing?.previousLtp ?: 0.0
                                     }
-                                    val pointChg = ltpVal - finalPrevLtp
-                                    val pctChg = if (finalPrevLtp > 0) (pointChg / finalPrevLtp) * 100.0 else 0.0
+                                    val pointChg = Math.round((ltpVal - finalPrevLtp) * 100.0) / 100.0
+                                    val pctChg = if (finalPrevLtp > 0) Math.round((pointChg / finalPrevLtp * 100.0) * 100.0) / 100.0 else 0.0
                                     portfolioDao.insertExternalLtp(ExternalLtp(
                                         symbol = symbol,
                                         ltp = ltpVal,
@@ -977,16 +980,36 @@ class PortfolioRepository(
 
                 // 3. LTP Scrip Prices (Aggregate from all URLs)
                 val ltpUrls = getScraperUrls(ScraperCategory.LTP_UPDATE)
-                val allScrapedLtps = mutableListOf<ExternalLtp>()
+                val aggregatedLtps = mutableMapOf<String, ExternalLtp>()
+                val existingLtps = portfolioDao.getAllExternalLtps().first().associateBy { it.symbol }
                 
                 for (baseUrl in ltpUrls) {
                     try {
                         val url = if (baseUrl.contains("?")) "$baseUrl&t=${System.currentTimeMillis()}" else "$baseUrl?t=${System.currentTimeMillis()}"
-                        val doc = Jsoup.connect(url).userAgent(userAgent).timeout(20000).get()
+                        
+                        // Use robust client for SSL issues
+                        val useUnsafe = baseUrl.contains("nepalstock.com")
+                        val html = if (useUnsafe) {
+                            val client = NetworkUtils.getUnsafeOkHttpClient()
+                            val request = Request.Builder().url(url).header("User-Agent", userAgent).build()
+                            client.newCall(request).execute().use { response ->
+                                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                                response.body?.string() ?: ""
+                            }
+                        } else {
+                            Jsoup.connect(url).userAgent(userAgent).timeout(20000).get().html()
+                        }
+
+                        if (html.isBlank()) continue
+                        
+                        val doc = Jsoup.parse(html)
                         val timestamp = System.currentTimeMillis()
 
-                        doc.select("table").forEach { table ->
-                            val header = table.select("tr").firstOrNull()?.select("th, td")?.map { it.text().uppercase().trim() } ?: emptyList()
+                        for (table in doc.select("table")) {
+                            val rows = table.select("tr")
+                            if (rows.isEmpty()) continue
+                            
+                            val header = rows.firstOrNull()?.select("th, td")?.map { it.text().uppercase().trim() } ?: emptyList()
                             var symIdx = header.indexOfFirst { it.contains("SYMBOL") || it.contains("SCRIP") || it == "CODE" }
                             var ltpIdx = header.indexOfFirst { it == "LTP" || it.contains("LAST TRADED") || it.contains("PRICE") || it == "CLOSE" }
                             var prvIdx = header.indexOfFirst { it.contains("PREV") || it.contains("CLOSE") && !it.contains("LTP") }
@@ -995,7 +1018,7 @@ class PortfolioRepository(
                             if (ltpIdx == -1 && header.size >= 3) ltpIdx = if (header.size >= 6) 5 else 2
 
                             if (symIdx != -1 && ltpIdx != -1) {
-                                table.select("tr").drop(1).forEach { row ->
+                                for (row in rows.drop(1)) {
                                     val cols = row.select("td")
                                     if (cols.size > maxOf(symIdx, ltpIdx)) {
                                         val symbol = cols[symIdx].text().trim().uppercase()
@@ -1005,17 +1028,35 @@ class PortfolioRepository(
                                             val ptChg = ltp - prevVal
                                             val pctChg = if (prevVal > 0) (ptChg / prevVal) * 100.0 else 0.0
                                             
-                                            val existing = portfolioDao.getExternalLtpBySymbol(symbol)
-                                            allScrapedLtps.add(ExternalLtp(
-                                                symbol = symbol,
-                                                ltp = ltp,
-                                                previousLtp = prevVal,
-                                                pointChange = ptChg,
-                                                changePercent = pctChg,
-                                                source = "Scraped",
-                                                timestamp = timestamp,
-                                                isInExternalSync = existing?.isInExternalSync ?: false
-                                            ))
+                                            val existing = existingLtps[symbol]
+                                            
+                                            // STRICT FLAT LOGIC: 
+                                            // 1. Skip if price hasn't moved at all
+                                            val isSamePrice = existing != null && Math.abs(existing.ltp - ltp) < 0.001
+                                            // 2. Skip if current data shows ZERO change, but DB has valid NON-ZERO change
+                                            val isInvalidZero = existing != null && Math.abs(existing.pointChange) > 0.01 && Math.abs(ptChg) < 0.01
+                                            
+                                            if (isSamePrice || isInvalidZero) {
+                                                continue
+                                            }
+
+                                            // Smart Aggregation: Prefer sources with non-zero changes
+                                            val existingInMap = aggregatedLtps[symbol]
+                                            val hasNonZero = Math.abs(ptChg) > 0.01
+                                            val prevHasNonZero = existingInMap != null && Math.abs(existingInMap.pointChange) > 0.01
+
+                                            if (existingInMap == null || (hasNonZero && !prevHasNonZero)) {
+                                                aggregatedLtps[symbol] = ExternalLtp(
+                                                    symbol = symbol,
+                                                    ltp = ltp,
+                                                    previousLtp = prevVal,
+                                                    pointChange = ptChg,
+                                                    changePercent = pctChg,
+                                                    source = "Scraped",
+                                                    timestamp = timestamp,
+                                                    isInExternalSync = existing?.isInExternalSync ?: false
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1026,10 +1067,10 @@ class PortfolioRepository(
                     }
                 }
 
-                if (allScrapedLtps.isNotEmpty()) {
-                    portfolioDao.insertExternalLtps(allScrapedLtps)
+                if (aggregatedLtps.isNotEmpty()) {
+                    portfolioDao.insertExternalLtps(aggregatedLtps.values.toList())
                     success = true
-                    AppLogger.i("LtpSync", "Successfully aggregated ${allScrapedLtps.size} LTP records")
+                    AppLogger.i("LtpSync", "Successfully aggregated ${aggregatedLtps.size} LTP records")
                 }
 
                 Result.success(success)

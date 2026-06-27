@@ -100,6 +100,10 @@ data class TypeMetrics(
 
 object FinancialEngines {
 
+    private fun round(value: Double): Double {
+        return Math.round(value * 100.0) / 100.0
+    }
+
     /**
      * Optimized: Compute metrics using pre-computed Holdings table.
      */
@@ -128,42 +132,42 @@ object FinancialEngines {
             val returnsQty = h.returnsQty
 
             val balanceQty = (buyQty + returnsQty - saleQty).coerceAtLeast(0.0)
-            val avgCp = if (buyQty + returnsQty == 0.0) 0.0 else buyAmount / (buyQty + returnsQty)
-            val avgSp = if (saleQty == 0.0) 0.0 else saleAmount / saleQty
+            val avgCp = if (buyQty + returnsQty == 0.0) 0.0 else round(buyAmount / (buyQty + returnsQty))
+            val avgSp = if (saleQty == 0.0) 0.0 else round(saleAmount / saleQty)
             
-            val netInvest = (buyAmount - saleAmount).coerceAtLeast(0.0)
+            val netInvest = round((buyAmount - saleAmount).coerceAtLeast(0.0))
 
             val ltpValRecord = ltpMap[symbol]
             val ltp = ltpValRecord?.ltp ?: 0.0
             val prevLtp = ltpValRecord?.previousLtp ?: 0.0
             val isInSync = externalSyncFlags[symbol] ?: false
 
-            val evaluation = if (avgCp > 0.0) (balanceQty * ltp) else netInvest
-            val realizedGain = (saleAmount - buyAmount) + returnsCash + netInvest
-            val unrealizedGain = evaluation - netInvest
+            val evaluation = round(if (avgCp > 0.0) (balanceQty * ltp) else netInvest)
+            val realizedGain = round((saleAmount - buyAmount) + returnsCash + netInvest)
+            val unrealizedGain = round(evaluation - netInvest)
             
             val deductions = if (avgCp > 0.0 && evaluation > 0.0) {
-                if (unrealizedGain > 0.0) (evaluation * commissionRate) + flatFee + (unrealizedGain * cgtRate)
-                else (evaluation * commissionRate) + flatFee
+                round(if (unrealizedGain > 0.0) (evaluation * commissionRate) + flatFee + (unrealizedGain * cgtRate)
+                else (evaluation * commissionRate) + flatFee)
             } else 0.0
             
-            val netGain = realizedGain + unrealizedGain - deductions
-            val growth = if (buyAmount == 0.0) 0.0 else (netGain / buyAmount) * 100.0
-            val receivableAmount = (evaluation - deductions).coerceAtLeast(0.0)
-            val profitAmount = receivableAmount - netInvest
+            val netGain = round(realizedGain + unrealizedGain - deductions)
+            val growth = if (buyAmount == 0.0) 0.0 else round((netGain / buyAmount) * 100.0)
+            val receivableAmount = round((evaluation - deductions).coerceAtLeast(0.0))
+            val profitAmount = round(receivableAmount - netInvest)
 
             val profitPercent = when {
-                netInvest > 0.0 -> (profitAmount / netInvest) * 100.0
-                (netInvest == 0.0) && (buyAmount > 0.0) -> (profitAmount / buyAmount) * 100.0
+                netInvest > 0.0 -> round((profitAmount / netInvest) * 100.0)
+                (netInvest == 0.0) && (buyAmount > 0.0) -> round((profitAmount / buyAmount) * 100.0)
                 else -> 0.0
             }
 
             ItemMetrics(
                 item = symbol,
                 sector = sector,
-                buyAmount = buyAmount, buyCount = 0, buyQty = buyQty,
-                saleAmount = saleAmount, saleCount = 0, saleQty = saleQty,
-                returnsCash = returnsCash, returnCount = 0, returnsQty = returnsQty,
+                buyAmount = round(buyAmount), buyCount = 0, buyQty = buyQty,
+                saleAmount = round(saleAmount), saleCount = 0, saleQty = saleQty,
+                returnsCash = round(returnsCash), returnCount = 0, returnsQty = returnsQty,
                 balanceQty = balanceQty, avgCp = avgCp, avgSp = avgSp,
                 ltp = ltp, prevLtp = prevLtp,
                 netInvest = netInvest, evaluation = evaluation,

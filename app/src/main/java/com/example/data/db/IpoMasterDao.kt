@@ -31,6 +31,9 @@ interface IpoMasterDao {
     @Query("SELECT resultPortalId FROM ipo_master WHERE resultPortalId IS NOT NULL ORDER BY allotmentDate DESC, closingDate DESC LIMIT 1")
     suspend fun getLatestResultPortalId(): Int?
 
+    @Query("SELECT COUNT(*) FROM ipo_master")
+    suspend fun getIpoCount(): Int
+
     @Query("DELETE FROM ipo_master")
     suspend fun deleteAll()
 

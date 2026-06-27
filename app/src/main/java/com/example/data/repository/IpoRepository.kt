@@ -94,7 +94,7 @@ class IpoRepository(
     suspend fun syncIpos(force: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         if (!force && (now - lastIpoSync) < IPO_SYNC_COOLDOWN) {
-            AppLogger.d("IpoSync", "Skipping IPO Sync (Cooldown active)")
+            AppLogger.d("IpoSync", "Skipping IPO Sync (Cooldown active)", throttle = true)
             _syncLog.value = "SYNC SKIPPED: Up to date"
             return@withContext Result.success(Unit)
         }
@@ -112,6 +112,9 @@ class IpoRepository(
             _syncLog.value = "STEP 2/2: Mapping Company IDs for Result Checking..."
             val mappingResult = syncFromIpoResultMappingSource()
             
+            val finalCount = ipoMasterDao.getIpoCount()
+            AppLogger.i("IpoSync", "Sync finished. Total IPOs in database: $finalCount")
+
             if (mappingResult.isFailure) {
                 _syncLog.value = "Mapping failed (Firewall/WAF Block). Manual ID entry may be required."
             } else {

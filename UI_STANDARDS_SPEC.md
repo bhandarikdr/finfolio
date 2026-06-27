@@ -42,6 +42,9 @@ Font sizes are standardized to ensure accessibility and professional readability
 - **Row Alignment**: When a dropdown and text field share a row, use a Read-Only `OutlinedTextField` with a `trailingIcon` for the dropdown to ensure perfect vertical alignment.
 - **Smart Selectors**: Prefer dropdowns for Scrips/Sectors to minimize errors, prioritized by "Recent Items".
 - **Focus**: Use clean, focused dialogs for adding new entities that aren't in existing lists.
+- **Column Selection Dialogs**:
+    - The primary identifier (e.g., "Scrip") must be listed at the top, pre-selected, and disabled for modification to maintain table integrity.
+    - The dialog title must dynamically show the count of selected columns, e.g., `Columns (12)`.
 - **Batch Actions**: For complex configuration cards (e.g., Scraper URLs), use a per-card "Apply" button that only appears when changes are pending. This prevents accidental partial updates and provides a clear signal of state persistence.
 
 ## 5. Currency & Data Formatting
