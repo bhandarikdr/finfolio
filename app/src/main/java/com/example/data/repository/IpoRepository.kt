@@ -208,8 +208,8 @@ class IpoRepository(
                                     if (hText == "symbol" || hText == "scrip" || hText == "code" || hText == "ticker") symIdx = index
                                     if (hText.contains("company") || hText == "name" || hText == "security") nameIdx = index
                                     if (hText.contains("status")) statusIdx = index
-                                    if (hText.contains("opening") || hText.contains("open date")) openIdx = index
-                                    if (hText.contains("closing") || hText.contains("close date")) closeIdx = index
+                                    if (hText.contains("opening") || hText.contains("open date") || hText == "opening") openIdx = index
+                                    if (hText.contains("closing") || hText.contains("close date") || hText == "closing") closeIdx = index
                                     if (hText.contains("type") || hText.contains("share type")) typeIdx = index
                                     if (hText.contains("units") || hText.contains("quantity") || hText.contains("qty")) qtyIdx = index
                                     if (hText.contains("manager")) mngrIdx = index
