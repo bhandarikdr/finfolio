@@ -15,21 +15,46 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import com.example.data.db.IpoMemberActivity
 
-class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
+/**
+ * UI & LOGIC STANDARDS - BulkIpoViewModel:
+ * 1. RENAMING: Guided -> CDSC Portal, Bulk Pro -> Auto Check (Check Tab).
+ * 2. RENAMING: Individual -> Check Through CDSC, Bulk Pro -> Auto Apply (Apply Tab).
+ * 3. FILTERING: Apply list shows only verified members with credentials.
+ * 4. SYNC: Refresh button triggers both IPO and DP master sync.
+ */
+class BulkIpoViewModel(
+    private val repository: IpoRepository,
+    private val msRepository: MeroShareRepository,
+    private val marketRepository: MarketRepository
+) : ViewModel() {
 
     val ipos: StateFlow<List<IpoMaster>> = repository.ipoMasterList
+        .map { list ->
+            list.sortedByDescending { it.updatedAt }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val readyToCheckIpos: StateFlow<List<IpoMaster>> = ipos.map { list ->
-        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+    val allDps: StateFlow<List<com.example.data.db.DpMaster>> = marketRepository.getAllDpMaster()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val checkIpos: StateFlow<List<IpoMaster>> = ipos.map { list ->
         list.filter { 
-            it.status.equals("Allotted", true) || 
-            (it.allotmentDate != null && it.allotmentDate <= today)
-        }.sortedWith(
-            compareByDescending<IpoMaster> { it.allotmentDate ?: "" }
-            .thenByDescending { it.updatedAt }
-        )
+            !it.allotmentDate.isNullOrBlank() || 
+            it.status.contains("Allotted", true) || 
+            it.status.contains("Completed", true) ||
+            it.status.contains("Result", true)
+        }.sortedByDescending { it.allotmentDate ?: "0000-00-00" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val applyIpos: StateFlow<List<IpoMaster>> = ipos.map { list ->
+        list.filter { 
+            it.status.contains("Open", true) || 
+            it.status.contains("Ongoing", true) ||
+            it.status.contains("Applying", true)
+        }.sortedByDescending { it.closingDate ?: "" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedIpo = MutableStateFlow<IpoMaster?>(null)
@@ -37,6 +62,11 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
 
     val boids: StateFlow<List<BoidEntry>> = repository.allBoids
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Filtered list for Auto-Apply: Only members with Password, PIN, and CRN */
+    val verifiedApplyBoids: StateFlow<List<BoidEntry>> = boids.map { list ->
+        list.filter { !it.msPassword.isNullOrBlank() && !it.msPin.isNullOrBlank() && !it.msCrn.isNullOrBlank() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _results = MutableStateFlow<List<BulkIpoResult>>(emptyList())
     val results = _results.asStateFlow()
@@ -51,6 +81,35 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
     val syncMessage = _syncMessage.asStateFlow()
 
     val syncLog = repository.syncLog
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val memberActivity: StateFlow<List<IpoMemberActivity>> = _selectedIpo
+        .flatMapLatest { ipo ->
+            if (ipo == null) kotlinx.coroutines.flow.flowOf(emptyList())
+            else repository.getActivityForCompany(ipo.companyName)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isTestingLogin = mutableStateMapOf<String, Boolean>()
+    val isTestingLogin: Map<String, Boolean> = _isTestingLogin
+
+    fun testLogin(boid: BoidEntry) {
+        val user = boid.msUsername ?: return
+        val pass = boid.msPassword ?: return
+        
+        viewModelScope.launch {
+            _isTestingLogin[boid.boid] = true
+            val result = msRepository.login(boid.boid, user, pass)
+            result.onSuccess {
+                _syncMessage.value = "Login Success for ${boid.name}"
+            }.onFailure {
+                _syncMessage.value = "Login Failed: ${it.message}"
+            }
+            _isTestingLogin.remove(boid.boid)
+            delay(2000)
+            _syncMessage.value = null
+        }
+    }
 
     private val _enabledBoids = mutableStateMapOf<String, Boolean>()
     val enabledBoids: Map<String, Boolean> = _enabledBoids
@@ -68,7 +127,7 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         // Sync if empty
         viewModelScope.launch {
             if (ipos.value.isEmpty()) {
-                syncIpos()
+                refreshAllCompanies()
             }
         }
 
@@ -84,25 +143,36 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         }
     }
 
-    fun toggleBoidEnabled(boid: String) {
-        val current = _enabledBoids[boid] ?: true
-        _enabledBoids[boid] = !current
+    fun toggleBoidEnabled(boid: String, isCheck: Boolean) {
+        viewModelScope.launch {
+            val current = boids.value.find { it.boid == boid } ?: return@launch
+            val newEnabled = if (isCheck) !current.isEnabledForCheck else !current.isEnabledForApply
+            repository.updateBoidToggle(boid, isCheck, newEnabled)
+        }
     }
 
-    fun syncIpos(force: Boolean = false) {
+    fun toggleAllBoids(enabled: Boolean, isCheck: Boolean?) {
+        viewModelScope.launch {
+            repository.toggleAllBoids(isCheck, enabled)
+        }
+    }
+
+    fun refreshAllCompanies() {
         viewModelScope.launch {
             _isSyncing.value = true
-            _syncMessage.value = "Starting sync..."
-            val result = repository.syncIpos(force)
-            if (result.isSuccess) {
-                _syncMessage.value = "Sync successful"
-            } else {
-                _syncMessage.value = "Sync failed"
-            }
+            _syncMessage.value = "Refreshing IPOs & DPs..."
+            val ipoRes = repository.syncIpos(true)
+            val dpRes = marketRepository.fetchDpMaster()
+            
+            _syncMessage.value = if (ipoRes.isSuccess) "Refresh complete" else "IPO Refresh failed"
             _isSyncing.value = false
             delay(2000)
             _syncMessage.value = null
         }
+    }
+
+    fun syncIpos(force: Boolean = false) {
+        refreshAllCompanies()
     }
 
     fun selectIpo(ipo: IpoMaster) {
@@ -181,27 +251,89 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         }
     }
 
+    /**
+     * Phase 2.3: Secure Credential Management
+     * Saves or updates MeroShare login details for a specific BOID.
+     */
+    fun saveCredentials(boid: String, msDetails: Map<String, String>) {
+        viewModelScope.launch {
+            repository.updateBoidCredentials(boid, msDetails)
+            _syncMessage.value = "Credentials saved for $boid"
+            delay(1500)
+            _syncMessage.value = null
+        }
+    }
+
+    fun syncDpMaster() {
+        viewModelScope.launch {
+            _isSyncing.value = true
+            _syncMessage.value = "Syncing DP Master..."
+            val success = marketRepository.fetchDpMaster()
+            _syncMessage.value = if (success) "DP Master synced" else "DP Master sync failed"
+            _isSyncing.value = false
+            delay(2000)
+            _syncMessage.value = null
+        }
+    }
+
     fun addMultipleBoids(pastedText: String) {
         viewModelScope.launch {
-            val lines = pastedText.lines()
-            lines.forEach { line ->
-                if (line.isBlank()) return@forEach
+            val lines = pastedText.lines().filter { it.isNotBlank() }
+            if (lines.isEmpty()) return@launch
+
+            // Check if first line is a header
+            val headerLine = lines.first().lowercase()
+            val isCsvFormat = headerLine.contains(",") || headerLine.contains(";") || headerLine.contains("\t")
+            
+            if (isCsvFormat && (headerLine.contains("boid") || headerLine.contains("name") || headerLine.contains("user"))) {
+                // Structured CSV/TSV Parsing
+                val separator = if (headerLine.contains("\t")) "\t" else if (headerLine.contains(";")) ";" else ","
+                val header = lines.first().split(separator).map { it.trim().lowercase() }
                 
-                val boidRegex = Regex("\\b\\d{16}\\b")
-                val match = boidRegex.find(line)
-                
-                if (match != null) {
-                    val boid = match.value
-                    var name = line.replace(boid, "").replace(Regex("[,:|\\t]"), " ").trim()
-                    
-                    if (name.isBlank()) {
-                        name = "User_${boid.takeLast(4)}"
-                    }
-                    
-                    if (boids.value.none { it.boid == boid }) {
-                        repository.addBoid(name, boid)
+                val nameIdx = header.indexOfFirst { it == "name" || it == "full name" }
+                val boidIdx = header.indexOfFirst { it == "boid" || it == "demat" }
+                val userIdx = header.indexOfFirst { it.contains("user") || it.contains("id") }
+                val passIdx = header.indexOfFirst { it.contains("pass") }
+                val pinIdx = header.indexOfFirst { it == "pin" || it.contains("trans") }
+                val crnIdx = header.indexOfFirst { it == "crn" || it.contains("bank") }
+
+                if (boidIdx == -1) {
+                    _syncMessage.value = "Import Failed: 'Boid' column missing"
+                    return@launch
+                }
+
+                lines.drop(1).forEach { line ->
+                    val cols = line.split(separator).map { it.trim().replace("\"", "") }
+                    if (cols.size > boidIdx) {
+                        val boid = cols[boidIdx].filter { it.isDigit() }.takeLast(16)
+                        if (boid.length == 16) {
+                            val name = if (nameIdx != -1 && nameIdx < cols.size) cols[nameIdx] else "User_${boid.takeLast(4)}"
+                            val details = mutableMapOf<String, String>()
+                            if (userIdx != -1 && userIdx < cols.size) details["username"] = cols[userIdx]
+                            if (passIdx != -1 && passIdx < cols.size) details["password"] = cols[passIdx]
+                            if (pinIdx != -1 && pinIdx < cols.size) details["pin"] = cols[pinIdx]
+                            if (crnIdx != -1 && crnIdx < cols.size) details["crn"] = cols[crnIdx]
+                            
+                            repository.addBoid(name, boid, details.takeIf { it.isNotEmpty() })
+                        }
                     }
                 }
+                _syncMessage.value = "Imported family members from CSV"
+            } else {
+                // Legacy Regex-based parsing for raw text paste
+                lines.forEach { line ->
+                    val boidRegex = Regex("\\b\\d{16}\\b")
+                    val match = boidRegex.find(line)
+                    if (match != null) {
+                        val boid = match.value
+                        var name = line.replace(boid, "").replace(Regex("[,:|\\t]"), " ").trim()
+                        if (name.isBlank()) name = "User_${boid.takeLast(4)}"
+                        if (boids.value.none { it.boid == boid }) {
+                            repository.addBoid(name, boid)
+                        }
+                    }
+                }
+                _syncMessage.value = "Imported from text paste"
             }
         }
     }
@@ -209,68 +341,88 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
     private val _isHybridChecking = MutableStateFlow(false)
     val isHybridChecking = _isHybridChecking.asStateFlow()
 
-    fun startBulkCheck(hybrid: Boolean = true) {
+    private fun extractUnits(message: String): Int {
+        return try {
+            val regex = """(\d+)\s+units""".toRegex()
+            regex.find(message)?.groupValues?.get(1)?.toInt() ?: 0
+        } catch (e: Exception) { 0 }
+    }
+
+    fun resetAllotment(boid: String) {
+        val ipo = _selectedIpo.value ?: return
+        viewModelScope.launch {
+            repository.resetAllotmentStatus(ipo.companyName, boid)
+        }
+    }
+
+    fun markAsApplied(boid: String) {
+        val ipo = _selectedIpo.value ?: return
+        viewModelScope.launch {
+            repository.updateApplyStatus(ipo.companyName, boid, "APPLIED", "Manually Marked", System.currentTimeMillis())
+        }
+    }
+
+    fun startAutoCheck() {
         val ipo = _selectedIpo.value ?: run {
             showTemporaryMessage("Please select an IPO first")
             return
         }
 
-        if (hybrid) {
-            _isHybridChecking.value = true
-            _isChecking.value = true // Keep legacy flag for UI backward compatibility
-            return
-        }
+        val companyName = ipo.companyName
+
+        com.example.data.util.AppLogger.i("IpoCheck", "Auto Check Results initiated")
+        val currentBoids = boids.value.filter { it.isEnabledForCheck && !it.msPassword.isNullOrBlank() }
         
-        com.example.data.util.AppLogger.i("IpoCheck", "Legacy Check Results button pressed")
-        val companyId = ipo.resultPortalId ?: run {
-            showTemporaryMessage("Company ID missing. Click the warning to enter it.")
-            return
-        }
-        val currentBoids = boids.value.filter { _enabledBoids[it.boid] != false }
         if (currentBoids.isEmpty()) {
-            showTemporaryMessage("No enabled BOIDs to check.")
+            showTemporaryMessage("No enabled BOIDs with credentials to check.")
             return
         }
 
         viewModelScope.launch {
             _isChecking.value = true
-            val initialResults = currentBoids.map { BulkIpoResult(it, isChecking = true) }
-            _results.value = initialResults
-
-            repository.bulkCheckIpoResults(companyId, currentBoids) { index, result ->
-                viewModelScope.launch {
-                    val updatedList = _results.value.toMutableList()
-                    if (index < updatedList.size) {
-                        result.onSuccess {
-                            updatedList[index] = updatedList[index].copy(result = it, isChecking = false)
-                        }
-                        result.onFailure {
-                            updatedList[index] = updatedList[index].copy(error = it.message, isChecking = false)
-                        }
-                        _results.value = updatedList
+            
+            for (boid in currentBoids) {
+                val loginResult = msRepository.login(boid.boid, boid.msUsername!!, boid.msPassword!!)
+                loginResult.onSuccess { token ->
+                    val result = msRepository.checkResult(token, companyName)
+                    if (result != null) {
+                        repository.updateIpoMemberActivity(IpoMemberActivity(
+                            companyName = companyName,
+                            boid = boid.boid,
+                            allotmentStatus = if (result.success) "ALLOTTED" else "NOT_ALLOTTED",
+                            allotmentUnits = if (result.success) extractUnits(result.message) else 0,
+                            allotmentMessage = result.message,
+                            checkedAt = System.currentTimeMillis()
+                        ))
                     }
                 }
+                delay(1000)
             }
             _isChecking.value = false
         }
     }
 
-    fun onHybridResultReceived(boidEntry: BoidEntry, message: String, success: Boolean) {
-        val currentResults = _results.value.toMutableList()
-        val existingIndex = currentResults.indexOfFirst { it.boidEntry.boid == boidEntry.boid }
-        
-        val newResult = BulkIpoResult(
-            boidEntry = boidEntry,
-            result = IpoResultResponse(success, message),
-            isChecking = false
-        )
-        
-        if (existingIndex != -1) {
-            currentResults[existingIndex] = newResult
+    fun startBulkCheck(hybrid: Boolean = false) {
+        if (hybrid) {
+            _isHybridChecking.value = true
+            _isChecking.value = true
         } else {
-            currentResults.add(newResult)
+            startAutoCheck()
         }
-        _results.value = currentResults
+    }
+
+    fun onHybridResultReceived(boidEntry: BoidEntry, message: String, success: Boolean) {
+        val ipo = _selectedIpo.value ?: return
+        viewModelScope.launch {
+            repository.updateIpoMemberActivity(IpoMemberActivity(
+                companyName = ipo.companyName,
+                boid = boidEntry.boid,
+                allotmentStatus = if (success) "ALLOTTED" else "NOT_ALLOTTED",
+                allotmentUnits = if (success) extractUnits(message) else 0,
+                allotmentMessage = message,
+                checkedAt = System.currentTimeMillis()
+            ))
+        }
     }
 
     fun finishHybridCheck() {
@@ -286,90 +438,84 @@ class BulkIpoViewModel(private val repository: IpoRepository) : ViewModel() {
         }
     }
 
-    fun startCheckAllRecentResults() {
-        com.example.data.util.AppLogger.i("IpoCheck", "Check All Recent Results button pressed")
-        val recentIposWithId = ipos.value.filter { it.resultPortalId != null }.take(15)
-        val currentBoids = boids.value
-        
-        if (recentIposWithId.isEmpty()) {
-            showTemporaryMessage("No recent IPOs with Result Portal IDs found. Sync first.")
+    fun clearResults() {
+        _results.value = emptyList()
+    }
+
+    fun exportVaultToCsv(): String {
+        return buildString {
+            append("Name,Boid,Username,Password,PIN,CRN\n")
+            boids.value.forEach { b ->
+                append("${b.name},${b.boid},${b.msUsername ?: ""},${b.msPassword ?: ""},${b.msPin ?: ""},${b.msCrn ?: ""}\n")
+            }
+        }
+    }
+
+    /**
+     * Phase 4.2: Auto IPO Application
+     * Automates the submission of IPO applications for all enabled family accounts with verified credentials.
+     */
+    fun startAutoApply(units: Int = 10) {
+        val ipo = _selectedIpo.value ?: return
+        val companyId = ipo.resultPortalId ?: run {
+            showTemporaryMessage("Company Share ID missing for application.")
             return
         }
-        if (currentBoids.isEmpty()) {
-            showTemporaryMessage("No BOIDs added to check.")
+        
+        val accounts = verifiedApplyBoids.value.filter { it.isEnabledForApply }
+        
+        if (accounts.isEmpty()) {
+            showTemporaryMessage("No enabled accounts with verified credentials (PIN, CRN) found.")
             return
         }
 
         viewModelScope.launch {
             _isChecking.value = true
-            _results.value = emptyList()
-            
-            val boidResults = currentBoids.map { BulkIpoResult(it, isChecking = true) }.toMutableList()
-            _results.value = boidResults
+            _results.value = accounts.map { BulkIpoResult(it, isChecking = true) }
 
-            for (ipo in recentIposWithId) {
-                _syncMessage.value = "Checking: ${ipo.companyName}..."
-                
-                repository.bulkCheckIpoResults(ipo.resultPortalId!!, currentBoids) { index, result ->
-                    viewModelScope.launch {
-                        val currentList = _results.value.toMutableList()
-                        result.onSuccess { res ->
-                            val existing = currentList[index]
-                            
-                            // If allotted, we definitely want to show it. 
-                            // If multiple are allotted, we aggregate them in the message.
-                            if (res.success) {
-                                val currentMsg = existing.result?.message ?: ""
-                                val newMsg = if (currentMsg.contains("✓")) {
-                                    "$currentMsg\n✓ ${ipo.scrip ?: ipo.companyName.take(8)}: ${res.message}"
-                                } else {
-                                    "✓ ${ipo.scrip ?: ipo.companyName.take(8)}: ${res.message}"
-                                }
-                                
-                                currentList[index] = existing.copy(
-                                    result = res.copy(message = newMsg),
-                                    isChecking = false
-                                )
-                                _results.value = currentList
-                            } else if (existing.result == null || !existing.result.success) {
-                                // Only show Not Allotted if we haven't found any Allotted yet for this BOID
-                                // Or maybe show the most recent "Not Allotted"
-                                val currentMsg = existing.result?.message ?: ""
-                                val newMsg = if (currentMsg.isEmpty()) {
-                                    "✗ ${ipo.scrip ?: ipo.companyName.take(8)}: Not Allotted"
-                                } else {
-                                    currentMsg // Keep existing (might be another Not Allotted or an Allotted)
-                                }
-                                currentList[index] = existing.copy(
-                                    result = res.copy(message = newMsg),
-                                    isChecking = false
-                                )
-                                _results.value = currentList
-                            }
+            for ((index, account) in accounts.withIndex()) {
+                val loginResult = msRepository.login(account.boid, account.msUsername!!, account.msPassword!!)
+                loginResult.onSuccess { token ->
+                    val result = msRepository.applyForIpo(
+                        authToken = token,
+                        boid = account.boid,
+                        crn = account.msCrn!!,
+                        pin = account.msPin!!,
+                        companyShareId = companyId,
+                        units = units
+                    )
+                    
+                    result.onSuccess {
+                        viewModelScope.launch {
+                            repository.updateApplyStatus(ipo.companyName, account.boid, "APPLIED", it, System.currentTimeMillis())
+                        }
+                    }.onFailure {
+                        viewModelScope.launch {
+                            repository.updateApplyStatus(ipo.companyName, account.boid, "FAILED", it.message ?: "Apply Failed", System.currentTimeMillis())
                         }
                     }
+                }.onFailure { error ->
+                    viewModelScope.launch {
+                        repository.updateApplyStatus(ipo.companyName, account.boid, "FAILED", error.message ?: "Login Failed", System.currentTimeMillis())
+                    }
                 }
-                delay(1200) // Moderate delay to avoid trigger WAF
+                delay(1500)
             }
-            
-            _results.value = _results.value.map { it.copy(isChecking = false) }
             _isChecking.value = false
-            _syncMessage.value = "Bulk Check Complete"
-            delay(2000)
-            _syncMessage.value = null
+            _syncMessage.value = "Auto Application Process Finished"
         }
-    }
-
-    fun clearResults() {
-        _results.value = emptyList()
     }
 }
 
-class BulkIpoViewModelFactory(private val repository: IpoRepository) : ViewModelProvider.Factory {
+class BulkIpoViewModelFactory(
+    private val repository: IpoRepository,
+    private val msRepository: MeroShareRepository,
+    private val marketRepository: MarketRepository
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BulkIpoViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return BulkIpoViewModel(repository) as T
+            return BulkIpoViewModel(repository, msRepository, marketRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

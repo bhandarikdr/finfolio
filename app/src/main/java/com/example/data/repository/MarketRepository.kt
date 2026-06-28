@@ -65,6 +65,8 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
     val allScripMaster: Flow<List<ScripMaster>> = portfolioDao.getAllScripMaster()
     val wishlistedScrips: Flow<List<ScripMaster>> = portfolioDao.getWishlistedScrips()
     
+    fun getAllDpMaster(): Flow<List<com.example.data.db.DpMaster>> = portfolioDao.getAllDpMaster()
+    
     val persistedIndices: Flow<List<MarketIndex>> = portfolioDao.getAllMarketIndices().map { entities ->
         entities.map { 
             MarketIndex(
@@ -124,12 +126,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                     }
                 } catch (e: Exception) {}
             }
-            when(category) {
-                ScraperCategory.INDEX_UPDATE -> listOf("https://www.sharesansar.com/market", "https://merolagani.com/LatestMarket.aspx")
-                ScraperCategory.LTP_UPDATE -> listOf("https://www.sharesansar.com/live-trading", "https://merolagani.com/LatestMarket.aspx")
-                ScraperCategory.SCRIP_SYNC -> listOf("https://www.sharesansar.com/company-list", "https://merolagani.com/CompanyList.aspx")
-                else -> emptyList()
-            }
+            com.example.data.model.ScraperDefaults.defaultScrapersByCategory[category] ?: emptyList()
         }
     }
 
@@ -181,7 +178,14 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 }
 
                 if (scrips.isNotEmpty()) {
-                    portfolioDao.insertScripMaster(scrips)
+                    val existing = portfolioDao.getAllScripMaster().first()
+                    val wishlistedSymbols = existing.filter { it.isWishlisted }.map { it.symbol }.toSet()
+                    
+                    val updatedScrips = scrips.map { 
+                        if (wishlistedSymbols.contains(it.symbol)) it.copy(isWishlisted = true) else it 
+                    }
+                    
+                    portfolioDao.insertScripMaster(updatedScrips)
                     return@withContext true
                 }
             } catch (e: Exception) {
@@ -317,11 +321,139 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
 
         if (scrapedIndices.isNotEmpty()) {
             portfolioDao.insertMarketIndices(scrapedIndices.values.map { 
-                MarketIndexEntity(it.index, it.value, it.previousValue, it.change, it.percentChange, "Scraped", timestamp)
+                com.example.data.db.MarketIndexEntity(it.index, it.value, it.previousValue, it.change, it.percentChange, "Scraped", timestamp)
             })
             updateCount = scrapedIndices.size
         }
         Result.success(updateCount)
+    }
+
+    /**
+     * Phase 1.4: DP Master Sync (Refined)
+     * Fetches Depository Participants from user-configured URL.
+     * Maps the 5-digit DP code (e.g. 10600) to MeroShare clientId.
+     */
+    suspend fun fetchDpMaster(): Boolean = withContext(Dispatchers.IO) {
+        val urls = getScraperUrls(ScraperCategory.DP_MASTER)
+        if (urls.isEmpty()) {
+            AppLogger.w("DpSync", "No scraper URLs configured for DP Master")
+            return@withContext false
+        }
+        
+        for (url in urls) {
+            try {
+                AppLogger.d("DpSync", "Scraping DP List from: $url")
+                val client = NetworkUtils.getUnsafeOkHttpClient()
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+                    .build()
+                
+                val html = client.newCall(request).execute().use { it.body?.string() ?: "" }
+                if (html.isBlank()) {
+                    AppLogger.w("DpSync", "Empty HTML response from $url")
+                    continue
+                }
+                
+                val doc = Jsoup.parse(html)
+                val dps = mutableListOf<com.example.data.db.DpMaster>()
+                val now = System.currentTimeMillis()
+
+                val tables = doc.select("table")
+                AppLogger.d("DpSync", "Found ${tables.size} tables in $url")
+
+                tables.forEachIndexed { tableIdx, table ->
+                    val rows = table.select("tr")
+                    if (rows.size < 5) {
+                        AppLogger.d("DpSync", "Table $tableIdx skipped: only ${rows.size} rows")
+                        return@forEachIndexed
+                    }
+
+                    var codeIdx = -1; var nameIdx = -1
+                    var headerRowIdx = -1
+
+                    for (i in 0 until minOf(rows.size, 20)) {
+                        val headerCells = rows[i].select("th, td")
+                        val header = headerCells.map { it.text().lowercase().trim() }
+                        
+                        header.forEachIndexed { idx, text ->
+                            if (text == "s.n." || text == "sn" || text == "s.no" || text == "sl.no") { /* skip sn */ }
+                            else if (text.contains("dp id") || text.contains("code") || text.contains("id") || text == "dp code" || text == "member id" || text.contains("participant id")) {
+                                if (codeIdx == -1) codeIdx = idx
+                            } else if (text.contains("participant") || text.contains("name") || text == "dp name" || text.contains("member") || text.contains("depository")) {
+                                if (nameIdx == -1) nameIdx = idx
+                            }
+                        }
+                        if (codeIdx != -1 && nameIdx != -1) {
+                            headerRowIdx = i
+                            break
+                        }
+                    }
+
+                    if (headerRowIdx != -1) {
+                        rows.drop(headerRowIdx + 1).forEach { row ->
+                            val cells = row.select("td")
+                            if (cells.size > maxOf(codeIdx, nameIdx)) {
+                                val rawCode = cells[codeIdx].text().trim()
+                                val rawName = cells[nameIdx].text().trim()
+                                
+                                val digitsOnly = rawCode.filter { it.isDigit() }
+                                val cleanCode = if (digitsOnly.length >= 8) digitsOnly.take(8).takeLast(5) 
+                                                else if (digitsOnly.length >= 5) digitsOnly.takeLast(5) 
+                                                else digitsOnly
+                                
+                                val clientId = if (cleanCode.isNotEmpty()) getClientIdFromFallback(cleanCode) else 0
+                                
+                                if (cleanCode.length >= 3 && rawName.isNotEmpty() && !garbageTerms.contains(rawName.lowercase())) {
+                                    dps.add(com.example.data.db.DpMaster(cleanCode, rawName, clientId, now))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (dps.isNotEmpty()) {
+                    portfolioDao.insertDpMaster(dps)
+                    AppLogger.i("DpSync", "Successfully synced ${dps.size} DPs from $url")
+                    return@withContext true
+                } else {
+                    AppLogger.w("DpSync", "No DPs extracted from tables at $url")
+                }
+            } catch (e: Exception) {
+                AppLogger.e("DpSync", "Failed to sync DP Master from $url", e)
+            }
+        }
+        false
+    }
+
+    private fun getClientIdFromFallback(dpCode: String): Int {
+        // Fallback mapping based on constants.py for known Client IDs
+        val mapping = mapOf(
+            "10100" to 138, "10200" to 172, "10400" to 164, "10600" to 173, "10700" to 157,
+            "10800" to 145, "10900" to 190, "11000" to 175, "11100" to 134, "11200" to 146,
+            "11300" to 143, "11400" to 196, "11500" to 171, "11600" to 187, "11700" to 137,
+            "11800" to 176, "11900" to 131, "12000" to 141, "12200" to 151, "12300" to 129,
+            "12400" to 195, "12500" to 199, "12600" to 179, "12700" to 188, "12800" to 182,
+            "12900" to 189, "13000" to 192, "13100" to 150, "13200" to 128, "13300" to 139,
+            "13400" to 140, "13500" to 200, "13600" to 161, "13700" to 174, "13800" to 158,
+            "13900" to 178, "14000" to 193, "14100" to 155, "14200" to 194, "14300" to 154,
+            "14400" to 185, "14500" to 142, "14600" to 191, "14700" to 133, "14800" to 180,
+            "14900" to 144, "15000" to 135, "15100" to 166, "15200" to 156, "15300" to 170,
+            "15400" to 152, "15500" to 169, "15600" to 132, "15700" to 167, "15800" to 186,
+            "15900" to 163, "16000" to 136, "16100" to 159, "16200" to 147, "16300" to 168,
+            "16400" to 165, "16500" to 184, "16600" to 183, "16700" to 160, "16800" to 198,
+            "16900" to 181, "17000" to 177, "17100" to 197, "17200" to 130, "17300" to 162,
+            "17400" to 149, "17500" to 201, "17600" to 153, "17700" to 148, "17800" to 370,
+            "17900" to 402, "18000" to 681, "18100" to 1080, "18200" to 1182, "18300" to 1186,
+            "18400" to 1189, "18500" to 1196, "18600" to 1270, "18700" to 1271, "18800" to 1274,
+            "18900" to 1281, "19000" to 1287, "19100" to 1298, "19200" to 1294, "19300" to 1296,
+            "19400" to 1293, "19500" to 1292, "19600" to 1297, "19700" to 1295, "19800" to 1305,
+            "19900" to 1306, "20000" to 1308, "20100" to 1309, "20200" to 1310, "20300" to 1311,
+            "20400" to 1320, "20500" to 1317, "20600" to 1315, "20700" to 1314, "20800" to 1316,
+            "20900" to 1318, "21000" to 1319, "21100" to 1325, "21200" to 1324, "21300" to 1328,
+            "21400" to 1327, "21500" to 1326, "21600" to 1329
+        )
+        return mapping[dpCode] ?: 0
     }
 
     suspend fun fetchPriceChanges(force: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
@@ -411,16 +543,14 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                                     val finalChg = directChange?.let { if (isNeg) -Math.abs(it) else it } ?: 0.0
                                     val finalPct = directPct?.let { if (isNeg) -Math.abs(it) else it } ?: 0.0
 
-                                    // STRICT FLAT LOGIC: 
-                                    // 1. Skip if price hasn't moved at all (prevents timestamp-only updates)
-                                    val isSamePrice = existing != null && Math.abs(existing.ltp - ltp) < 0.001
-                                    
-                                    // 2. Skip if the current data shows ZERO change, but our database has a valid NON-ZERO change.
-                                    // This usually happens when a scraper returns a static/stale table after market close
-                                    // where the "Change" column is reset to 0 but LTP is still yesterday's.
+                                    // SMART UPDATE LOGIC:
+                                    // 1. If current data shows ZERO change, but DB has valid NON-ZERO change, skip it (likely stale/closed market data).
                                     val isInvalidZero = existing != null && Math.abs(existing.pointChange) > 0.01 && Math.abs(finalChg) < 0.01
                                     
-                                    if (isSamePrice || isInvalidZero) {
+                                    // 2. If LTP is same AND current change is same (or zero), skip update to avoid unnecessary writes.
+                                    val isExactlySame = existing != null && Math.abs(existing.ltp - ltp) < 0.001 && Math.abs(existing.pointChange - finalChg) < 0.01
+                                    
+                                    if (isInvalidZero || isExactlySame) {
                                         return@forEach
                                     }
 

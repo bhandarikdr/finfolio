@@ -2,5 +2,11 @@
   "name": "FinFolio",
   "description": "A comprehensive portfolio tracker managing transactions, parsing live markets, importing CSVs and displaying customizable matrices.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
+  "uiStandards": {
+    "utilities": "Expandable menus for Issues and DPs, unexpanded by default. Dynamic counts in titles.",
+    "matrix": "No redundant scrip counts. Prominent CSV export button for filtered data.",
+    "history": "Total transaction count in main title, independent of scrip filters.",
+    "scrapers": "Undo button for accidental URL deletion to improve UX."
+  }
 }

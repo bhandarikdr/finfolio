@@ -25,6 +25,9 @@ interface IpoMasterDao {
     @Query("SELECT * FROM ipo_master WHERE companyName = :name LIMIT 1")
     suspend fun getByName(name: String): IpoMaster?
 
+    @Query("SELECT * FROM ipo_master WHERE scrip = :scrip LIMIT 1")
+    suspend fun getByScrip(scrip: String): IpoMaster?
+
     @Query("SELECT * FROM ipo_master WHERE resultPortalId = :id LIMIT 1")
     suspend fun getByResultPortalId(id: Int): IpoMaster?
 
@@ -47,4 +50,20 @@ interface IpoMasterDao {
 
     @Query("DELETE FROM ipo_result_cache")
     suspend fun clearResultCache()
+
+    // --- IPO MEMBER ACTIVITY ---
+    @Query("SELECT * FROM ipo_member_activity WHERE companyName = :companyName AND boid = :boid LIMIT 1")
+    suspend fun getActivity(companyName: String, boid: String): IpoMemberActivity?
+
+    @Query("SELECT * FROM ipo_member_activity WHERE companyName = :companyName")
+    fun getActivityForCompany(companyName: String): kotlinx.coroutines.flow.Flow<List<IpoMemberActivity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertActivity(activity: IpoMemberActivity)
+
+    @Query("UPDATE ipo_member_activity SET allotmentStatus = 'NOT_CHECKED', allotmentUnits = 0, allotmentMessage = NULL, checkedAt = 0 WHERE companyName = :companyName AND boid = :boid")
+    suspend fun resetAllotmentStatus(companyName: String, boid: String)
+
+    @Query("UPDATE ipo_member_activity SET applyStatus = :status, applyMessage = :message, appliedAt = :timestamp WHERE companyName = :companyName AND boid = :boid")
+    suspend fun updateApplyStatus(companyName: String, boid: String, status: String, message: String?, timestamp: Long)
 }

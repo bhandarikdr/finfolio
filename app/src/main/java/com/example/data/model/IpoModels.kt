@@ -22,7 +22,14 @@ data class BoidEntry(
     val name: String,
     val boid: String,
     val isDefault: Boolean = false,
-    val isEnabledForBulk: Boolean = true
+    val isEnabledForCheck: Boolean = true,
+    val isEnabledForApply: Boolean = true,
+    val isEnabledForBulk: Boolean = true, // Legacy
+    // MeroShare Credentials (encrypted in local DB)
+    val msUsername: String? = null,
+    val msPassword: String? = null,
+    val msPin: String? = null,
+    val msCrn: String? = null
 )
 
 data class BulkIpoResult(

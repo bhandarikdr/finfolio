@@ -1,355 +1,87 @@
 --- FINFOLIO SYSTEM LOG EXPORT ---
-Export Time: 2026-06-27 08:17:31.137
+Export Time: 2026-06-28 17:03:08.672
 Device: 2404ARN45A (Android 16)
 ----------------------------------
 
-[2026-06-27 08:17:09.858] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:16:00.817] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:15:53.768] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:15:51.457] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:15:43.767] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:15:43.107] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:15:42.241] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:15:41.180] [DEBUG] [IpoSync]: Skipping IPO Sync (Cooldown active)
-[2026-06-27 08:15:36.140] [INFO] [ScraperConfig]: Test Success for https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
-[2026-06-27 08:15:35.618] [INFO] [ScraperConfig]: Testing URL for IPO_LISTING: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
-[2026-06-27 08:15:35.617] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in IPO_LISTING
-[2026-06-27 08:15:26.676] [INFO] [ScraperConfig]: User entered Scraper Configuration Screen
-[2026-06-27 08:08:25.813] [INFO] [LtpSync]: Successfully aggregated 748 LTP records
-[2026-06-27 08:08:22.545] [ERROR] [LtpSync]: Failed to scrape LTP from https://www.nepalstock.com/ 
-Exception: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-Stacktrace: javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.SSLUtils.toSSLHandshakeException(SSLUtils.java:358)
-	at com.android.org.conscrypt.ConscryptEngine.convertException(ConscryptEngine.java:1131)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1086)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:873)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:744)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:709)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.processDataFromSocket(ConscryptEngineSocket.java:907)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.-$$Nest$mprocessDataFromSocket(Unknown Source:0)
-	at com.android.org.conscrypt.ConscryptEngineSocket.doHandshake(ConscryptEngineSocket.java:242)
-	at com.android.org.conscrypt.ConscryptEngineSocket.startHandshake(ConscryptEngineSocket.java:224)
-	at com.android.okhttp.internal.io.RealConnection.connectTls(RealConnection.java:196)
-	at com.android.okhttp.internal.io.RealConnection.connectSocket(RealConnection.java:153)
-	at com.android.okhttp.internal.io.RealConnection.connect(RealConnection.java:116)
-	at com.android.okhttp.internal.http.StreamAllocation.findConnection(StreamAllocation.java:186)
-	at com.android.okhttp.internal.http.StreamAllocation.findHealthyConnection(StreamAllocation.java:128)
-	at com.android.okhttp.internal.http.StreamAllocation.newStream(StreamAllocation.java:97)
-	at com.android.okhttp.internal.http.HttpEngine.connect(HttpEngine.java:289)
-	at com.android.okhttp.internal.http.HttpEngine.sendRequest(HttpEngine.java:232)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.execute(HttpURLConnectionImpl.java:465)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.connect(HttpURLConnectionImpl.java:131)
-	at com.android.okhttp.internal.huc.DelegatingHttpsURLConnection.connect(DelegatingHttpsURLConnection.java:90)
-	at com.android.okhttp.internal.huc.HttpsURLConnectionImpl.connect(HttpsURLConnectionImpl.java:30)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:861)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:831)
-	at org.jsoup.helper.HttpConnection.execute(HttpConnection.java:351)
-	at org.jsoup.helper.HttpConnection.get(HttpConnection.java:336)
-	at com.example.data.repository.PortfolioRepository$refreshLivePrices$2.invokeSuspend(PortfolioRepository.kt:985)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
-	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:266)
-	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
-	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
-	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
-	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
-Caused by: java.security.cert.CertificateException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrustedRecursive(TrustManagerImpl.java:649)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:498)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:418)
-	at com.android.org.conscrypt.TrustManagerImpl.getTrustedChainForServer(TrustManagerImpl.java:346)
-	at android.security.net.config.NetworkSecurityTrustManager.checkServerTrusted(NetworkSecurityTrustManager.java:95)
-	at android.security.net.config.RootTrustManager.checkServerTrusted(RootTrustManager.java:90)
-	at com.android.org.conscrypt.ConscryptEngineSocket$2.checkServerTrusted(ConscryptEngineSocket.java:169)
-	at com.android.org.conscrypt.Platform.checkServerTrusted(Platform.java:286)
-	at com.android.org.conscrypt.ConscryptEngine.verifyCertificateChain(ConscryptEngine.java:1635)
-	at com.android.org.conscrypt.NativeCrypto.ENGINE_SSL_read_direct(Native Method)
-	at com.android.org.conscrypt.NativeSsl.readDirectByteBuffer(NativeSsl.java:571)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextDataDirect(ConscryptEngine.java:1092)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1076)
-	... 35 more
-Caused by: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	... 48 more
-
-[2026-06-27 08:08:22.489] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://merolagani.com/latestmarket.aspx: 2649.76
-[2026-06-27 08:08:22.033] [DEBUG] [MarketStatus]: Attempting scrape from: https://merolagani.com/latestmarket.aspx
-[2026-06-27 08:08:22.032] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://www.sharesansar.com/market: 2649.76
-[2026-06-27 08:08:21.590] [ERROR] [MarketStatus]: Failed: https://www.nepalstock.com/ -> Error: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-[2026-06-27 08:08:21.590] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.sharesansar.com/market
-[2026-06-27 08:08:21.541] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.nepalstock.com/
-[2026-06-27 08:07:48.267] [INFO] [LtpSync]: Successfully aggregated 748 LTP records
-[2026-06-27 08:07:44.810] [ERROR] [LtpSync]: Failed to scrape LTP from https://www.nepalstock.com/ 
-Exception: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-Stacktrace: javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.SSLUtils.toSSLHandshakeException(SSLUtils.java:358)
-	at com.android.org.conscrypt.ConscryptEngine.convertException(ConscryptEngine.java:1131)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1086)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:873)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:744)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:709)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.processDataFromSocket(ConscryptEngineSocket.java:907)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.-$$Nest$mprocessDataFromSocket(Unknown Source:0)
-	at com.android.org.conscrypt.ConscryptEngineSocket.doHandshake(ConscryptEngineSocket.java:242)
-	at com.android.org.conscrypt.ConscryptEngineSocket.startHandshake(ConscryptEngineSocket.java:224)
-	at com.android.okhttp.internal.io.RealConnection.connectTls(RealConnection.java:196)
-	at com.android.okhttp.internal.io.RealConnection.connectSocket(RealConnection.java:153)
-	at com.android.okhttp.internal.io.RealConnection.connect(RealConnection.java:116)
-	at com.android.okhttp.internal.http.StreamAllocation.findConnection(StreamAllocation.java:186)
-	at com.android.okhttp.internal.http.StreamAllocation.findHealthyConnection(StreamAllocation.java:128)
-	at com.android.okhttp.internal.http.StreamAllocation.newStream(StreamAllocation.java:97)
-	at com.android.okhttp.internal.http.HttpEngine.connect(HttpEngine.java:289)
-	at com.android.okhttp.internal.http.HttpEngine.sendRequest(HttpEngine.java:232)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.execute(HttpURLConnectionImpl.java:465)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.connect(HttpURLConnectionImpl.java:131)
-	at com.android.okhttp.internal.huc.DelegatingHttpsURLConnection.connect(DelegatingHttpsURLConnection.java:90)
-	at com.android.okhttp.internal.huc.HttpsURLConnectionImpl.connect(HttpsURLConnectionImpl.java:30)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:861)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:831)
-	at org.jsoup.helper.HttpConnection.execute(HttpConnection.java:351)
-	at org.jsoup.helper.HttpConnection.get(HttpConnection.java:336)
-	at com.example.data.repository.PortfolioRepository$refreshLivePrices$2.invokeSuspend(PortfolioRepository.kt:985)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
-	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:266)
-	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
-	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
-	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
-	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
-Caused by: java.security.cert.CertificateException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrustedRecursive(TrustManagerImpl.java:649)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:498)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:418)
-	at com.android.org.conscrypt.TrustManagerImpl.getTrustedChainForServer(TrustManagerImpl.java:346)
-	at android.security.net.config.NetworkSecurityTrustManager.checkServerTrusted(NetworkSecurityTrustManager.java:95)
-	at android.security.net.config.RootTrustManager.checkServerTrusted(RootTrustManager.java:90)
-	at com.android.org.conscrypt.ConscryptEngineSocket$2.checkServerTrusted(ConscryptEngineSocket.java:169)
-	at com.android.org.conscrypt.Platform.checkServerTrusted(Platform.java:286)
-	at com.android.org.conscrypt.ConscryptEngine.verifyCertificateChain(ConscryptEngine.java:1635)
-	at com.android.org.conscrypt.NativeCrypto.ENGINE_SSL_read_direct(Native Method)
-	at com.android.org.conscrypt.NativeSsl.readDirectByteBuffer(NativeSsl.java:571)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextDataDirect(ConscryptEngine.java:1092)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1076)
-	... 35 more
-Caused by: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	... 48 more
-
-[2026-06-27 08:07:44.749] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://merolagani.com/latestmarket.aspx: 2649.76
-[2026-06-27 08:07:44.400] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://www.sharesansar.com/market: 2649.76
-[2026-06-27 08:07:44.400] [DEBUG] [MarketStatus]: Attempting scrape from: https://merolagani.com/latestmarket.aspx
-[2026-06-27 08:07:42.843] [ERROR] [MarketStatus]: Failed: https://www.nepalstock.com/ -> Error: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-[2026-06-27 08:07:42.843] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.sharesansar.com/market
-[2026-06-27 08:07:42.783] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.nepalstock.com/
-[2026-06-27 07:59:42.486] [INFO] [LtpSync]: Successfully aggregated 748 LTP records
-[2026-06-27 07:59:41.919] [INFO] [LtpSync]: Sync successful from https://www.sharesansar.com/live-trading. Scraped 323 items.
-[2026-06-27 07:59:39.860] [DEBUG] [LtpSync]: Requesting URL: https://www.sharesansar.com/live-trading?t=1782526479859
-[2026-06-27 07:59:39.816] [INFO] [LtpSync]: Starting Scrip LTP Sync
-[2026-06-27 07:59:39.809] [INFO] [MarketSync]: Sync finished. Total unique indices updated: 1
-[2026-06-27 07:59:39.453] [ERROR] [LtpSync]: Failed to scrape LTP from https://www.nepalstock.com/ 
-Exception: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-Stacktrace: javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.SSLUtils.toSSLHandshakeException(SSLUtils.java:358)
-	at com.android.org.conscrypt.ConscryptEngine.convertException(ConscryptEngine.java:1131)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1086)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:873)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:744)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:709)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.processDataFromSocket(ConscryptEngineSocket.java:907)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.-$$Nest$mprocessDataFromSocket(Unknown Source:0)
-	at com.android.org.conscrypt.ConscryptEngineSocket.doHandshake(ConscryptEngineSocket.java:242)
-	at com.android.org.conscrypt.ConscryptEngineSocket.startHandshake(ConscryptEngineSocket.java:224)
-	at com.android.okhttp.internal.io.RealConnection.connectTls(RealConnection.java:196)
-	at com.android.okhttp.internal.io.RealConnection.connectSocket(RealConnection.java:153)
-	at com.android.okhttp.internal.io.RealConnection.connect(RealConnection.java:116)
-	at com.android.okhttp.internal.http.StreamAllocation.findConnection(StreamAllocation.java:186)
-	at com.android.okhttp.internal.http.StreamAllocation.findHealthyConnection(StreamAllocation.java:128)
-	at com.android.okhttp.internal.http.StreamAllocation.newStream(StreamAllocation.java:97)
-	at com.android.okhttp.internal.http.HttpEngine.connect(HttpEngine.java:289)
-	at com.android.okhttp.internal.http.HttpEngine.sendRequest(HttpEngine.java:232)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.execute(HttpURLConnectionImpl.java:465)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.connect(HttpURLConnectionImpl.java:131)
-	at com.android.okhttp.internal.huc.DelegatingHttpsURLConnection.connect(DelegatingHttpsURLConnection.java:90)
-	at com.android.okhttp.internal.huc.HttpsURLConnectionImpl.connect(HttpsURLConnectionImpl.java:30)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:861)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:831)
-	at org.jsoup.helper.HttpConnection.execute(HttpConnection.java:351)
-	at org.jsoup.helper.HttpConnection.get(HttpConnection.java:336)
-	at com.example.data.repository.PortfolioRepository$refreshLivePrices$2.invokeSuspend(PortfolioRepository.kt:985)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
-	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:266)
-	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
-	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
-	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
-	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
-Caused by: java.security.cert.CertificateException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrustedRecursive(TrustManagerImpl.java:649)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:498)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:418)
-	at com.android.org.conscrypt.TrustManagerImpl.getTrustedChainForServer(TrustManagerImpl.java:346)
-	at android.security.net.config.NetworkSecurityTrustManager.checkServerTrusted(NetworkSecurityTrustManager.java:95)
-	at android.security.net.config.RootTrustManager.checkServerTrusted(RootTrustManager.java:90)
-	at com.android.org.conscrypt.ConscryptEngineSocket$2.checkServerTrusted(ConscryptEngineSocket.java:169)
-	at com.android.org.conscrypt.Platform.checkServerTrusted(Platform.java:286)
-	at com.android.org.conscrypt.ConscryptEngine.verifyCertificateChain(ConscryptEngine.java:1635)
-	at com.android.org.conscrypt.NativeCrypto.ENGINE_SSL_read_direct(Native Method)
-	at com.android.org.conscrypt.NativeSsl.readDirectByteBuffer(NativeSsl.java:571)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextDataDirect(ConscryptEngine.java:1092)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1076)
-	... 35 more
-Caused by: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	... 48 more
-
-[2026-06-27 07:59:39.335] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://merolagani.com/latestmarket.aspx: 2649.76
-[2026-06-27 07:59:38.951] [DEBUG] [MarketSync]: Scraping URL: https://merolagani.com/LatestMarket.aspx
-[2026-06-27 07:59:38.892] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://www.sharesansar.com/market: 2649.76
-[2026-06-27 07:59:38.892] [DEBUG] [MarketStatus]: Attempting scrape from: https://merolagani.com/latestmarket.aspx
-[2026-06-27 07:59:37.276] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.sharesansar.com/market
-[2026-06-27 07:59:37.275] [ERROR] [MarketStatus]: Failed: https://www.nepalstock.com/ -> Error: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-[2026-06-27 07:59:37.231] [DEBUG] [MarketSync]: Scraping URL: https://www.sharesansar.com/market
-[2026-06-27 07:59:37.231] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.nepalstock.com/
-[2026-06-27 07:59:37.227] [INFO] [MarketSync]: Starting Market Indices Sync
-[2026-06-27 07:43:44.711] [INFO] [LtpSync]: Successfully aggregated 748 LTP records
-[2026-06-27 07:43:40.390] [ERROR] [LtpSync]: Failed to scrape LTP from https://www.nepalstock.com/ 
-Exception: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-Stacktrace: javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.SSLUtils.toSSLHandshakeException(SSLUtils.java:358)
-	at com.android.org.conscrypt.ConscryptEngine.convertException(ConscryptEngine.java:1131)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1086)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:873)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:744)
-	at com.android.org.conscrypt.ConscryptEngine.unwrap(ConscryptEngine.java:709)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.processDataFromSocket(ConscryptEngineSocket.java:907)
-	at com.android.org.conscrypt.ConscryptEngineSocket$SSLInputStream.-$$Nest$mprocessDataFromSocket(Unknown Source:0)
-	at com.android.org.conscrypt.ConscryptEngineSocket.doHandshake(ConscryptEngineSocket.java:242)
-	at com.android.org.conscrypt.ConscryptEngineSocket.startHandshake(ConscryptEngineSocket.java:224)
-	at com.android.okhttp.internal.io.RealConnection.connectTls(RealConnection.java:196)
-	at com.android.okhttp.internal.io.RealConnection.connectSocket(RealConnection.java:153)
-	at com.android.okhttp.internal.io.RealConnection.connect(RealConnection.java:116)
-	at com.android.okhttp.internal.http.StreamAllocation.findConnection(StreamAllocation.java:186)
-	at com.android.okhttp.internal.http.StreamAllocation.findHealthyConnection(StreamAllocation.java:128)
-	at com.android.okhttp.internal.http.StreamAllocation.newStream(StreamAllocation.java:97)
-	at com.android.okhttp.internal.http.HttpEngine.connect(HttpEngine.java:289)
-	at com.android.okhttp.internal.http.HttpEngine.sendRequest(HttpEngine.java:232)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.execute(HttpURLConnectionImpl.java:465)
-	at com.android.okhttp.internal.huc.HttpURLConnectionImpl.connect(HttpURLConnectionImpl.java:131)
-	at com.android.okhttp.internal.huc.DelegatingHttpsURLConnection.connect(DelegatingHttpsURLConnection.java:90)
-	at com.android.okhttp.internal.huc.HttpsURLConnectionImpl.connect(HttpsURLConnectionImpl.java:30)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:861)
-	at org.jsoup.helper.HttpConnection$Response.execute(HttpConnection.java:831)
-	at org.jsoup.helper.HttpConnection.execute(HttpConnection.java:351)
-	at org.jsoup.helper.HttpConnection.get(HttpConnection.java:336)
-	at com.example.data.repository.PortfolioRepository$refreshLivePrices$2.invokeSuspend(PortfolioRepository.kt:985)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
-	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:266)
-	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
-	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
-	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
-	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
-	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
-	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
-Caused by: java.security.cert.CertificateException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrustedRecursive(TrustManagerImpl.java:649)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:498)
-	at com.android.org.conscrypt.TrustManagerImpl.checkTrusted(TrustManagerImpl.java:418)
-	at com.android.org.conscrypt.TrustManagerImpl.getTrustedChainForServer(TrustManagerImpl.java:346)
-	at android.security.net.config.NetworkSecurityTrustManager.checkServerTrusted(NetworkSecurityTrustManager.java:95)
-	at android.security.net.config.RootTrustManager.checkServerTrusted(RootTrustManager.java:90)
-	at com.android.org.conscrypt.ConscryptEngineSocket$2.checkServerTrusted(ConscryptEngineSocket.java:169)
-	at com.android.org.conscrypt.Platform.checkServerTrusted(Platform.java:286)
-	at com.android.org.conscrypt.ConscryptEngine.verifyCertificateChain(ConscryptEngine.java:1635)
-	at com.android.org.conscrypt.NativeCrypto.ENGINE_SSL_read_direct(Native Method)
-	at com.android.org.conscrypt.NativeSsl.readDirectByteBuffer(NativeSsl.java:571)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextDataDirect(ConscryptEngine.java:1092)
-	at com.android.org.conscrypt.ConscryptEngine.readPlaintextData(ConscryptEngine.java:1076)
-	... 35 more
-Caused by: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-	... 48 more
-
-[2026-06-27 07:43:40.324] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://merolagani.com/latestmarket.aspx: 2649.76
-[2026-06-27 07:43:39.668] [DEBUG] [MarketStatus]: Attempting scrape from: https://merolagani.com/latestmarket.aspx
-[2026-06-27 07:43:39.668] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://www.sharesansar.com/market: 2649.76
-[2026-06-27 07:43:37.691] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.sharesansar.com/market
-[2026-06-27 07:43:37.690] [ERROR] [MarketStatus]: Failed: https://www.nepalstock.com/ -> Error: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
-[2026-06-27 07:43:37.455] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.nepalstock.com/
-[2026-06-27 07:43:37.445] [DEBUG] [LtpSync]: Skipping Scrip LTP Sync (Cooldown active)
-[2026-06-27 07:43:37.437] [DEBUG] [MarketSync]: Skipping Market Indices Sync (Cooldown active)
-[2026-06-27 07:35:54.358] [WARN] [LtpSync]: Sync finished with 0 items
-[2026-06-27 07:35:52.909] [DEBUG] [LtpSync]: Requesting URL: https://merolagani.com/LatestMarket.aspx?t=1782525052908
-[2026-06-27 07:35:50.450] [DEBUG] [LtpSync]: Requesting URL: https://www.sharesansar.com/live-trading?t=1782525050449
-[2026-06-27 07:35:50.430] [INFO] [LtpSync]: Starting Scrip LTP Sync
-[2026-06-27 07:35:50.422] [INFO] [MarketSync]: Sync finished. Total unique indices updated: 0
-[2026-06-27 07:35:48.598] [DEBUG] [MarketSync]: Scraping URL: https://merolagani.com/LatestMarket.aspx
-[2026-06-27 07:35:47.073] [DEBUG] [IpoSync]: Acquired Session Cookies: TS5c725768027=08746c9c23ab200021c02bfa764a361f04e8c85a8b28ed6eca96f231e393ad2bd251167568b2b158086ebcccfd113000c2a0d2a291f09ccb908059b2d97716cf04d8aba0d1efde6635429bacbde8f31e16a17ddeb6efd6db3b3613e1ab45badb
-[2026-06-27 07:35:46.519] [INFO] [IpoSync]: Starting IPO Result Mapping Sync
-[2026-06-27 07:35:45.063] [DEBUG] [IpoSync]: Requesting URL: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
-[2026-06-27 07:35:45.058] [DEBUG] [MarketSync]: Scraping URL: https://www.sharesansar.com/market
-[2026-06-27 07:35:45.056] [INFO] [IpoSync]: Starting IPO Listing Sync
-[2026-06-27 07:35:45.039] [INFO] [MarketSync]: Starting Market Indices Sync
-[2026-06-27 07:35:44.507] [DEBUG] [Logger]: AppLogger initialized
-[2026-06-27 07:18:58.860] [WARN] [ScraperConfig]: Restoring all scrapers to factory defaults
-[2026-06-27 07:18:40.729] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://www.nepalstock.com/
-[2026-06-27 07:18:40.611] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in LTP_UPDATE
-[2026-06-27 07:18:40.611] [INFO] [ScraperConfig]: Testing URL for LTP_UPDATE: https://www.nepalstock.com/
-[2026-06-27 07:18:39.606] [INFO] [ScraperConfig]: Test Success for https://www.sharesansar.com/live-trading
-[2026-06-27 07:18:37.462] [INFO] [ScraperConfig]: Testing URL for LTP_UPDATE: https://www.sharesansar.com/live-trading
-[2026-06-27 07:18:37.461] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in LTP_UPDATE
-[2026-06-27 07:18:36.244] [INFO] [ScraperConfig]: Test Success for https://merolagani.com/latestmarket.aspx
-[2026-06-27 07:18:35.730] [INFO] [ScraperConfig]: Testing URL for LTP_UPDATE: https://merolagani.com/latestmarket.aspx
-[2026-06-27 07:18:35.729] [DEBUG] [ScraperConfig]: User triggered test for URL at index 2 in LTP_UPDATE
-[2026-06-27 07:18:30.152] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://www.nepalstock.com/
-[2026-06-27 07:18:29.930] [INFO] [ScraperConfig]: Testing URL for INDEX_UPDATE: https://www.nepalstock.com/
-[2026-06-27 07:18:29.930] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in INDEX_UPDATE
-[2026-06-27 07:18:29.038] [INFO] [ScraperConfig]: Test Success for https://www.sharesansar.com/market
-[2026-06-27 07:18:26.972] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in INDEX_UPDATE
-[2026-06-27 07:18:26.972] [INFO] [ScraperConfig]: Testing URL for INDEX_UPDATE: https://www.sharesansar.com/market
-[2026-06-27 07:18:25.356] [INFO] [ScraperConfig]: Test Success for https://merolagani.com/latestmarket.aspx
-[2026-06-27 07:18:24.916] [INFO] [ScraperConfig]: Testing URL for INDEX_UPDATE: https://merolagani.com/latestmarket.aspx
-[2026-06-27 07:18:24.915] [DEBUG] [ScraperConfig]: User triggered test for URL at index 2 in INDEX_UPDATE
-[2026-06-27 07:18:23.067] [INFO] [ScraperConfig]: Test Success for https://www.sharesansar.com/company-list
-[2026-06-27 07:18:21.235] [INFO] [ScraperConfig]: Testing URL for SCRIP_SYNC: https://www.sharesansar.com/company-list
-[2026-06-27 07:18:21.234] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in SCRIP_SYNC
-[2026-06-27 07:18:19.245] [INFO] [ScraperConfig]: Test Success for https://merolagani.com/CompanyList.aspx
-[2026-06-27 07:18:18.680] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in SCRIP_SYNC
-[2026-06-27 07:18:18.668] [INFO] [ScraperConfig]: Testing URL for SCRIP_SYNC: https://merolagani.com/CompanyList.aspx
-[2026-06-27 07:18:09.466] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in IPO_LISTING
-[2026-06-27 07:18:09.466] [INFO] [ScraperConfig]: Testing URL for IPO_LISTING: https://www.sharesansar.com/ipo-fpo-news
-[2026-06-27 07:18:08.504] [INFO] [ScraperConfig]: Test Success for https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
-[2026-06-27 07:18:08.252] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in IPO_LISTING
-[2026-06-27 07:18:08.252] [INFO] [ScraperConfig]: Testing URL for IPO_LISTING: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
-[2026-06-27 07:17:51.221] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://iporesult.cdsc.com.np/result/ipo/result
-[2026-06-27 07:17:51.070] [INFO] [ScraperConfig]: Testing URL for IPO_RESULT: https://iporesult.cdsc.com.np/result/ipo/result
-[2026-06-27 07:17:51.069] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in IPO_RESULT
-[2026-06-27 07:17:49.098] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://iporesult.cdsc.com.np/result/company/list
-[2026-06-27 07:17:49.039] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in IPO_COMPANIES
-[2026-06-27 07:17:49.039] [INFO] [ScraperConfig]: Testing URL for IPO_COMPANIES: https://iporesult.cdsc.com.np/result/company/list
-[2026-06-27 07:17:36.840] [INFO] [ScraperConfig]: User entered Scraper Configuration Screen
-[2026-06-27 07:01:18.420] [INFO] [IpoDiscovery]: Starting sequential discovery for Reliable Samriddhi Yojana 2 using 1301260003064392. Range: 308 to 368
-[2026-06-27 07:00:45.022] [WARN] [LtpSync]: Sync finished with 0 items
-[2026-06-27 07:00:43.550] [DEBUG] [LtpSync]: Requesting URL: https://merolagani.com/LatestMarket.aspx?t=1782522943550
-[2026-06-27 07:00:41.342] [DEBUG] [LtpSync]: Requesting URL: https://www.sharesansar.com/live-trading?t=1782522941341
-[2026-06-27 07:00:41.322] [INFO] [LtpSync]: Starting Scrip LTP Sync
-[2026-06-27 07:00:41.311] [INFO] [MarketSync]: Sync finished. Total unique indices updated: 1
-[2026-06-27 07:00:39.486] [DEBUG] [MarketSync]: Scraping URL: https://merolagani.com/LatestMarket.aspx
-[2026-06-27 07:00:38.062] [DEBUG] [IpoSync]: Acquired Session Cookies: TS5c725768027=08746c9c23ab2000b76255c9ce64d8362be6534284efadcfc76aa30c25459550dbb7846a3375da1d08d2571ce5113000334bbbd525199aa4ec9c843f140208c5278ddfa6b9b8f987017f62dfeca7cd88e37197ced00689404281a4bb4ef6579c
-[2026-06-27 07:00:37.976] [INFO] [IpoSync]: Starting IPO Result Mapping Sync
-[2026-06-27 07:00:36.532] [DEBUG] [IpoSync]: Requesting URL: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
-[2026-06-27 07:00:36.527] [INFO] [IpoSync]: Starting IPO Listing Sync
-[2026-06-27 07:00:36.506] [DEBUG] [MarketSync]: Scraping URL: https://www.sharesansar.com/market
-[2026-06-27 07:00:36.488] [INFO] [MarketSync]: Starting Market Indices Sync
-[2026-06-27 07:00:35.853] [DEBUG] [Logger]: AppLogger initialized
-[2026-06-27 06:58:29.608] [INFO] [IpoDiscovery]: Starting sequential discovery for Reliable Samriddhi Yojana 2 using 1301260001655272. Range: 204 to 264
+[2026-06-28 17:03:07.813] [DEBUG] [LtpSync]: Requesting URL: https://merolagani.com/latestmarket.aspx?t=1782645487812
+[2026-06-28 17:03:06.149] [DEBUG] [DpSync]: Scraping DP List from: https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:03:06.144] [INFO] [IpoSync]: Sync finished. Total IPOs in database: 49
+[2026-06-28 17:03:05.562] [DEBUG] [LtpSync]: Requesting URL: https://www.sharesansar.com/live-trading?t=1782645485561
+[2026-06-28 17:03:05.378] [DEBUG] [LtpSync]: Requesting URL: https://www.nepalstock.com/?t=1782645485377
+[2026-06-28 17:03:05.353] [INFO] [LtpSync]: Starting Scrip LTP Sync
+[2026-06-28 17:03:05.323] [INFO] [MarketSync]: Sync finished. Total unique indices updated: 1
+[2026-06-28 17:03:04.593] [DEBUG] [MarketSync]: Scraping URL: https://merolagani.com/latestmarket.aspx
+[2026-06-28 17:03:02.473] [DEBUG] [IpoSync]: Requesting URL: https://www.sharesansar.com/ipo-fpo-news
+[2026-06-28 17:03:02.096] [DEBUG] [MarketSync]: Scraping URL: https://www.sharesansar.com/market
+[2026-06-28 17:03:01.976] [DEBUG] [IpoSync]: Requesting URL: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
+[2026-06-28 17:03:01.968] [INFO] [IpoSync]: Starting IPO Listing Sync
+[2026-06-28 17:03:01.953] [DEBUG] [MarketSync]: Scraping URL: https://www.nepalstock.com/
+[2026-06-28 17:03:01.948] [INFO] [MarketSync]: Starting Market Indices Sync
+[2026-06-28 17:03:01.715] [DEBUG] [Logger]: AppLogger initialized
+[2026-06-28 17:02:20.304] [WARN] [DpSync]: No DPs extracted from tables at https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:02:20.303] [DEBUG] [DpSync]: Found 1 tables in https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:02:18.318] [DEBUG] [DpSync]: Scraping DP List from: https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:02:18.313] [INFO] [IpoSync]: Sync finished. Total IPOs in database: 49
+[2026-06-28 17:02:16.493] [DEBUG] [IpoSync]: Requesting URL: https://www.sharesansar.com/ipo-fpo-news
+[2026-06-28 17:02:15.447] [DEBUG] [IpoSync]: Requesting URL: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
+[2026-06-28 17:02:15.445] [INFO] [IpoSync]: Starting IPO Listing Sync
+[2026-06-28 17:00:45.310] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://merolagani.com/latestmarket.aspx: 2649.76
+[2026-06-28 17:00:44.768] [DEBUG] [MarketStatus]: Found primary index 'NEPSE Index' at https://www.sharesansar.com/market: 2649.76
+[2026-06-28 17:00:44.768] [DEBUG] [MarketStatus]: Attempting scrape from: https://merolagani.com/latestmarket.aspx
+[2026-06-28 17:00:43.201] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.sharesansar.com/market
+[2026-06-28 17:00:43.201] [ERROR] [MarketStatus]: Failed: https://www.nepalstock.com/ -> Error: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.
+[2026-06-28 17:00:43.146] [DEBUG] [MarketStatus]: Attempting scrape from: https://www.nepalstock.com/
+[2026-06-28 17:00:43.141] [DEBUG] [LtpSync]: Skipping Scrip LTP Sync (Cooldown active)
+[2026-06-28 17:00:43.133] [DEBUG] [MarketSync]: Skipping Market Indices Sync (Cooldown active)
+[2026-06-28 17:00:38.806] [DEBUG] [DpSync]: Found 1 tables in https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:00:38.806] [WARN] [DpSync]: No DPs extracted from tables at https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:00:37.186] [DEBUG] [DpSync]: Scraping DP List from: https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:00:37.169] [INFO] [IpoSync]: Sync finished. Total IPOs in database: 49
+[2026-06-28 17:00:35.732] [DEBUG] [IpoSync]: Requesting URL: https://www.sharesansar.com/ipo-fpo-news
+[2026-06-28 17:00:34.704] [DEBUG] [IpoSync]: Requesting URL: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
+[2026-06-28 17:00:34.701] [INFO] [IpoSync]: Starting IPO Listing Sync
+[2026-06-28 17:00:27.718] [WARN] [DpSync]: No DPs extracted from tables at https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:00:27.717] [DEBUG] [DpSync]: Found 1 tables in https://www.sharesansar.com/dp-member-list
+[2026-06-28 17:00:25.869] [DEBUG] [DpSync]: Scraping DP List from: https://www.sharesansar.com/dp-member-list
+[2026-06-28 16:59:46.758] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://www.nepalstock.com/
+[2026-06-28 16:59:46.626] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in LTP_UPDATE
+[2026-06-28 16:59:46.626] [INFO] [ScraperConfig]: Testing URL for LTP_UPDATE: https://www.nepalstock.com/
+[2026-06-28 16:59:45.008] [INFO] [ScraperConfig]: Test Success for https://www.sharesansar.com/live-trading
+[2026-06-28 16:59:42.981] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in LTP_UPDATE
+[2026-06-28 16:59:42.981] [INFO] [ScraperConfig]: Testing URL for LTP_UPDATE: https://www.sharesansar.com/live-trading
+[2026-06-28 16:59:41.641] [INFO] [ScraperConfig]: Test Success for https://merolagani.com/latestmarket.aspx
+[2026-06-28 16:59:41.297] [DEBUG] [ScraperConfig]: User triggered test for URL at index 2 in LTP_UPDATE
+[2026-06-28 16:59:41.297] [INFO] [ScraperConfig]: Testing URL for LTP_UPDATE: https://merolagani.com/latestmarket.aspx
+[2026-06-28 16:59:39.059] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://www.nepalstock.com/
+[2026-06-28 16:59:38.951] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in INDEX_UPDATE
+[2026-06-28 16:59:38.951] [INFO] [ScraperConfig]: Testing URL for INDEX_UPDATE: https://www.nepalstock.com/
+[2026-06-28 16:59:37.920] [INFO] [ScraperConfig]: Test Success for https://www.sharesansar.com/market
+[2026-06-28 16:59:36.308] [INFO] [ScraperConfig]: Testing URL for INDEX_UPDATE: https://www.sharesansar.com/market
+[2026-06-28 16:59:36.307] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in INDEX_UPDATE
+[2026-06-28 16:59:35.258] [INFO] [ScraperConfig]: Test Success for https://merolagani.com/latestmarket.aspx
+[2026-06-28 16:59:34.889] [DEBUG] [ScraperConfig]: User triggered test for URL at index 2 in INDEX_UPDATE
+[2026-06-28 16:59:34.889] [INFO] [ScraperConfig]: Testing URL for INDEX_UPDATE: https://merolagani.com/latestmarket.aspx
+[2026-06-28 16:59:29.312] [INFO] [ScraperConfig]: Test Success for https://www.sharesansar.com/company-list
+[2026-06-28 16:59:27.759] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in SCRIP_SYNC
+[2026-06-28 16:59:27.759] [INFO] [ScraperConfig]: Testing URL for SCRIP_SYNC: https://www.sharesansar.com/company-list
+[2026-06-28 16:59:26.087] [INFO] [ScraperConfig]: Test Success for https://merolagani.com/CompanyList.aspx
+[2026-06-28 16:59:24.263] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in SCRIP_SYNC
+[2026-06-28 16:59:24.263] [INFO] [ScraperConfig]: Testing URL for SCRIP_SYNC: https://merolagani.com/CompanyList.aspx
+[2026-06-28 16:59:22.242] [INFO] [ScraperConfig]: Test Success for https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
+[2026-06-28 16:59:21.950] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in IPO_LISTING
+[2026-06-28 16:59:21.950] [INFO] [ScraperConfig]: Testing URL for IPO_LISTING: https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5
+[2026-06-28 16:59:18.338] [DEBUG] [ScraperConfig]: User triggered test for URL at index 1 in IPO_LISTING
+[2026-06-28 16:59:18.338] [INFO] [ScraperConfig]: Testing URL for IPO_LISTING: https://www.sharesansar.com/ipo-fpo-news
+[2026-06-28 16:59:02.651] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://iporesult.cdsc.com.np/
+[2026-06-28 16:59:02.493] [INFO] [ScraperConfig]: Testing URL for IPO_RESULT: https://iporesult.cdsc.com.np/
+[2026-06-28 16:59:02.491] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in IPO_RESULT
+[2026-06-28 16:58:58.756] [INFO] [ScraperConfig]: Test Success for https://www.sharesansar.com/dp-member-list
+[2026-06-28 16:58:57.076] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in DP_MASTER
+[2026-06-28 16:58:57.076] [INFO] [ScraperConfig]: Testing URL for DP_MASTER: https://www.sharesansar.com/dp-member-list
+[2026-06-28 16:58:51.508] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://meroshare.cdsc.com.np/#/login
+[2026-06-28 16:58:51.312] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in MEROSHARE_WEB
+[2026-06-28 16:58:51.312] [INFO] [ScraperConfig]: Testing URL for MEROSHARE_WEB: https://meroshare.cdsc.com.np/#/login
+[2026-06-28 16:58:47.260] [ERROR] [ScraperConfig]: Test Failed (Validation Error) for https://webbackend.cdsc.com.np/api/meroShare
+[2026-06-28 16:58:47.204] [DEBUG] [ScraperConfig]: User triggered test for URL at index 0 in MEROSHARE_API
+[2026-06-28 16:58:47.204] [INFO] [ScraperConfig]: Testing URL for MEROSHARE_API: https://webbackend.cdsc.com.np/api/meroShare
+[2026-06-28 16:58:42.375] [INFO] [ScraperConfig]: User entered Scraper Configuration Screen

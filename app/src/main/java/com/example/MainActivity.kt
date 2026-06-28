@@ -52,6 +52,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -132,10 +134,11 @@ class MainActivity : ComponentActivity() {
                 val repository = remember { PortfolioRepository(database.portfolioDao(), database.ipoMasterDao()) }
                 val marketRepo = remember { MarketRepository(database.portfolioDao()) }
                 val ipoRepo = remember { IpoRepository(database.portfolioDao(), database.ipoMasterDao()) }
+                val msRepo = remember { MeroShareRepository(database.portfolioDao()) }
 
                 val portfolioVM: PortfolioViewModel = viewModel(factory = PortfolioViewModelFactory(repository))
                 val marketVM: MarketViewModel = viewModel(factory = MarketViewModelFactory(marketRepo, repository))
-                val ipoVM: BulkIpoViewModel = viewModel(factory = BulkIpoViewModelFactory(ipoRepo))
+                val ipoVM: BulkIpoViewModel = viewModel(factory = BulkIpoViewModelFactory(ipoRepo, msRepo, marketRepo))
 
                 PortfolioAppContent(portfolioVM, marketVM, ipoVM)
             }
@@ -336,21 +339,26 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
 
     when (subView) {
         "Market" -> MarketScreen(marketVM, portfolioVM) { onSubViewChange(null) }
-        "BulkCheck" -> BulkIpoCheckScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
-        "IpoMaster" -> IpoMasterScreen(ipoVM) { onSubViewChange(null) }
+        "BulkCheck" -> IpoCheckScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
+        "BulkApply" -> IpoApplyScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
+        "IpoMaster" -> CompaniesScreen(ipoVM) { onSubViewChange(null) }
         "Settings" -> SettingsScreen(portfolioVM, marketVM) { onSubViewChange(null) }
         "Scraper" -> ScraperSettingsScreen(portfolioVM) { onSubViewChange(null) }
         "Contact" -> DeveloperProfilePanel(userProfile?.name ?: "User", userProfile?.email ?: "") { onSubViewChange(null) }
         "Profile" -> UserProfileScreen(portfolioVM) { onSubViewChange(null) }
         "Calculator" -> FinanceCalculatorScreen { onSubViewChange(null) }
+        "Vault" -> CredentialVaultScreen(ipoVM) { onSubViewChange(null) }
         else -> {
+            val ipos by ipoVM.ipos.collectAsStateWithLifecycle()
             LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item { Text("Utilities", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
                 item { 
                     MoreGrid(
                         { MoreCard("Markets", Icons.AutoMirrored.Filled.TrendingUp, Color(0xFF10B981)) { onSubViewChange("Market") } }, 
-                        { MoreCard("Bulk IPO", Icons.AutoMirrored.Filled.FactCheck, Color(0xFFEF4444)) { onSubViewChange("BulkCheck") } }, 
-                        { MoreCard("IPO Master", Icons.Default.Inventory, Color(0xFF8B5CF6)) { onSubViewChange("IpoMaster") } },
+                        { MoreCard("IPO Check", Icons.AutoMirrored.Filled.FactCheck, Color(0xFFEF4444)) { onSubViewChange("BulkCheck") } }, 
+                        { MoreCard("IPO Apply", Icons.AutoMirrored.Filled.Send, Color(0xFF3B82F6)) { onSubViewChange("BulkApply") } },
+                        { MoreCard("Companies (${ipos.size})", Icons.Default.Inventory, Color(0xFF8B5CF6)) { onSubViewChange("IpoMaster") } },
+                        { MoreCard("Vault", Icons.Default.VpnKey, Color(0xFF6366F1)) { onSubViewChange("Vault") } },
                         { MoreCard("Scrapers", Icons.Default.CloudSync, Color(0xFFEC4899)) { onSubViewChange("Scraper") } },
                         { MoreCard("Settings", Icons.Default.Settings, Color(0xFF6366F1)) { onSubViewChange("Settings") } },
                         { MoreCard("Support", Icons.Default.SupportAgent, Color(0xFF3B82F6)) { onSubViewChange("Contact") } }, 
@@ -855,16 +863,16 @@ fun PortalIdEditDialog(
     )
 }
 
+
+
 /**
- * BulkIpoCheckScreen: UX refined to prioritize the BOID viewing area.
- * Buttons are positioned at the top for immediate access, leaving the rest of the screen
- * for the scrollable list of results/BOIDs.
+ * IpoCheckScreen: UX refined to prioritize the BOID viewing area.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BulkIpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack: () -> Unit) {
+fun IpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack: () -> Unit) {
     val userProfile by portfolioVM.userProfile.collectAsStateWithLifecycle()
-    val ipos by vm.readyToCheckIpos.collectAsStateWithLifecycle()
+    val ipos by vm.checkIpos.collectAsStateWithLifecycle()
     val sel by vm.selectedIpo.collectAsStateWithLifecycle()
     val boids by vm.boids.collectAsStateWithLifecycle()
     val res by vm.results.collectAsStateWithLifecycle()
@@ -874,54 +882,53 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, on
     val syncLog by vm.syncLog.collectAsStateWithLifecycle()
     val syncMsg by vm.syncMessage.collectAsStateWithLifecycle()
     
-    
-    /**
-     * UI UX: Hybrid Result Checker Overlay
-     * Uses a WebView to bypass WAF security while providing a native app feel.
-     * simplified with a clear "Stop & Cancel" path.
-     */
     if (isHybrid && sel?.resultPortalId != null) {
-        AlertDialog(
+        Dialog(
             onDismissRequest = { vm.finishHybridCheck() },
-            title = { 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AutoMode, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Checking Results") 
-                }
-            },
-            text = {
-                Column {
-                    Text("The app is checking your IPO results via the official portal for the most accurate information.",
-                        style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(16.dp))
-                    Box(Modifier.fillMaxWidth().height(400.dp)) {
-                        val portalUrl = userProfile?.scraperUrls?.get(ScraperCategory.IPO_RESULT)?.firstOrNull() ?: ""
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.65f).padding(4.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Default.AutoMode, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(8.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Official CDSC Portal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                                Text("Select member to pre-fill BOID", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                        }
+                        IconButton(onClick = { vm.finishHybridCheck() }, modifier = Modifier.background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f), CircleShape)) {
+                            Icon(Icons.Default.Close, "Stop", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        val portalUrl = userProfile?.scraperUrls?.get(ScraperCategory.IPO_RESULT)?.firstOrNull() ?: "https://iporesult.cdsc.com.np/"
+                        val enabledBoidsOnly = boids.filter { vm.enabledBoids[it.boid] ?: it.isEnabledForBulk }
                         HybridIpoResultChecker(
                             resultPortalId = sel!!.resultPortalId!!,
-                            boids = boids,
+                            boids = enabledBoidsOnly,
                             portalUrl = portalUrl,
-                            onResultFound = { entry, msg, success ->
-                                vm.onHybridResultReceived(entry, msg, success)
-                            },
-                            onComplete = {
-                                vm.finishHybridCheck()
-                            }
+                            onResultFound = { entry, msg, success -> vm.onHybridResultReceived(entry, msg, success) },
+                            onComplete = { vm.finishHybridCheck() }
                         )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { vm.finishHybridCheck() },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("Stop & Cancel") }
             }
-        )
+        }
     }
 
-    var showA by remember { mutableStateOf(false) }
-    var pBoidDel by remember { mutableStateOf<com.example.data.model.BoidEntry?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var exp by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -939,19 +946,15 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, on
         }
     }
 
+    val act by vm.memberActivity.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         SubScreenHeader(
-            title = "Bulk IPO Result",
+            title = "IPO Check (${ipos.size})",
             onBack = onBack,
             trailingIcon = {
                 Row {
-                    if (res.isNotEmpty()) {
-                        IconButton(onClick = { vm.clearResults() }) {
-                            Icon(Icons.Default.ClearAll, "Clear")
-                        }
-                    }
-                    IconButton(onClick = { vm.syncIpos() }, enabled = !isS) { 
+                    IconButton(onClick = { vm.refreshAllCompanies() }, enabled = !isS) { 
                         if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         else Icon(Icons.Default.Refresh, null) 
                     }
@@ -961,178 +964,613 @@ fun BulkIpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, on
         
         Spacer(Modifier.height(16.dp))
         
-        // Improved Dropdown with better search handling
         ExposedDropdownMenuBox(exp, { exp = it }) {
             OutlinedTextField(
                 value = if (exp) searchQuery else (sel?.companyName ?: ""),
                 onValueChange = { searchQuery = it; exp = true },
-                label = { Text("Search Company") },
-                placeholder = { Text(sel?.companyName ?: "Type to search...") },
-                trailingIcon = { 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, null, Modifier.size(18.dp)) }
-                        }
-                        ExposedDropdownMenuDefaults.TrailingIcon(exp)
-                    }
-                },
+                label = { Text("Select Company") },
+                placeholder = { Text(sel?.companyName ?: "Search to check result...") },
+                trailingIcon = { Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (searchQuery.isNotEmpty()) { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, null, Modifier.size(18.dp)) } }
+                    ExposedDropdownMenuDefaults.TrailingIcon(exp)
+                }},
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
-                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                ),
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp)
             )
-            
             ExposedDropdownMenu(exp, { exp = false }, modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
-                if (filteredIpos.isNotEmpty()) {
-                    filteredIpos.take(100).forEach { ipo ->
-                        DropdownMenuItem(
-                            text = { 
-                                Column {
-                                    Text(ipo.companyName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (!ipo.scrip.isNullOrBlank()) {
-                                            Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                            Spacer(Modifier.width(8.dp))
-                                        }
-                                        if (ipo.resultPortalId != null) {
-                                            Text("ID: ${ipo.resultPortalId}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        } else {
-                                            Text("ID MISSING (Sync Required)", fontSize = 10.sp, color = Color.Red, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                            },
-                            onClick = { 
-                                vm.selectIpo(ipo)
-                                searchQuery = ""
-                                exp = false 
-                            }
-                        )
-                    }
-                } else {
+                filteredIpos.take(100).forEach { ipo ->
                     DropdownMenuItem(
-                        text = { Text("No results found. (Sync or add ID manually)", color = Color.Gray) },
-                        onClick = { exp = false }
+                        text = { 
+                            Column {
+                                Text(ipo.companyName, fontWeight = FontWeight.Bold)
+                                Row {
+                                    if (!ipo.scrip.isNullOrBlank()) Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Closes: ${ipo.closingDate ?: "N/A"}", fontSize = 10.sp)
+                                }
+                            }
+                        },
+                        onClick = { vm.selectIpo(ipo); searchQuery = ""; exp = false }
                     )
                 }
             }
         }
 
-        if (sel != null && sel?.resultPortalId == null) {
-            var showEditId by remember { mutableStateOf(false) }
-            Card(
-                modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
-                onClick = { showEditId = true }
-            ) {
-                Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Warning, null, tint = Color.Red, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Selected company has no ID. Results cannot be fetched.", fontSize = 10.sp, color = Color.Red, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    if (isS) {
-                        IconButton(onClick = { vm.stopDiscovery() }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.StopCircle, "Stop", tint = Color.Red, modifier = Modifier.size(18.dp))
-                        }
-                    } else {
-                        IconButton(onClick = { vm.discoverResultPortalId(sel!!) }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.AutoFixHigh, "Auto Find", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-            }
-            
-            if (showEditId) {
-                PortalIdEditDialog(
-                    companyName = sel!!.companyName,
-                    initialId = "",
-                    onSave = { vm.updateResultPortalId(sel!!.companyName, it) },
-                    onDismiss = { showEditId = false }
-                )
-            }
-        }
-        
         Spacer(Modifier.height(12.dp))
 
-        // Action Buttons Fixed Above List
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = { vm.startBulkCheck(hybrid = true) },
-                modifier = Modifier.weight(1f).height(48.dp),
+                modifier = Modifier.weight(1.1f).height(48.dp),
                 enabled = !isC && boids.isNotEmpty() && sel != null && sel?.resultPortalId != null,
                 shape = RoundedCornerShape(12.dp)
             ) {
-                if (isC && isHybrid) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                else {
-                    Icon(Icons.Default.CloudSync, null, modifier = Modifier.size(18.dp))
+                if (isC && isHybrid) CircularProgressIndicator(Modifier.size(20.dp))
+                else { 
+                    Icon(Icons.Default.Public, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Accuracy Mode", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Check Through CDSC", fontSize = 10.sp, fontWeight = FontWeight.Bold, softWrap = false) 
                 }
             }
-            
             Button(
-                onClick = { vm.startBulkCheck(hybrid = false) },
-                modifier = Modifier.weight(1f).height(48.dp),
-                enabled = !isC && boids.isNotEmpty() && sel != null && sel?.resultPortalId != null,
+                onClick = { vm.startAutoCheck() },
+                modifier = Modifier.weight(0.9f).height(48.dp),
+                enabled = !isC && boids.isNotEmpty() && sel != null,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
             ) {
-                if (isC && !isHybrid) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                else {
-                    Icon(Icons.AutoMirrored.Filled.FactCheck, null, modifier = Modifier.size(18.dp))
+                if (isC && !isHybrid) CircularProgressIndicator(Modifier.size(20.dp))
+                else { 
+                    Icon(Icons.Default.AutoFixHigh, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Check Bulk", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Auto Check", fontSize = 10.sp, fontWeight = FontWeight.Bold, softWrap = false) 
                 }
             }
         }
 
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { 
-            Text("Family BOIDs (${boids.size})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                var showP by remember { mutableStateOf(false) }
-                val context = LocalContext.current
-                val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-                    uri?.let { 
-                        context.contentResolver.openInputStream(it)?.use { input ->
-                            val text = input.bufferedReader().readText()
-                            vm.addMultipleBoids(text)
-                        }
-                    }
+            Text("Family Members (${boids.size})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { vm.toggleAllBoids(true, true) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
+                    Text("ALL", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 }
-                
-                IconButton(onClick = { fileLauncher.launch("text/*") }) { Icon(Icons.Default.UploadFile, "Upload", Modifier.size(20.dp)) }
-                IconButton(onClick = { showP = true }) { Icon(Icons.Default.ContentPaste, "Paste", Modifier.size(20.dp)) }
-                Button(onClick = { showA = true }, shape = RoundedCornerShape(8.dp), modifier = Modifier.height(32.dp), contentPadding = PaddingValues(horizontal = 8.dp)) { 
-                    Icon(Icons.Default.Add, null, Modifier.size(16.dp))
-                    Text("Add", fontSize = 10.sp) 
+                TextButton(onClick = { vm.toggleAllBoids(false, true) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
+                    Text("NONE", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.error)
                 }
-                
-                if (showP) PasteBoidDialog({ vm.addMultipleBoids(it); showP = false }, { showP = false })
             }
         }
 
         LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) { 
+            item {
+                InfoBanner("Result can be checked for all type of members using the 'Check Through CDSC' portal (Manual CAPTCHA). 'Auto Check' is available only for members with saved MeroShare credentials in the Vault.")
+            }
             if (res.isNotEmpty()) {
                 items(res) { IpoResultItem(it) } 
             } else {
-                items(boids) { boid -> 
+                items(boids, key = { it.boid }) { boid -> 
+                    val activity = act.find { it.boid == boid.boid }
                     BoidItem(
                         b = boid, 
-                        isEnabled = vm.enabledBoids[boid.boid] ?: boid.isEnabledForBulk,
-                        checkResult = res.find { it.boidEntry.boid == boid.boid },
-                        onToggle = { vm.toggleBoidEnabled(boid.boid) },
+                        isEnabled = boid.isEnabledForCheck, 
+                        activity = activity, 
+                        onToggle = { vm.toggleBoidEnabled(boid.boid, true) }, 
                         onSetDefault = { vm.setDefaultBoid(boid.boid) }, 
-                        onR = { pBoidDel = boid }
-                    ) 
+                        onReset = { vm.resetAllotment(boid.boid) }
+                    )
                 }
             }
         }
     }
-    if (showA) AddBoidDialog({ n, b -> vm.addBoid(n, b); showA = false }, { showA = false })
-    if (pBoidDel != null) AlertDialog({ pBoidDel = null }, title = { Text("Confirm Deletion") }, text = { Text("Remove family BOID for '${pBoidDel!!.name}'? This will also clear its result cache.") }, confirmButton = { Button({ vm.removeBoid(pBoidDel!!); pBoidDel = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton({ pBoidDel = null }) { Text("Cancel") } })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack: () -> Unit) {
+    val userProfile by portfolioVM.userProfile.collectAsStateWithLifecycle()
+    val ipos by vm.applyIpos.collectAsStateWithLifecycle()
+    val sel by vm.selectedIpo.collectAsStateWithLifecycle()
+    val boids by vm.verifiedApplyBoids.collectAsStateWithLifecycle()
+    val isC by vm.isChecking.collectAsStateWithLifecycle()
+    val isS by vm.isSyncing.collectAsStateWithLifecycle()
+    
+    val act by vm.memberActivity.collectAsStateWithLifecycle()
+
+    var showApplyDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var exp by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val filteredIpos = remember(searchQuery, ipos) {
+        if (searchQuery.isBlank()) ipos
+        else ipos.filter { it.companyName.contains(searchQuery, true) || it.scrip?.contains(searchQuery, true) == true }
+    }
+
+    val isApplyEnabled = sel != null && !sel!!.resultPortalId?.toString().isNullOrBlank()
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        SubScreenHeader(
+            title = "IPO Apply (${ipos.size})",
+            onBack = onBack,
+            trailingIcon = {
+                IconButton(onClick = { vm.refreshAllCompanies() }, enabled = !isS) {
+                    if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Refresh, null)
+                }
+            }
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        ExposedDropdownMenuBox(exp, { exp = it }) {
+            OutlinedTextField(
+                value = if (exp) searchQuery else (sel?.companyName ?: ""),
+                onValueChange = { searchQuery = it; exp = true },
+                label = { Text("Select Open IPO") },
+                placeholder = { Text(sel?.companyName ?: "Search to apply...") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(exp) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            ExposedDropdownMenu(exp, { exp = false }, modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                filteredIpos.forEach { ipo ->
+                    DropdownMenuItem(
+                        text = { 
+                            Column {
+                                Text(ipo.companyName, fontWeight = FontWeight.Bold)
+                                Row {
+                                    if (!ipo.scrip.isNullOrBlank()) Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Closes: ${ipo.closingDate ?: "N/A"}", fontSize = 10.sp)
+                                }
+                            }
+                        },
+                        onClick = { vm.selectIpo(ipo); searchQuery = ""; exp = false }
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            var showIndividualApply by remember { mutableStateOf(false) }
+            
+            Button(
+                onClick = { showIndividualApply = true },
+                modifier = Modifier.weight(1.1f).height(48.dp),
+                enabled = !isC && boids.isNotEmpty() && sel != null,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Language, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Apply Through CDSC", fontSize = 10.sp, fontWeight = FontWeight.Bold, softWrap = false)
+            }
+            
+            Button(
+                onClick = { showApplyDialog = true },
+                modifier = Modifier.weight(0.9f).height(48.dp),
+                enabled = !isC && boids.isNotEmpty() && sel != null && isApplyEnabled,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+            ) {
+                if (isC) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                else {
+                    Icon(Icons.Default.AutoFixHigh, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Auto Apply", fontSize = 10.sp, fontWeight = FontWeight.Bold, softWrap = false)
+                }
+            }
+
+            if (showIndividualApply) {
+                Dialog(onDismissRequest = { showIndividualApply = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+                    Surface(modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.85f).padding(4.dp), shape = RoundedCornerShape(24.dp)) {
+                        Column {
+                            TopAppBar(
+                                title = { Text("MeroShare Web Portal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
+                                navigationIcon = { IconButton(onClick = { showIndividualApply = false }) { Icon(Icons.Default.Close, null) } }
+                            )
+                            Box(Modifier.weight(1f)) {
+                                val msPortalUrl = userProfile?.scraperUrls?.get(ScraperCategory.MEROSHARE_WEB)?.firstOrNull() ?: "https://meroshare.cdsc.com.np/#/asba"
+                                AndroidView(
+                                    factory = { context ->
+                                        android.webkit.WebView(context).apply {
+                                            settings.javaScriptEnabled = true
+                                            settings.domStorageEnabled = true
+                                            webViewClient = android.webkit.WebViewClient()
+                                            loadUrl(msPortalUrl)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showApplyDialog) {
+            var units by remember { mutableStateOf("10") }
+            val enabledCount = boids.count { vm.enabledBoids[it.boid] ?: it.isEnabledForApply }
+            AlertDialog(
+                onDismissRequest = { showApplyDialog = false },
+                title = { Text("Auto IPO Apply") },
+                text = {
+                    Column {
+                        Text("Applying for ${sel?.companyName}", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = units, 
+                            onValueChange = { units = it }, 
+                            label = { Text("Units (Kitta)") }, 
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                        )
+                        Text("Accounts Selected: $enabledCount", modifier = Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium)
+                    }
+                },
+                confirmButton = { 
+                    Button(
+                        onClick = { 
+                            vm.startAutoApply(units.toIntOrNull() ?: 10)
+                            showApplyDialog = false 
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                    ) { Text("Proceed Apply") } 
+                },
+                dismissButton = { TextButton({ showApplyDialog = false }) { Text("Cancel") } }
+            )
+        }
+
+        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { 
+            Text("Family Members (${boids.size})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { vm.toggleAllBoids(true, false) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
+                    Text("ALL", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                TextButton(onClick = { vm.toggleAllBoids(false, false) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
+                    Text("NONE", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) { 
+            items(boids, key = { it.boid }) { boid -> 
+                BoidItem(
+                    b = boid, 
+                    isEnabled = boid.isEnabledForApply, 
+                    activity = act.find { it.boid == boid.boid },
+                    onToggle = { vm.toggleBoidEnabled(boid.boid, false) },
+                    onSetDefault = { vm.setDefaultBoid(boid.boid) }, 
+                    onMarkApplied = { vm.markAsApplied(boid.boid) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
+    val ipos by vm.ipos.collectAsStateWithLifecycle()
+    val dps by vm.allDps.collectAsStateWithLifecycle()
+    val isS by vm.isSyncing.collectAsStateWithLifecycle()
+    val syncLog by vm.syncLog.collectAsStateWithLifecycle()
+    val syncMsg by vm.syncMessage.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    
+    var ipoSearchQuery by remember { mutableStateOf("") }
+    var dpSearchQuery by remember { mutableStateOf("") }
+
+    LaunchedEffect(syncMsg) {
+        syncMsg?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
+
+    val displayIpos = remember(ipoSearchQuery, ipos) {
+        if (ipoSearchQuery.isBlank()) ipos
+        else ipos.filter { 
+            it.companyName.contains(ipoSearchQuery, true) || 
+            it.scrip?.contains(ipoSearchQuery, true) == true
+        }
+    }
+
+    val displayDps = remember(dpSearchQuery, dps) {
+        if (dpSearchQuery.isBlank()) dps
+        else dps.filter { it.name.contains(dpSearchQuery, true) || it.dpCode.contains(dpSearchQuery) }
+    }
+
+    // Accordion State
+    var expandedTopSection by remember { mutableStateOf<String?>("IPO") } // "IPO" or "DP"
+    var expandedSubSection by remember { mutableStateOf<String?>("OPEN") } // "UPCOMING", "OPEN", "CLOSED", "ALLOTTED", "PREVIOUS"
+
+    val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val weekAgo = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L)) }
+
+    val upcoming = remember(displayIpos, today) { 
+        displayIpos.filter { !it.openingDate.isNullOrBlank() && it.openingDate > today }
+            .sortedBy { it.openingDate }
+    }
+
+    val openIssues = remember(displayIpos, upcoming) { 
+        displayIpos.filter { 
+            it !in upcoming && (it.status.equals("Open", true) || it.status.equals("Ongoing", true) || it.status.equals("Applying", true)) 
+        }.sortedByDescending { it.closingDate ?: "" }
+    }
+
+    val allotmentCompleted = remember(displayIpos, today, weekAgo) { 
+        displayIpos.filter { 
+            !it.allotmentDate.isNullOrBlank() && it.allotmentDate >= weekAgo && it.allotmentDate <= today
+        }.sortedByDescending { it.closingDate ?: "" }
+    }
+
+    val previousIssues = remember(displayIpos, weekAgo) { 
+        displayIpos.filter { 
+            !it.allotmentDate.isNullOrBlank() && it.allotmentDate < weekAgo 
+        }.sortedByDescending { it.closingDate ?: "" }
+    }
+
+    val closedIssues = remember(displayIpos, allotmentCompleted, previousIssues) { 
+        displayIpos.filter { 
+            it.status.equals("Closed", true) && it !in allotmentCompleted && it !in previousIssues
+        }.sortedByDescending { it.closingDate ?: "" }
+    }
+
+    // Auto-locate and expand on search
+    LaunchedEffect(ipoSearchQuery) {
+        if (ipoSearchQuery.isNotBlank()) {
+            when {
+                openIssues.isNotEmpty() -> expandedSubSection = "OPEN"
+                upcoming.isNotEmpty() -> expandedSubSection = "UPCOMING"
+                allotmentCompleted.isNotEmpty() -> expandedSubSection = "ALLOTTED"
+                closedIssues.isNotEmpty() -> expandedSubSection = "CLOSED"
+                previousIssues.isNotEmpty() -> expandedSubSection = "PREVIOUS"
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        SubScreenHeader(
+            title = "Companies (${ipos.size})",
+            onBack = onBack,
+            trailingIcon = {
+                IconButton(onClick = { vm.refreshAllCompanies() }, enabled = !isS) {
+                    if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Refresh, null)
+                }
+            }
+        )
+
+        if (isS) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            Text(syncLog, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 4.dp))
+        }
+
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // --- TOP LEVEL: IPO MASTER ---
+            item {
+                IpoSectionHeader(
+                    title = "IPO Master (${displayIpos.size})", 
+                    count = displayIpos.size, 
+                    isExpanded = expandedTopSection == "IPO", 
+                    onToggle = { expandedTopSection = if (expandedTopSection == "IPO") null else "IPO" }, 
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (expandedTopSection == "IPO") {
+                item {
+                    OutlinedTextField(
+                        value = ipoSearchQuery,
+                        onValueChange = { ipoSearchQuery = it },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        placeholder = { Text("Search issuing companies...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = {
+                            if (ipoSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { ipoSearchQuery = "" }) { Icon(Icons.Default.Close, null) }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
+                item {
+                    IpoSubSection("Upcoming Issues (${upcoming.size})", upcoming.size, (expandedSubSection == "UPCOMING") && upcoming.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "UPCOMING") null else "UPCOMING" }, Color(0xFF3B82F6)) {
+                        upcoming.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
+                    }
+                }
+
+                item {
+                    IpoSubSection("Open Issues (${openIssues.size})", openIssues.size, (expandedSubSection == "OPEN") && openIssues.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "OPEN") null else "OPEN" }, Color(0xFF10B981)) {
+                        openIssues.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
+                    }
+                }
+
+                item {
+                    IpoSubSection("Closed Issues (${closedIssues.size})", closedIssues.size, (expandedSubSection == "CLOSED") && closedIssues.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "CLOSED") null else "CLOSED" }, Color(0xFFEF4444)) {
+                        closedIssues.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
+                    }
+                }
+
+                item {
+                    IpoSubSection("Allotment Completed (${allotmentCompleted.size})", allotmentCompleted.size, (expandedSubSection == "ALLOTTED") && allotmentCompleted.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "ALLOTTED") null else "ALLOTTED" }, Color(0xFF8B5CF6)) {
+                        allotmentCompleted.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
+                    }
+                }
+
+                item {
+                    IpoSubSection("Previous Issues (${previousIssues.size})", previousIssues.size, (expandedSubSection == "PREVIOUS") && previousIssues.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "PREVIOUS") null else "PREVIOUS" }, Color(0xFF6B7280)) {
+                        previousIssues.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
+                    }
+                }
+            }
+
+            // --- TOP LEVEL: LICENSED DPS ---
+            item {
+                IpoSectionHeader(
+                    title = "Licensed DPs (${displayDps.size})", 
+                    count = displayDps.size, 
+                    isExpanded = expandedTopSection == "DP", 
+                    onToggle = { expandedTopSection = if (expandedTopSection == "DP") null else "DP" }, 
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+
+            if (expandedTopSection == "DP") {
+                item {
+                    OutlinedTextField(
+                        value = dpSearchQuery,
+                        onValueChange = { dpSearchQuery = it },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        placeholder = { Text("Search DPs (Name or Code)...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = {
+                            if (dpSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { dpSearchQuery = "" }) { Icon(Icons.Default.Close, null) }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
+                if (displayDps.isEmpty()) {
+                    item { EmptyStatePlaceholder("No DPs found. Sync Master to load data.") }
+                }
+
+                items(displayDps) { dp ->
+                    DpCard(dp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun IpoSubSection(title: String, count: Int, isExpanded: Boolean, onToggle: () -> Unit, color: Color, content: @Composable () -> Unit) {
+    Column(Modifier.padding(vertical = 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 8.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color, modifier = Modifier.padding(start = 8.dp).weight(1f))
+            Badge(containerColor = color.copy(alpha = 0.1f), contentColor = color) { Text(count.toString(), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+        }
+        
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp), 
+                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+fun BoidItem(
+    b: BoidEntry, 
+    isEnabled: Boolean, 
+    activity: com.example.data.db.IpoMemberActivity? = null,
+    onToggle: () -> Unit, 
+    onSetDefault: () -> Unit, 
+    onReset: (() -> Unit)? = null,
+    onMarkApplied: (() -> Unit)? = null
+) {
+    val isVaultReady = !b.msUsername.isNullOrBlank() && !b.msPassword.isNullOrBlank()
+    
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        border = if (b.isDefault) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+        colors = CardDefaults.cardColors(
+            containerColor = if (b.isDefault) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+        )
+    ) { 
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { 
+            Column(Modifier.weight(1f)) { 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(b.name, fontWeight = FontWeight.Bold, color = if (isEnabled) Color.Unspecified else Color.Gray)
+                    if (isVaultReady) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Default.VerifiedUser, "Vault Ready", tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                    }
+                    if (b.isDefault) {
+                        IconButton(onClick = onSetDefault, modifier = Modifier.size(24.dp).padding(start = 4.dp)) {
+                            Icon(Icons.Default.Star, "Default", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        }
+                    } else {
+                        IconButton(onClick = onSetDefault, modifier = Modifier.size(24.dp).padding(start = 4.dp)) {
+                            Icon(Icons.Default.StarBorder, "Set as Default", tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+                Text(b.boid, fontSize = 10.sp, color = if (isEnabled) Color.Unspecified else Color.Gray) 
+                
+                // Display Activity Status (Allotment or Apply)
+                if (activity != null) {
+                    Column(Modifier.padding(top = 4.dp)) {
+                        if (activity.allotmentStatus != "NOT_CHECKED") {
+                            val isAllotted = activity.allotmentStatus == "ALLOTTED"
+                            val resColor = if (isAllotted) Color(0xFF2E7D32) else if (activity.allotmentStatus == "ERROR") Color.Red else Color(0xFFC62828)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = activity.allotmentMessage ?: activity.allotmentStatus,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = resColor
+                                )
+                                if (onReset != null) {
+                                    IconButton(onClick = onReset, modifier = Modifier.size(20.dp).padding(start = 4.dp)) {
+                                        Icon(Icons.Default.Refresh, "Reset", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (activity.applyStatus != "PENDING") {
+                            val isApplied = activity.applyStatus == "APPLIED"
+                            val applyColor = if (isApplied) Color(0xFF10B981) else Color.Red
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Apply: ${activity.applyStatus}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = applyColor
+                                )
+                                if (activity.applyMessage != null) {
+                                    Text(" (${activity.applyMessage})", fontSize = 10.sp, color = Color.Gray)
+                                }
+                            }
+                        } else if (onMarkApplied != null) {
+                            TextButton(onClick = onMarkApplied, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
+                                Text("Mark as Applied", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = isEnabled,
+                    onCheckedChange = { onToggle() },
+                    modifier = Modifier.scale(0.7f).padding(end = 4.dp)
+                )
+            }
+        } 
+    }
 }
 
 @Composable
@@ -1198,51 +1636,92 @@ fun IpoResultItem(r: BulkIpoResult) {
 }
 
 @Composable
-fun BoidItem(b: BoidEntry, isEnabled: Boolean, checkResult: BulkIpoResult?, onToggle: () -> Unit, onSetDefault: () -> Unit, onR: () -> Unit) {
+fun DpCard(dp: com.example.data.db.DpMaster) {
     Card(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        border = if (b.isDefault) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
-        colors = CardDefaults.cardColors(
-            containerColor = if (b.isDefault) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
-        )
-    ) { 
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { 
-            Column(Modifier.weight(1f)) { 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(b.name, fontWeight = FontWeight.Bold, color = if (isEnabled) Color.Unspecified else Color.Gray)
-                    if (b.isDefault) {
-                        IconButton(onClick = onSetDefault, modifier = Modifier.size(24.dp).padding(start = 4.dp)) {
-                            Icon(Icons.Default.Star, "Default", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                Text(dp.dpCode.takeLast(2), color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(dp.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("DP Code: ${dp.dpCode}", fontSize = 11.sp, color = Color.Gray)
+            }
+        }
+    }
+}
+
+@Composable
+fun CredentialVaultScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
+    val boids by vm.boids.collectAsStateWithLifecycle()
+    var editingBoid by remember { mutableStateOf<BoidEntry?>(null) }
+    
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        SubScreenHeader("Credential Vault", onBack)
+        InfoBanner("Credentials stored here are only used for 'Auto Check' and 'Auto Apply' features. They are stored locally on your device.")
+        
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+            items(boids, key = { it.boid }) { boid ->
+                val isSet = !boid.msUsername.isNullOrBlank() && !boid.msPassword.isNullOrBlank()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { editingBoid = boid }
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(boid.name, fontWeight = FontWeight.Bold)
+                            Text(boid.boid, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    } else {
-                        IconButton(onClick = onSetDefault, modifier = Modifier.size(24.dp).padding(start = 4.dp)) {
-                            Icon(Icons.Default.StarBorder, "Set as Default", tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        if (isSet) {
+                            Icon(Icons.Default.Lock, null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
+                            Text("Securely Set", fontSize = 11.sp, color = Color(0xFF10B981), modifier = Modifier.padding(start = 4.dp))
+                        } else {
+                            Text("Not Set", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        IconButton(onClick = { editingBoid = boid }) {
+                            Icon(Icons.Default.Edit, null)
                         }
                     }
                 }
-                Text(b.boid, fontSize = 10.sp, color = if (isEnabled) Color.Unspecified else Color.Gray) 
-                
-                if (checkResult != null) {
-                    val isSuccess = checkResult.result?.success == true || checkResult.result?.message?.contains("✓") == true
-                    val resColor = if (isSuccess) Color(0xFF2E7D32) else Color(0xFFC62828)
-                    Text(
-                        text = checkResult.result?.message ?: checkResult.error ?: "Checking...",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = resColor,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+            }
+        }
+    }
+
+    if (editingBoid != null) {
+        var user by remember { mutableStateOf(editingBoid!!.msUsername ?: "") }
+        var pass by remember { mutableStateOf(editingBoid!!.msPassword ?: "") }
+        var pin by remember { mutableStateOf(editingBoid!!.msPin ?: "") }
+        var crn by remember { mutableStateOf(editingBoid!!.msCrn ?: "") }
+        
+        AlertDialog(
+            onDismissRequest = { editingBoid = null },
+            title = { Text("Vault: ${editingBoid!!.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(user, { user = it }, label = { Text("MeroShare Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(pass, { pass = it }, label = { Text("MeroShare Password") }, modifier = Modifier.fillMaxWidth(), visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true)
+                    OutlinedTextField(pin, { if (it.length <= 4 && it.all { c -> c.isDigit() }) pin = it }, label = { Text("Transaction PIN (4-digit)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+                    OutlinedTextField(crn, { crn = it }, label = { Text("CRN Number") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = isEnabled,
-                    onCheckedChange = { onToggle() },
-                    modifier = Modifier.scale(0.7f).padding(end = 4.dp)
-                )
-                IconButton(onClick = onR) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
-            }
-        } 
+            },
+            confirmButton = {
+                Button(onClick = {
+                    vm.saveCredentials(editingBoid!!.boid, mapOf(
+                        "username" to user,
+                        "password" to pass,
+                        "pin" to pin,
+                        "crn" to crn
+                    ))
+                    editingBoid = null
+                }) { Text("Save to Vault") }
+            },
+            dismissButton = { TextButton({ editingBoid = null }) { Text("Cancel") } }
+        )
     }
 }
 
@@ -3565,5 +4044,33 @@ fun FinanceCalculatorScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun InfoBanner(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(text, fontSize = 11.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+        }
+    }
+}
+
+@Composable
+fun EmptyStatePlaceholder(text: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Default.Inbox, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(16.dp))
+        Text(text, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.outline, style = MaterialTheme.typography.bodyMedium)
     }
 }

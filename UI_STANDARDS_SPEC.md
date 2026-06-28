@@ -6,7 +6,7 @@ This document defines the comprehensive UI/UX standards for FinFolio, including 
 All secondary screens must follow a consistent structure.
 - **Header**: Use the `SubScreenHeader` composable.
     - **Back Button**: An `ArrowBack` icon tinted with the primary theme color.
-    - **Title**: Bold, large title (e.g., "Market Pulse", "Bulk IPO Result").
+    - **Title**: Bold, large title (e.g., "Market Pulse", "IPO Check (5)"). Titles for list-based screens must dynamically include the count of available items in parentheses.
     - **Trailing Action**: (Optional) For refresh or settings buttons.
 - **Section Headers**: Expandable headers within sub-screens (like Indices or Holdings) should use `typography.titleMedium` to distinguish them from item-level text while remaining smaller than the page title.
 - **Subtitle Branding**: The app subtitle in the Top Bar is fixed as "PortFolio Tracker" to provide consistent brand identity.
@@ -37,6 +37,11 @@ Font sizes are standardized to ensure accessibility and professional readability
 - **Enclosure**: Wrap items (Scrips, IPOs, BOIDs) in `Card` or `Surface` with rounded corners (`8.dp` to `12.dp`).
 - **Badges**: Use the `Badge` component for counts and status indicators (e.g., "Holding", "Allotted").
 
+### Centralized Family Management
+- **Synchronized Headers**: Screens managing family members (IPO Check, IPO Apply, Credential Vault) must use a unified `FamilyBoidHeader` component.
+- **Header Actions**: Must include consistent icons for "Import" (File Upload), "Paste" (Content Paste), and "Add" (Person Add).
+- **Selection Logic**: Always provide "Select All" and "None" quick-toggle links within the header for batch operations.
+
 ### Input Forms & Dialogs
 - **Field Heights**: Standardize form input heights (Buttons and TextFields) to `60.dp`.
 - **Row Alignment**: When a dropdown and text field share a row, use a Read-Only `OutlinedTextField` with a `trailingIcon` for the dropdown to ensure perfect vertical alignment.
@@ -59,9 +64,27 @@ Font sizes are standardized to ensure accessibility and professional readability
 
 ## 7. Responsive Layouts
 - **Dashboard Consistency**: Data scope selectors (Overall/Portfolio) must be **fixed at the top** of the scrollable content area to ensure users always know which dataset they are viewing.
-- **Support Panels**: Single-page layout where all core elements (Developer profile, Subject, and Message) are visible without scrolling. Profile elements (Icon, Name, Title) must be **centered** on the page.
+- **Support Panels**: Single-page layout where all core elements (Developer profile, Subject, and Message) are visible without scrolling. Profile elements (Icon, Name, Title) must be **centered** on the page. Must support **file attachments** for debugging or data verification.
 - **Drawer**: High-contrast labels with increased font sizes for primary actions.
 
-## 9. Functional Icons
+## 8. Data Grouping Standards
+- **Hierarchical Expandables**: Large datasets (like History) should be grouped logically (e.g., Year -> Month) and remain **unexpanded by default** to prevent overwhelming the user.
+- **Dynamic Context**: Group headers must include the count of child items in parentheses, e.g., `January (12)`.
+- **Accordion-Style Lists (Accordion Mode)**: 
+    - For screens like "IPO Master (Companies)", use **Single Expansion Mode** where expanding one category automatically collapses others.
+    - **Animated Transitions**: Always wrap expandable content in `AnimatedVisibility` for smooth transitions.
+    - **Search-Driven Expansion**: Searching within a grouped list must trigger auto-expansion of the category containing the matching result.
+
+## 9. Sorting & Filtering Rules
+- **Date-Based Sorting**:
+    - **Upcoming Events**: Sort by **Opening Date (Ascending)** to highlight the next available action.
+    - **Past/Current Events**: Sort by **Closing or Allotment Date (Descending)** to keep the most recent entries at the top.
+- **Dynamic Filtering**: IPO Check lists must automatically include "Allotment Completed" and "Previous" categories to ensure users can check both recent and old results.
+
+## 10. Button Layout & Overflow
+- **Proportional Weighting**: In multi-button rows, use `weight` (e.g., `1.1f` vs `0.9f`) to accommodate labels of different lengths.
+- **Label Integrity**: Use `10.sp` font size and `softWrap = false` for critical action buttons in tight layouts to prevent text wrap from breaking the UI.
+
+## 11. Functional Icons
 - **Exporting**: Use `Icons.Default.FileUpload` (Up Arrow) for data exports to represent "sending data out."
 - **Importing/Downloading**: Use `Icons.Default.FileDownload` for data retrieval.

@@ -11,8 +11,45 @@ enum class ScraperCategory(val displayName: String, val description: String) {
     INDEX_UPDATE("Market Index Update", "Updates market and sector indices."),
     SCRIP_SYNC("Scrip Master Sync", "Downloads list of all listed companies."),
     IPO_LISTING("IPO Pipeline", "Tracks upcoming and ongoing IPOs."),
-    IPO_COMPANIES("IPO Result Company List", "Required to map companies for IPO allotment checks."),
-    IPO_RESULT("IPO Result Checker", "Endpoint for verifying IPO allotment status.")
+    IPO_RESULT("IPO Result Checker", "Endpoint for verifying IPO allotment status."),
+    DP_MASTER("DP Member List", "Syncs Depository Participants for automated MeroShare login."),
+    MEROSHARE_WEB("MeroShare Web Portal", "Official MeroShare login portal for manual or automated application."),
+    MEROSHARE_API("MeroShare Backend API", "Private API endpoint for automated results and application.")
+}
+
+object ScraperDefaults {
+    val defaultScrapersByCategory = mapOf(
+        ScraperCategory.LTP_UPDATE to listOf(
+            "https://www.nepalstock.com/",
+            "https://www.sharesansar.com/live-trading",
+            "https://merolagani.com/latestmarket.aspx"
+        ),
+        ScraperCategory.INDEX_UPDATE to listOf(
+            "https://www.nepalstock.com/",
+            "https://www.sharesansar.com/market",
+            "https://merolagani.com/latestmarket.aspx"
+        ),
+        ScraperCategory.SCRIP_SYNC to listOf(
+            "https://www.sharesansar.com/company-list",
+            "https://merolagani.com/CompanyList.aspx"
+        ),
+        ScraperCategory.IPO_LISTING to listOf(
+            "https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5",
+            "https://www.sharesansar.com/ipo-fpo-news"
+        ),
+        ScraperCategory.IPO_RESULT to listOf(
+            "https://iporesult.cdsc.com.np/"
+        ),
+        ScraperCategory.DP_MASTER to listOf(
+            "https://www.sharesansar.com/dp-member-list"
+        ),
+        ScraperCategory.MEROSHARE_WEB to listOf(
+            "https://meroshare.cdsc.com.np/#/asba"
+        ),
+        ScraperCategory.MEROSHARE_API to listOf(
+            "https://webbackend.cdsc.com.np/api/meroShare"
+        )
+    )
 }
 
 /**

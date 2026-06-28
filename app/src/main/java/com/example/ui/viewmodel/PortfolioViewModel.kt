@@ -53,7 +53,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     val marketStatus: StateFlow<MarketStatus> = repository.marketStatus
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), MarketStatus())
 
-    val defaultScrapers = repository.defaultScrapersByCategory
+    val defaultScrapers = com.example.data.model.ScraperDefaults.defaultScrapersByCategory
 
     fun registerUser(name: String, email: String) {
         viewModelScope.launch {
@@ -587,13 +587,10 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
                             body.contains("tr") || body.contains("table")
                         }
                     }
-                    ScraperCategory.IPO_COMPANIES -> {
-                        if (body.contains("Request Rejected")) {
-                            throw Exception("WAF Block: Request Rejected by CDSC Firewall")
-                        }
-                        body.trim().startsWith("{") || body.trim().startsWith("[") || body.contains("company")
-                    }
                     ScraperCategory.IPO_RESULT -> body.contains("form") || body.contains("input") || contentType.contains("application/json")
+                    ScraperCategory.DP_MASTER -> body.contains("table") && body.length > 500
+                    ScraperCategory.MEROSHARE_WEB -> body.contains("mero") || body.contains("asba") || body.contains("login") || body.contains("form") || response.code == 200
+                    ScraperCategory.MEROSHARE_API -> body.contains("auth") || body.contains("Unauthorized") || body.contains("Access Denied") || response.code == 401 || response.code == 405 || response.code == 200
                 }
                 
                 if (success) {

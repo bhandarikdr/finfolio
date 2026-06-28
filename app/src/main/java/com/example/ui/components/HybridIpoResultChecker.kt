@@ -3,20 +3,31 @@ package com.example.ui.components
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.model.BoidEntry
-import com.example.data.util.AppLogger
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * Phase 4.1: Hybrid IPO Result Checker.
- * Uses a WebView to bypass WAF and handle CAPTCHAs.
+ * Refined Aesthetics and Automation fixes.
  */
 @Composable
 fun HybridIpoResultChecker(
@@ -26,9 +37,8 @@ fun HybridIpoResultChecker(
     onResultFound: (BoidEntry, String, Boolean) -> Unit,
     onComplete: () -> Unit
 ) {
-    var currentBoidIndex by remember { mutableStateOf(0) }
+    var currentBoidIndex by remember { mutableIntStateOf(0) }
     var webView: WebView? by remember { mutableStateOf(null) }
-    val scope = rememberCoroutineScope()
     var isCaptchaVisible by remember { mutableStateOf(false) }
 
     class WebAppInterface {
@@ -37,8 +47,13 @@ fun HybridIpoResultChecker(
             val boidEntry = boids.find { it.boid == boid }
             if (boidEntry != null) {
                 onResultFound(boidEntry, message, success)
-                // Move to next BOID
-                currentBoidIndex++
+                // Move to next BOID automatically
+                if (currentBoidIndex < boids.size - 1) {
+                    currentBoidIndex++
+                    isCaptchaVisible = false
+                } else {
+                    onComplete()
+                }
             }
         }
 
@@ -49,23 +64,96 @@ fun HybridIpoResultChecker(
     }
 
     Column(Modifier.fillMaxSize()) {
-        LinearProgressIndicator(
-            progress = { (currentBoidIndex.toFloat() / boids.size) },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text("Checking BOID: ${boids.getOrNull(currentBoidIndex)?.name} (${currentBoidIndex + 1}/${boids.size})",
-             modifier = Modifier.padding(8.dp),
-             style = MaterialTheme.typography.labelMedium)
+        // Aesthetic Progress Section
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Text(
+                    text = boids.getOrNull(currentBoidIndex)?.name ?: "Done",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "${currentBoidIndex + 1} / ${boids.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { (currentBoidIndex.toFloat()) / boids.size },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp),
+                strokeCap = StrokeCap.Round,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        }
+
+        // Horizontal Selection Chips (Improved Style)
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            itemsIndexed(boids) { index, boid ->
+                val isSelected = index == currentBoidIndex
+                SuggestionChip(
+                    onClick = { 
+                        currentBoidIndex = index
+                        isCaptchaVisible = false
+                    },
+                    label = { 
+                        Text(
+                            text = boid.name.split(" ").firstOrNull() ?: boid.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        ) 
+                    },
+                    colors = SuggestionChipDefaults.suggestionChipColors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        labelColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    border = BorderStroke(
+                        width = if (isSelected) 1.5.dp else 1.dp,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        }
         
         if (isCaptchaVisible) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)),
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                tonalElevation = 2.dp
             ) {
-                Text("⚠️ CAPTCHA required. Please enter the code in the view below and click Check.", 
-                     color = MaterialTheme.colorScheme.error,
-                     style = MaterialTheme.typography.labelSmall,
-                     modifier = Modifier.padding(8.dp))
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Action Required: Solve CAPTCHA for ${boids.getOrNull(currentBoidIndex)?.name}", 
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
 
@@ -74,27 +162,38 @@ fun HybridIpoResultChecker(
                 WebView(context).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    settings.databaseEnabled = true
+                    
+                    android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                    android.webkit.WebStorage.getInstance().deleteAllData()
+                    clearCache(true)
+                    clearHistory()
+
                     addJavascriptInterface(WebAppInterface(), "AndroidInterface")
+                    
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
-                            // Inject logic to check for results
                             injectCheckerScript(view, boids.getOrNull(currentBoidIndex)?.boid, resultPortalId)
                         }
                     }
+                    
+                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
                     settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = false // Better for zooming specifically
-                    settings.setSupportZoom(true)
-                    settings.builtInZoomControls = true
-                    settings.displayZoomControls = false
-                    settings.domStorageEnabled = true
-                    settings.javaScriptCanOpenWindowsAutomatically = true
+                    settings.loadWithOverviewMode = true
+                    
+                    // Restore forced-center visual hacks for CDSC portal
+                    settings.defaultFontSize = 14
+                    settings.minimumFontSize = 10
 
                     loadUrl(portalUrl)
                     webView = this
                 }
             },
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(bottom = 8.dp) // Aesthetic padding at bottom
         )
     }
 
@@ -103,12 +202,9 @@ fun HybridIpoResultChecker(
             onComplete()
             return@LaunchedEffect
         }
-        
-        // Wait a bit between checks to avoid rate limiting
+        // Force a fresh reload of the CDSC portal for each BOID to reset Angular state and results
+        webView?.loadUrl(portalUrl)
         delay(2000)
-        webView?.let { 
-            injectCheckerScript(it, boids[currentBoidIndex].boid, resultPortalId)
-        }
     }
 }
 
@@ -117,53 +213,84 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, portalId: Int)
     
     val script = """
         (function() {
-            var boidInput = document.querySelector('input[name="boid"]');
-            var companySelect = document.querySelector('select[name="companyShare"]');
-            var submitBtn = document.querySelector('button[type="submit"]');
-            
-            // UX: Hide distracting headers/footers for better focal area
-            var navbar = document.querySelector('nav'); if(navbar) navbar.style.display='none';
-            var footer = document.querySelector('footer'); if(footer) footer.style.display='none';
-            var header = document.querySelector('header'); if(header) header.style.display='none';
-            
-            // Adjust zoom to show the relevant part of the screen
-            document.body.style.zoom = "1.0"; 
+            // 1. Hide Distractions
+            document.querySelectorAll('nav, header, footer, .navbar, .footer, app-header, app-footer').forEach(el => el.style.display = 'none');
 
+            // 2. Dynamic Centering for all screen sizes
+            var mainEl = document.querySelector('form') || document.querySelector('.card') || 
+                         document.querySelector('mat-card') || document.querySelector('.container');
+            
+            if (mainEl) {
+                // Ensure parent container is clear for centering
+                document.body.style.display = 'flex';
+                document.body.style.flexDirection = 'column';
+                document.body.style.justifyContent = 'center';
+                document.body.style.alignItems = 'center';
+                document.body.style.minHeight = '100vh';
+                document.body.style.margin = '0';
+                document.body.style.padding = '0';
+                document.body.style.backgroundColor = '#ffffff';
+                
+                // Remove potential fixed-top/bottom elements from Angular components
+                document.querySelectorAll('.footer, .header, .navbar').forEach(el => el.remove());
+
+                mainEl.style.setProperty('position', 'relative', 'important');
+                mainEl.style.setProperty('display', 'block', 'important');
+                mainEl.style.setProperty('margin', 'auto', 'important');
+                mainEl.style.setProperty('width', '94%', 'important');
+                mainEl.style.setProperty('max-width', '450px', 'important');
+                mainEl.style.setProperty('box-shadow', '0 4px 12px rgba(0,0,0,0.1)', 'important');
+                mainEl.style.setProperty('border', '1px solid #ddd', 'important');
+                mainEl.style.setProperty('padding', '24px', 'important');
+                mainEl.style.setProperty('border-radius', '16px', 'important');
+                mainEl.style.setProperty('background', '#fff', 'important');
+            }
+
+            // 3. Automated Form Injection
+            function triggerInput(el, val) {
+                if (!el) return;
+                var nativeValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                if (nativeValueSetter) {
+                    nativeValueSetter.call(el, val);
+                } else {
+                    el.value = val;
+                }
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
+            var companySelect = document.querySelector('select[name="companyShare"]');
             if (companySelect && companySelect.value != '$portalId') {
                 companySelect.value = '$portalId';
-                companySelect.dispatchEvent(new Event('change'));
+                companySelect.dispatchEvent(new Event('change', { bubbles: true }));
             }
-                
-                if (boidInput.value != '$boid') {
-                    boidInput.value = '$boid';
-                    boidInput.dispatchEvent(new Event('input'));
-                }
-                
-                // Ensure form remains visible (Auto-scroll to Captcha)
-                var capInput = document.querySelector('input[name="captcha"]');
-                if (capInput) {
-                    capInput.scrollIntoView({behavior: "smooth", block: "center"});
-                }
 
-                // Monitor for CAPTCHA image
-                var captchaImg = document.querySelector('img[alt="Captcha"]');
-                if (captchaImg) {
-                    window.AndroidInterface.onCaptchaDetected();
-                }
+            var boidInput = document.querySelector('input[name="boid"]');
+            if (boidInput && boidInput.value != '$boid') {
+                triggerInput(boidInput, '$boid');
+            }
 
-                // Monitor for result
-                if (!window.resultMonitorActive) {
-                    window.resultMonitorActive = true;
-                    var checkInterval = setInterval(function() {
-                        var resultDiv = document.querySelector('.result-message');
-                        if (resultDiv && resultDiv.innerText.trim().length > 5) {
-                            var msg = resultDiv.innerText;
-                            var success = msg.includes('Congratulation');
-                            window.AndroidInterface.postResult('$boid', msg, success);
-                            // Do NOT clear interval, let the next BOID trigger it
-                        }
-                    }, 1500);
-                }
+            // 4. Captcha Detection
+            var captchaImg = document.querySelector('img[alt="Captcha"]');
+            if (captchaImg) window.AndroidInterface.onCaptchaDetected();
+
+            // 5. Intelligent Monitoring & State Reset
+            if (!window.resultMonitorActive) {
+                window.resultMonitorActive = true;
+                setInterval(function() {
+                    var resultDiv = document.querySelector('.result-message') || document.querySelector('.alert');
+                    if (resultDiv && resultDiv.innerText.trim().length > 5) {
+                        var msg = resultDiv.innerText;
+                        var success = msg.includes('Congratulation') || msg.includes('allotted');
+                        
+                        // Send result to Android and STOP local monitoring until next page load
+                        window.AndroidInterface.postResult('$boid', msg, success);
+                        
+                        // Visually clear to prevent double-triggering before page reload
+                        resultDiv.style.display = 'none';
+                        window.resultMonitorActive = false;
+                    }
+                }, 1000);
             }
         })();
     """.trimIndent()

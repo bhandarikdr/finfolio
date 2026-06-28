@@ -1,6 +1,9 @@
-# Bulk IPO Check Specification
+This document defines the logic and UI for verifying allotment results and applying for IPOs across multiple family accounts.
 
-This document defines the logic and UI for verifying allotment results for multiple accounts simultaneously using a hybrid automation strategy.
+## 0. UI Organization
+IPO functionality is split into two specialized interfaces to improve focus and reduce UI clutter:
+1. **IPO Check**: Focused on allotment results (Accuracy Mode & Bulk Pro). Filters for companies with status "Allotted" or "Completed".
+2. **IPO Apply**: Focused on new submissions. Filters for companies with status "Open" or "Ongoing".
 
 ## 1. BOID Management
 - **Format**: Standard 16-digit numeric identifier.
@@ -35,6 +38,42 @@ Due to external portals implementing strict CAPTCHA and rate-limiting, FinFolio 
     - **Not Allotted**: Marked in red.
 - **Persistence**: Results are cached in `ipo_result_cache` for 24 hours to avoid redundant network requests.
 
+---
+
+## 4. Centralized Family Management
+To ensure a seamless user experience, family account management is synchronized across three primary screens:
+- **Credential Vault**: The master configuration screen for MeroShare login details.
+- **IPO Check**: Allows enabling/disabling specific accounts for bulk result verification.
+- **IPO Apply**: Allows selection of accounts for bulk application submissions.
+
+All screens utilize a unified `FamilyBoidHeader` for consistent access to Add, Paste, and Import functions, ensuring the family member database remains the single source of truth.
+
 ## 4. Troubleshooting
 - **CAPTCHA Loop**: If a portal enters a loop, wait 10 minutes (server-side rate-limit).
 - **Stale Results**: Use the "Clear Result Cache" option to force a re-check if results were recently updated on the server.
+
+---
+
+## 5. Professional Mode (MeroShare API)
+*Phase 4 Implementation*
+
+Professional Mode extends the hybrid engine by using direct MeroShare API calls for zero-CAPTCHA verification and one-tap bulk applications.
+
+### 5.1 Credential Management
+- **Security**: Sensitive credentials (PIN, Password, CRN) are stored locally. Future implementation will leverage **Android Keystore** for encryption.
+- **DP Mapping**: To log in, the app requires a `clientId`. This is resolved via the **DP Master Sync**.
+    - **Mechanism**: The app scrapes the DP list (e.g., from ShareSansar) to map the first 8 digits of the BOID (the DP Code) to the required MeroShare `clientId`.
+    - **Fallback**: A hardcoded mapping of known DP codes (e.g., `10600 -> 173`) is used if scraping fails.
+
+### 5.2 API Interaction Logic
+The `MeroShareRepository` implements the following flow:
+1. **Authentication**: `POST /auth/` to obtain a JWT.
+2. **Account Details**: `GET /bank/` to retrieve `accountBranchId` and bank information.
+3. **Check Allotment**: `POST /active/search/` with the IPO's `resultPortalId` to fetch status without CAPTCHA.
+4. **Bulk Apply**: 
+    - Fetches applicable issues via `POST /applicableIssue/`.
+    - Submits application via `POST /share/apply` using the stored CRN and PIN.
+
+### 5.3 Technical Constraints
+- **Validation**: Scraper configuration tests for `DP_MASTER` ensure the URL returns a valid table structure (min length 500 characters).
+- **Rate Limiting**: Implementation includes exponential backoff to respect CDSC API limits.

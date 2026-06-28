@@ -5,7 +5,7 @@ This document defines how FinFolio handles transaction recording and external da
 ## 1. Manual Transaction Entry
 - **Scrip & Sector Selection**: Uses dropdown buttons for selecting from recently used items.
 - **Sector Auto-sync**: Automatically suggests a sector based on previous entries for the same scrip.
-- **Actions**: Buy, Sale, Returns (Bonus/Right/Split/Dividend), SIP.
+- **Actions**: Buy, Sale, Returns (Bonus/Right/Split/Dividend).
 
 ## 2. CSV Imports & Data Safety
 To prevent data loss during complex imports, FinFolio implements a **Safety-First Protocol**:
@@ -31,3 +31,7 @@ To prevent data loss during complex imports, FinFolio implements a **Safety-Firs
 - **Holdings Export**: Specialized export from the Market Pulse screen focused on current asset valuation.
 - **Precision Standard**: All calculated numeric fields in exports (Amounts, Rates, Values) must be formatted to exactly **2 decimal places** using `String.format(Locale.US, "%.2f", value)` to ensure compatibility and readability.
 - **Format**: `Scrip, Sector, Qty, Previous LTP, Previous Amount, LTP, Current Amount`.
+
+### D. Support Export (Debug Logs)
+- **Purpose**: Diagnostic tool to send encrypted logs and database context to developers.
+- **Workflow**: Accessible via `Settings -> Send to Developer`. Generates a combined text file of app lifecycle events and sync logs, and pre-attaches it to a support request email.

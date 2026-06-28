@@ -56,34 +56,6 @@ class PortfolioRepository(
         "cgt" to 0.075
     )
 
-    /** Default scraper URLs categorized by function. Used as fallback if no user overrides exist. */
-    val defaultScrapersByCategory = mapOf(
-        ScraperCategory.LTP_UPDATE to listOf(
-            "https://www.nepalstock.com/",
-            "https://www.sharesansar.com/live-trading",
-            "https://merolagani.com/latestmarket.aspx"
-        ),
-        ScraperCategory.INDEX_UPDATE to listOf(
-            "https://www.nepalstock.com/",
-            "https://www.sharesansar.com/market", 
-            "https://merolagani.com/latestmarket.aspx"
-        ),
-        ScraperCategory.SCRIP_SYNC to listOf(
-            "https://www.sharesansar.com/company-list", 
-            "https://merolagani.com/CompanyList.aspx"
-        ),
-        ScraperCategory.IPO_LISTING to listOf(
-            "https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5", 
-            "https://www.sharesansar.com/ipo-fpo-news"
-        ),
-        ScraperCategory.IPO_COMPANIES to listOf(
-            "https://iporesult.cdsc.com.np/result/company/list"
-        ),
-        ScraperCategory.IPO_RESULT to listOf(
-            "https://iporesult.cdsc.com.np/result/ipo/result"
-        )
-    )
-
     /** 
      * Flow of the user profile, merging database entity with default values.
      * Parses scraper URLs from JSON storage into a typed Map.
@@ -107,7 +79,7 @@ class PortfolioRepository(
         // Fill defaults if missing
         ScraperCategory.values().forEach { cat ->
             if (scraperMap[cat].isNullOrEmpty()) {
-                scraperMap[cat] = defaultScrapersByCategory[cat] ?: emptyList()
+                scraperMap[cat] = com.example.data.model.ScraperDefaults.defaultScrapersByCategory[cat] ?: emptyList()
             }
         }
         
@@ -358,7 +330,7 @@ class PortfolioRepository(
                     }
                 } catch (e: Exception) {}
             }
-            defaultScrapersByCategory[category] ?: emptyList()
+            com.example.data.model.ScraperDefaults.defaultScrapersByCategory[category] ?: emptyList()
         }
     }
 
@@ -368,7 +340,6 @@ class PortfolioRepository(
             "INDEX_SOURCE_1", "INDEX_SOURCE_2" -> ScraperCategory.INDEX_UPDATE
             "SCRIP_MASTER" -> ScraperCategory.SCRIP_SYNC
             "IPO_PIPELINE", "IPO_LISTING_SOURCE" -> ScraperCategory.IPO_LISTING
-            "CDSC_COMPANY_LIST" -> ScraperCategory.IPO_COMPANIES
             "CDSC_RESULT_CHECK" -> ScraperCategory.IPO_RESULT
             else -> return ""
         }
@@ -976,101 +947,6 @@ class PortfolioRepository(
                     }
                 } catch (e: Exception) {
                     AppLogger.e("MarketStatus", "Failed to sync Primary Index to DB", e)
-                }
-
-                // 3. LTP Scrip Prices (Aggregate from all URLs)
-                val ltpUrls = getScraperUrls(ScraperCategory.LTP_UPDATE)
-                val aggregatedLtps = mutableMapOf<String, ExternalLtp>()
-                val existingLtps = portfolioDao.getAllExternalLtps().first().associateBy { it.symbol }
-                
-                for (baseUrl in ltpUrls) {
-                    try {
-                        val url = if (baseUrl.contains("?")) "$baseUrl&t=${System.currentTimeMillis()}" else "$baseUrl?t=${System.currentTimeMillis()}"
-                        
-                        // Use robust client for SSL issues
-                        val useUnsafe = baseUrl.contains("nepalstock.com")
-                        val html = if (useUnsafe) {
-                            val client = NetworkUtils.getUnsafeOkHttpClient()
-                            val request = Request.Builder().url(url).header("User-Agent", userAgent).build()
-                            client.newCall(request).execute().use { response ->
-                                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-                                response.body?.string() ?: ""
-                            }
-                        } else {
-                            Jsoup.connect(url).userAgent(userAgent).timeout(20000).get().html()
-                        }
-
-                        if (html.isBlank()) continue
-                        
-                        val doc = Jsoup.parse(html)
-                        val timestamp = System.currentTimeMillis()
-
-                        for (table in doc.select("table")) {
-                            val rows = table.select("tr")
-                            if (rows.isEmpty()) continue
-                            
-                            val header = rows.firstOrNull()?.select("th, td")?.map { it.text().uppercase().trim() } ?: emptyList()
-                            var symIdx = header.indexOfFirst { it.contains("SYMBOL") || it.contains("SCRIP") || it == "CODE" }
-                            var ltpIdx = header.indexOfFirst { it == "LTP" || it.contains("LAST TRADED") || it.contains("PRICE") || it == "CLOSE" }
-                            var prvIdx = header.indexOfFirst { it.contains("PREV") || it.contains("CLOSE") && !it.contains("LTP") }
-
-                            if (symIdx == -1 && header.size >= 2) symIdx = 1
-                            if (ltpIdx == -1 && header.size >= 3) ltpIdx = if (header.size >= 6) 5 else 2
-
-                            if (symIdx != -1 && ltpIdx != -1) {
-                                for (row in rows.drop(1)) {
-                                    val cols = row.select("td")
-                                    if (cols.size > maxOf(symIdx, ltpIdx)) {
-                                        val symbol = cols[symIdx].text().trim().uppercase()
-                                        val ltp = cols[ltpIdx].text().replace(",", "").trim().toDoubleOrNull() ?: 0.0
-                                        if (symbol.isNotEmpty() && ltp > 0 && !garbageTerms.contains(symbol.lowercase())) {
-                                            val prevVal = if (prvIdx != -1 && prvIdx < cols.size) cols[prvIdx].text().replace(",", "").trim().toDoubleOrNull() ?: ltp else ltp
-                                            val ptChg = ltp - prevVal
-                                            val pctChg = if (prevVal > 0) (ptChg / prevVal) * 100.0 else 0.0
-                                            
-                                            val existing = existingLtps[symbol]
-                                            
-                                            // STRICT FLAT LOGIC: 
-                                            // 1. Skip if price hasn't moved at all
-                                            val isSamePrice = existing != null && Math.abs(existing.ltp - ltp) < 0.001
-                                            // 2. Skip if current data shows ZERO change, but DB has valid NON-ZERO change
-                                            val isInvalidZero = existing != null && Math.abs(existing.pointChange) > 0.01 && Math.abs(ptChg) < 0.01
-                                            
-                                            if (isSamePrice || isInvalidZero) {
-                                                continue
-                                            }
-
-                                            // Smart Aggregation: Prefer sources with non-zero changes
-                                            val existingInMap = aggregatedLtps[symbol]
-                                            val hasNonZero = Math.abs(ptChg) > 0.01
-                                            val prevHasNonZero = existingInMap != null && Math.abs(existingInMap.pointChange) > 0.01
-
-                                            if (existingInMap == null || (hasNonZero && !prevHasNonZero)) {
-                                                aggregatedLtps[symbol] = ExternalLtp(
-                                                    symbol = symbol,
-                                                    ltp = ltp,
-                                                    previousLtp = prevVal,
-                                                    pointChange = ptChg,
-                                                    changePercent = pctChg,
-                                                    source = "Scraped",
-                                                    timestamp = timestamp,
-                                                    isInExternalSync = existing?.isInExternalSync ?: false
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        AppLogger.e("LtpSync", "Failed to scrape LTP from $baseUrl", e)
-                    }
-                }
-
-                if (aggregatedLtps.isNotEmpty()) {
-                    portfolioDao.insertExternalLtps(aggregatedLtps.values.toList())
-                    success = true
-                    AppLogger.i("LtpSync", "Successfully aggregated ${aggregatedLtps.size} LTP records")
                 }
 
                 Result.success(success)

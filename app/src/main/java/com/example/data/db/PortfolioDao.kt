@@ -154,8 +154,24 @@ interface PortfolioDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBoid(boid: BoidEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBoids(boids: List<BoidEntity>)
+
     @Query("DELETE FROM Boids WHERE boid = :boid")
     suspend fun deleteBoidByString(boid: String)
+
+    // --- DP MASTER ---
+    @Query("SELECT * FROM DpMaster")
+    fun getAllDpMaster(): Flow<List<DpMaster>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDpMaster(dps: List<DpMaster>)
+
+    @Query("SELECT * FROM DpMaster WHERE dpCode = :code LIMIT 1")
+    suspend fun getDpByCode(code: String): DpMaster?
+
+    @Query("DELETE FROM DpMaster")
+    suspend fun clearDpMaster()
 
     // --- HOLDINGS (PRE-COMPUTED) ---
     @Query("SELECT * FROM Holdings ORDER BY symbol ASC")
