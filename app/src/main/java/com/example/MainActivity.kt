@@ -1656,13 +1656,19 @@ fun DpCard(dp: com.example.data.db.DpMaster) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CredentialVaultScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
     val boids by vm.boids.collectAsStateWithLifecycle()
+    val allDps by vm.allDps.collectAsStateWithLifecycle()
+    val isTesting by remember { derivedStateOf { vm.isTestingLogin } }
+    
     var editingBoid by remember { mutableStateOf<BoidEntry?>(null) }
+    var deletingBoid by remember { mutableStateOf<BoidEntry?>(null) }
     var showA by remember { mutableStateOf(false) }
     var showP by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val cs = rememberCoroutineScope()
     
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { 
@@ -1673,10 +1679,30 @@ fun CredentialVaultScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
         }
     }
 
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri?.let {
+            cs.launch {
+                val csv = vm.exportVaultToCsv()
+                context.contentResolver.openOutputStream(it)?.use { out ->
+                    out.write(csv.toByteArray())
+                }
+                Toast.makeText(context, "Vault exported to CSV", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        SubScreenHeader("Credential Vault", onBack)
+        SubScreenHeader(
+            title = "Family BOIDs (${boids.size})", 
+            onBack = onBack,
+            trailingIcon = {
+                IconButton(onClick = { exportLauncher.launch("finfolio_vault_export.csv") }) {
+                    Icon(Icons.Default.FileUpload, "Export Vault", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        )
         
-        // Family Management Card (Restored)
+        // Family Management Card
         Card(
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
@@ -1711,26 +1737,66 @@ fun CredentialVaultScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
 
         InfoBanner("Credentials stored here are only used for 'Auto Check' and 'Auto Apply' features. They are stored locally on your device.")
         
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
             items(boids, key = { it.boid }) { boid ->
                 val isSet = !boid.msUsername.isNullOrBlank() && !boid.msPassword.isNullOrBlank()
+                val dpCode = boid.boid.take(8).takeLast(5)
+                val dpName = allDps.find { it.dpCode == dpCode }?.name ?: "Unknown DP ($dpCode)"
+                
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { editingBoid = boid }
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(boid.name, fontWeight = FontWeight.Bold)
-                            Text(boid.boid, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(boid.name, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                                Text(boid.boid, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(dpName, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            }
+                            
+                            if (isSet) {
+                                Button(
+                                    onClick = { vm.testLogin(boid) },
+                                    modifier = Modifier.height(30.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
+                                    enabled = isTesting[boid.boid] != true
+                                ) {
+                                    if (isTesting[boid.boid] == true) {
+                                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Default.Science, null, Modifier.size(14.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Test", fontSize = 10.sp)
+                                    }
+                                }
+                            }
+
+                            IconButton(onClick = { editingBoid = boid }) { Icon(Icons.Default.Edit, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) }
+                            IconButton(onClick = { deletingBoid = boid }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp)) }
                         }
+                        
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(0.5f))
+
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            VaultToggle("Result Check", boid.isEnabledForCheck) { vm.toggleBoidEnabled(boid.boid, true) }
+                            VaultToggle("IPO Apply", boid.isEnabledForApply) { vm.toggleBoidEnabled(boid.boid, false) }
+                        }
+                        
                         if (isSet) {
-                            Icon(Icons.Default.Lock, null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
-                            Text("Securely Set", fontSize = 11.sp, color = Color(0xFF10B981), modifier = Modifier.padding(start = 4.dp))
-                        } else {
-                            Text("Not Set", fontSize = 11.sp, color = Color.Gray)
-                        }
-                        IconButton(onClick = { editingBoid = boid }) {
-                            Icon(Icons.Default.Edit, null)
+                            Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(0.3f), RoundedCornerShape(4.dp)).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                CredentialSmallField("User", boid.msUsername ?: "")
+                                CredentialSmallField("PIN", boid.msPin ?: "")
+                                CredentialSmallField("CRN", boid.msCrn ?: "")
+                            }
                         }
                     }
                 }
@@ -1770,8 +1836,40 @@ fun CredentialVaultScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
         )
     }
 
+    if (deletingBoid != null) {
+        AlertDialog(
+            onDismissRequest = { deletingBoid = null },
+            title = { Text("Delete Account?") },
+            text = { Text("Remove '${deletingBoid!!.name}' and all associated credentials? This cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = { vm.removeBoid(deletingBoid!!); deletingBoid = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton({ deletingBoid = null }) { Text("Cancel") } }
+        )
+    }
+
     if (showA) AddBoidDialog({ n, b -> vm.addBoid(n, b); showA = false }, { showA = false })
     if (showP) PasteBoidDialog({ vm.addMultipleBoids(it); showP = false }, { showP = false })
+}
+
+@Composable
+fun VaultToggle(label: String, checked: Boolean, onT: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onT() }) {
+        Switch(checked, { _ -> onT() }, modifier = Modifier.scale(0.7f))
+        Spacer(Modifier.width(4.dp))
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+fun CredentialSmallField(label: String, value: String) {
+    Column {
+        Text(label, fontSize = 8.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+        Text(if (value.isBlank()) "-" else value, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
 }
 
 @Composable

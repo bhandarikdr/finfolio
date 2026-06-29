@@ -43,10 +43,15 @@ Due to external portals implementing strict CAPTCHA and rate-limiting, FinFolio 
 ## 4. Centralized Family Management
 To ensure a seamless user experience, family account management is synchronized across three primary screens:
 - **Credential Vault**: The master configuration screen for MeroShare login details.
+    - **Member Management**: Integrated row for Adding (Manual), Pasting (Text), and Uploading (CSV) family accounts.
+    - **Visibility**: Title format `Family BOIDs (#)` dynamically shows total members.
+    - **Dual Toggles**: Independent control for "Result Check" and "IPO Apply" for each account.
+    - **Data Inspector**: Display of parsed credentials (User, PIN, CRN) and automatic **DP Mapping** based on BOID.
+    - **Validation**: "Test Login" mechanism to verify credentials against MeroShare API before bulk operations.
+    - **Security**: Edit and Delete (with confirmation) features for lifecycle management.
+    - **Export**: Built-in CSV export for vault backups.
 - **IPO Check**: Allows enabling/disabling specific accounts for bulk result verification.
 - **IPO Apply**: Allows selection of accounts for bulk application submissions.
-
-All screens utilize a unified `FamilyBoidHeader` for consistent access to Add, Paste, and Import functions, ensuring the family member database remains the single source of truth.
 
 ## 4. Troubleshooting
 - **CAPTCHA Loop**: If a portal enters a loop, wait 10 minutes (server-side rate-limit).
