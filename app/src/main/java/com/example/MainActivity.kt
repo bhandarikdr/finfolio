@@ -1121,19 +1121,11 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
 
     val isApplyEnabled = sel != null && !sel!!.resultPortalId?.toString().isNullOrBlank()
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)) {
         SubScreenHeader(
             title = "IPO Apply (${ipos.size})",
-            onBack = onBack,
-            trailingIcon = {
-                IconButton(onClick = { vm.refreshAllCompanies() }, enabled = !isS) {
-                    if (isS) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Default.Refresh, null)
-                }
-            }
+            onBack = onBack
         )
-
-        Spacer(Modifier.height(16.dp))
 
         ExposedDropdownMenuBox(exp, { exp = it }) {
             OutlinedTextField(
@@ -1166,25 +1158,12 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            var showIndividualApply by remember { mutableStateOf(false) }
-            
-            Button(
-                onClick = { showIndividualApply = true },
-                modifier = Modifier.weight(1.1f).height(48.dp),
-                enabled = !isC && boids.isNotEmpty() && sel != null,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.Language, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Apply Through CDSC", fontSize = 10.sp, fontWeight = FontWeight.Bold, softWrap = false)
-            }
-            
             Button(
                 onClick = { showApplyDialog = true },
-                modifier = Modifier.weight(0.9f).height(48.dp),
+                modifier = Modifier.fillMaxWidth().height(40.dp),
                 enabled = !isC && boids.isNotEmpty() && sel != null && isApplyEnabled,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
@@ -1192,34 +1171,8 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
                 if (isC) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
                 else {
                     Icon(Icons.Default.AutoFixHigh, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Auto Apply", fontSize = 10.sp, fontWeight = FontWeight.Bold, softWrap = false)
-                }
-            }
-
-            if (showIndividualApply) {
-                Dialog(onDismissRequest = { showIndividualApply = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                    Surface(modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.85f).padding(4.dp), shape = RoundedCornerShape(24.dp)) {
-                        Column {
-                            TopAppBar(
-                                title = { Text("MeroShare Web Portal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
-                                navigationIcon = { IconButton(onClick = { showIndividualApply = false }) { Icon(Icons.Default.Close, null) } }
-                            )
-                            Box(Modifier.weight(1f)) {
-                                val msPortalUrl = userProfile?.scraperUrls?.get(ScraperCategory.MEROSHARE_WEB)?.firstOrNull() ?: "https://meroshare.cdsc.com.np/#/asba"
-                                AndroidView(
-                                    factory = { context ->
-                                        android.webkit.WebView(context).apply {
-                                            settings.javaScriptEnabled = true
-                                            settings.domStorageEnabled = true
-                                            webViewClient = android.webkit.WebViewClient()
-                                            loadUrl(msPortalUrl)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text("Auto Apply (Verified Members)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1257,10 +1210,10 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
             )
         }
 
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { 
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { 
             Text("Family Members (${boids.size})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { vm.toggleAllBoids(true, false) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
+                TextButton(onClick = { vm.toggleAllBoids(false, true) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
                     Text("ALL", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 }
                 TextButton(onClick = { vm.toggleAllBoids(false, false) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
@@ -1269,12 +1222,16 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
             }
         }
 
-        LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) { 
+        LazyColumn(modifier = Modifier.weight(1f).padding(top = 4.dp)) { 
+            item {
+                InfoBanner("Auto Apply only works for members with Password, PIN, and CRN saved in the Vault. Others can apply manually through the MeroShare portal.")
+            }
             items(boids, key = { it.boid }) { boid -> 
+                val activity = act.find { it.boid == boid.boid }
                 BoidItem(
                     b = boid, 
                     isEnabled = boid.isEnabledForApply, 
-                    activity = act.find { it.boid == boid.boid },
+                    activity = activity,
                     isMe = userProfile?.boid == boid.boid,
                     onToggle = { vm.toggleBoidEnabled(boid.boid, false) },
                     onMarkApplied = { vm.markAsApplied(boid.boid) }
