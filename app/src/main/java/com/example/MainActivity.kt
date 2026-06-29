@@ -1660,9 +1660,55 @@ fun DpCard(dp: com.example.data.db.DpMaster) {
 fun CredentialVaultScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
     val boids by vm.boids.collectAsStateWithLifecycle()
     var editingBoid by remember { mutableStateOf<BoidEntry?>(null) }
+    var showA by remember { mutableStateOf(false) }
+    var showP by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { 
+            context.contentResolver.openInputStream(it)?.use { input ->
+                val text = input.bufferedReader().readText()
+                vm.addMultipleBoids(text)
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         SubScreenHeader("Credential Vault", onBack)
+        
+        // Family Management Card (Restored)
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+            Row(
+                Modifier.padding(12.dp).fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Manage Members", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(onClick = { fileLauncher.launch("text/*") }, modifier = Modifier.size(32.dp)) { 
+                        Icon(Icons.Default.UploadFile, "Upload CSV", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) 
+                    }
+                    IconButton(onClick = { showP = true }, modifier = Modifier.size(32.dp)) { 
+                        Icon(Icons.Default.ContentPaste, "Paste Text", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) 
+                    }
+                    Button(
+                        onClick = { showA = true }, 
+                        shape = RoundedCornerShape(8.dp), 
+                        modifier = Modifier.height(32.dp), 
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) { 
+                        Icon(Icons.Default.PersonAdd, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add", fontSize = 11.sp, fontWeight = FontWeight.Bold) 
+                    }
+                }
+            }
+        }
+
         InfoBanner("Credentials stored here are only used for 'Auto Check' and 'Auto Apply' features. They are stored locally on your device.")
         
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
@@ -1723,6 +1769,9 @@ fun CredentialVaultScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
             dismissButton = { TextButton({ editingBoid = null }) { Text("Cancel") } }
         )
     }
+
+    if (showA) AddBoidDialog({ n, b -> vm.addBoid(n, b); showA = false }, { showA = false })
+    if (showP) PasteBoidDialog({ vm.addMultipleBoids(it); showP = false }, { showP = false })
 }
 
 @Composable
