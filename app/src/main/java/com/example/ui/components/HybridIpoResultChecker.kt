@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.model.BoidEntry
@@ -31,7 +33,7 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun HybridIpoResultChecker(
-    resultPortalId: Int,
+    companyName: String,
     boids: List<BoidEntry>,
     portalUrl: String,
     onResultFound: (BoidEntry, String, Boolean) -> Unit,
@@ -40,6 +42,7 @@ fun HybridIpoResultChecker(
     var currentBoidIndex by remember { mutableIntStateOf(0) }
     var webView: WebView? by remember { mutableStateOf(null) }
     var isCaptchaVisible by remember { mutableStateOf(false) }
+    var loadingMessage by remember { mutableStateOf("Initializing portal...") }
 
     class WebAppInterface {
         @JavascriptInterface
@@ -61,77 +64,62 @@ fun HybridIpoResultChecker(
         fun onCaptchaDetected() {
             isCaptchaVisible = true
         }
+
+        @JavascriptInterface
+        fun updateStatus(msg: String) {
+            loadingMessage = msg
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
-        // Aesthetic Progress Section
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(horizontal = 20.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
+            LazyRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = boids.getOrNull(currentBoidIndex)?.name ?: "Done",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "${currentBoidIndex + 1} / ${boids.size}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                itemsIndexed(boids) { index, boid ->
+                    val isSelected = index == currentBoidIndex
+                    SuggestionChip(
+                        onClick = { 
+                            currentBoidIndex = index
+                            isCaptchaVisible = false
+                        },
+                        label = { 
+                            Text(
+                                text = boid.name.split(" ").firstOrNull() ?: boid.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            ) 
+                        },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            labelColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        border = BorderStroke(
+                            width = if (isSelected) 1.5.dp else 1.dp,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
             }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { (currentBoidIndex.toFloat()) / boids.size },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp),
-                strokeCap = StrokeCap.Round,
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.primaryContainer
+            
+            Spacer(Modifier.width(8.dp))
+            
+            Text(
+                text = loadingMessage,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f),
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 120.dp)
             )
-        }
-
-        // Horizontal Selection Chips (Improved Style)
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            itemsIndexed(boids) { index, boid ->
-                val isSelected = index == currentBoidIndex
-                SuggestionChip(
-                    onClick = { 
-                        currentBoidIndex = index
-                        isCaptchaVisible = false
-                    },
-                    label = { 
-                        Text(
-                            text = boid.name.split(" ").firstOrNull() ?: boid.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        ) 
-                    },
-                    colors = SuggestionChipDefaults.suggestionChipColors(
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                        labelColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    border = BorderStroke(
-                        width = if (isSelected) 1.5.dp else 1.dp,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
         }
         
         if (isCaptchaVisible) {
@@ -174,13 +162,14 @@ fun HybridIpoResultChecker(
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
-                            injectCheckerScript(view, boids.getOrNull(currentBoidIndex)?.boid, resultPortalId)
+                            injectCheckerScript(view, boids.getOrNull(currentBoidIndex)?.boid, companyName)
                         }
                     }
                     
                     settings.userAgentString = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
+                    settings.setSupportZoom(true)
                     
                     // Restore forced-center visual hacks for CDSC portal
                     settings.defaultFontSize = 14
@@ -208,89 +197,139 @@ fun HybridIpoResultChecker(
     }
 }
 
-private fun injectCheckerScript(webView: WebView?, boid: String?, portalId: Int) {
+private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: String) {
     if (webView == null || boid == null) return
     
     val script = """
         (function() {
-            // 1. Hide Distractions
-            document.querySelectorAll('nav, header, footer, .navbar, .footer, app-header, app-footer').forEach(el => el.style.display = 'none');
+            window.resultReported = false;
+            window.captchaNotified = false;
 
-            // 2. Dynamic Centering for all screen sizes
-            var mainEl = document.querySelector('form') || document.querySelector('.card') || 
-                         document.querySelector('mat-card') || document.querySelector('.container');
-            
-            if (mainEl) {
-                // Ensure parent container is clear for centering
-                document.body.style.display = 'flex';
-                document.body.style.flexDirection = 'column';
-                document.body.style.justifyContent = 'center';
-                document.body.style.alignItems = 'center';
-                document.body.style.minHeight = '100vh';
-                document.body.style.margin = '0';
-                document.body.style.padding = '0';
-                document.body.style.backgroundColor = '#ffffff';
-                
-                // Remove potential fixed-top/bottom elements from Angular components
-                document.querySelectorAll('.footer, .header, .navbar').forEach(el => el.remove());
-
-                mainEl.style.setProperty('position', 'relative', 'important');
-                mainEl.style.setProperty('display', 'block', 'important');
-                mainEl.style.setProperty('margin', 'auto', 'important');
-                mainEl.style.setProperty('width', '94%', 'important');
-                mainEl.style.setProperty('max-width', '450px', 'important');
-                mainEl.style.setProperty('box-shadow', '0 4px 12px rgba(0,0,0,0.1)', 'important');
-                mainEl.style.setProperty('border', '1px solid #ddd', 'important');
-                mainEl.style.setProperty('padding', '24px', 'important');
-                mainEl.style.setProperty('border-radius', '16px', 'important');
-                mainEl.style.setProperty('background', '#fff', 'important');
-            }
-
-            // 3. Automated Form Injection
-            function triggerInput(el, val) {
-                if (!el) return;
-                var nativeValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                if (nativeValueSetter) {
-                    nativeValueSetter.call(el, val);
-                } else {
-                    el.value = val;
+            function applyFinfolioFixes() {
+                // 1. Setup global override style (Surgical Centering without Squeezing)
+                var style = document.getElementById('finfolio-centering-style');
+                if (!style) {
+                    style = document.createElement('style');
+                    style.id = 'finfolio-centering-style';
+                    document.head.appendChild(style);
                 }
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-
-            var companySelect = document.querySelector('select[name="companyShare"]');
-            if (companySelect && companySelect.value != '$portalId') {
-                companySelect.value = '$portalId';
-                companySelect.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-
-            var boidInput = document.querySelector('input[name="boid"]');
-            if (boidInput && boidInput.value != '$boid') {
-                triggerInput(boidInput, '$boid');
-            }
-
-            // 4. Captcha Detection
-            var captchaImg = document.querySelector('img[alt="Captcha"]');
-            if (captchaImg) window.AndroidInterface.onCaptchaDetected();
-
-            // 5. Intelligent Monitoring & State Reset
-            if (!window.resultMonitorActive) {
-                window.resultMonitorActive = true;
-                setInterval(function() {
-                    var resultDiv = document.querySelector('.result-message') || document.querySelector('.alert');
-                    if (resultDiv && resultDiv.innerText.trim().length > 5) {
-                        var msg = resultDiv.innerText;
-                        var success = msg.includes('Congratulation') || msg.includes('allotted');
-                        
-                        // Send result to Android and STOP local monitoring until next page load
-                        window.AndroidInterface.postResult('$boid', msg, success);
-                        
-                        // Visually clear to prevent double-triggering before page reload
-                        resultDiv.style.display = 'none';
-                        window.resultMonitorActive = false;
+                style.innerHTML = `
+                    html, body {
+                        width: 100% !important;
+                        min-height: 100% !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        display: block !important;
+                        background: #ffffff !important;
                     }
-                }, 1000);
+                    /* Remove fixed positioning from main app containers that push content off-screen */
+                    app-root, .wrapper, .main-panel, .content, .container-fluid {
+                        position: relative !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 100% !important;
+                        height: auto !important;
+                        display: block !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                    }
+                    /* Surgical fix for the main result card */
+                    mat-card, .card {
+                        position: relative !important;
+                        margin: 20px auto !important;
+                        left: auto !important;
+                        right: auto !important;
+                        top: auto !important;
+                        width: 96% !important;
+                        max-width: 500px !important;
+                        display: block !important;
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.1) !important;
+                        box-sizing: border-box !important;
+                    }
+                    /* Ensure rows and form elements aren't crushed */
+                    .row, .mat-row {
+                        display: flex !important;
+                        flex-wrap: wrap !important;
+                        width: 100% !important;
+                        margin: 0 !important;
+                    }
+                    /* Hide headers/footers */
+                    nav, header, footer, .navbar, .footer, app-header, app-footer, .text-center.footer {
+                        display: none !important;
+                    }
+                `;
+
+                // 2. Automated Form Injection
+                function triggerInput(el, val) {
+                    if (!el || el.value === val) return;
+                    var nativeValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    if (nativeValueSetter) {
+                        nativeValueSetter.call(el, val);
+                    } else {
+                        el.value = val;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                var companySelect = document.querySelector('select[name="companyShare"]') || document.querySelector('select');
+                if (companySelect && !companySelect.hasAttribute('data-filled')) {
+                    var searchName = "${companyName.lowercase().trim()}";
+                    var foundId = null;
+                    for (var i = 0; i < companySelect.options.length; i++) {
+                        var optionText = companySelect.options[i].text.toLowerCase();
+                        if (optionText.includes(searchName) || searchName.includes(optionText)) {
+                            foundId = companySelect.options[i].value;
+                            break;
+                        }
+                    }
+                    if (foundId) {
+                        companySelect.value = foundId;
+                        companySelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        companySelect.setAttribute('data-filled', 'true');
+                    }
+                }
+
+                var boidInput = document.querySelector('input[name="boid"]') || 
+                                document.querySelector('input[placeholder*="BOID"]');
+                if (boidInput && boidInput.value != '$boid') {
+                    triggerInput(boidInput, '$boid');
+                }
+
+                // 3. Captcha Detection
+                var captchaImg = document.querySelector('img[alt="Captcha"]') || document.querySelector('img[src*="captcha"]');
+                if (captchaImg && !window.captchaNotified) {
+                    window.AndroidInterface.onCaptchaDetected();
+                    window.captchaNotified = true;
+                }
+
+                // 4. Robust Results Observer
+                if (!window.resultReported) {
+                    // Search for result keywords in all relevant text-containing elements
+                    var elements = document.querySelectorAll('p, span, div, h4');
+                    for (var i = 0; i < elements.length; i++) {
+                        var txt = elements[i].innerText.toLowerCase();
+                        if (txt.includes('congratulation') || txt.includes('alloted') || 
+                            txt.includes('sorry') || txt.includes('not alloted')) {
+                            
+                            var fullMsg = elements[i].innerText.trim();
+                            if (fullMsg.length > 5) {
+                                var isSuccess = (txt.includes('congratulation') || txt.includes('alloted')) && 
+                                                !txt.includes('not alloted') && 
+                                                !txt.includes('sorry');
+                                window.resultReported = true;
+                                window.AndroidInterface.updateStatus("Result detected! Saving...");
+                                window.AndroidInterface.postResult('$boid', fullMsg, isSuccess);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            applyFinfolioFixes();
+            if (!window.finfolioLoop) {
+                window.finfolioLoop = setInterval(applyFinfolioFixes, 1000);
             }
         })();
     """.trimIndent()

@@ -136,11 +136,17 @@ interface PortfolioDao {
     suspend fun deleteMarketIndexByName(name: String)
 
     // --- BOIDS ---
-    @Query("SELECT * FROM Boids")
+    @Query("SELECT * FROM Boids ORDER BY name ASC")
     fun getAllBoids(): Flow<List<BoidEntity>>
 
-    @Query("SELECT * FROM Boids")
+    @Query("SELECT * FROM Boids ORDER BY name ASC")
     suspend fun getAllBoidsSync(): List<BoidEntity>
+
+    @Query("UPDATE Boids SET isEnabledForCheck = :enabled WHERE boid = :boid")
+    suspend fun updateCheckEnabled(boid: String, enabled: Boolean)
+
+    @Query("UPDATE Boids SET isEnabledForApply = :enabled WHERE boid = :boid")
+    suspend fun updateApplyEnabled(boid: String, enabled: Boolean)
 
     @Query("SELECT * FROM Boids WHERE isDefault = 1 LIMIT 1")
     suspend fun getDefaultBoidSync(): BoidEntity?

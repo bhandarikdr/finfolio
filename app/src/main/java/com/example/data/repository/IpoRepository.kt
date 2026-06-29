@@ -117,11 +117,31 @@ class IpoRepository(
     fun getActivityForCompany(companyName: String) = ipoMasterDao.getActivityForCompany(companyName)
 
     suspend fun updateIpoMemberActivity(activity: IpoMemberActivity) {
-        ipoMasterDao.insertActivity(activity)
+        withContext(Dispatchers.IO) {
+            val existing = ipoMasterDao.getActivity(activity.companyName, activity.boid)
+            if (existing == null) {
+                ipoMasterDao.insertActivity(activity)
+            } else {
+                val merged = existing.copy(
+                    applyStatus = if (activity.applyStatus != "PENDING") activity.applyStatus else existing.applyStatus,
+                    applyMessage = if (activity.applyMessage != null) activity.applyMessage else existing.applyMessage,
+                    appliedAt = if (activity.appliedAt != 0L) activity.appliedAt else existing.appliedAt,
+                    allotmentStatus = if (activity.allotmentStatus != "NOT_CHECKED") activity.allotmentStatus else existing.allotmentStatus,
+                    allotmentUnits = if (activity.allotmentUnits != 0) activity.allotmentUnits else existing.allotmentUnits,
+                    allotmentMessage = if (activity.allotmentMessage != null) activity.allotmentMessage else existing.allotmentMessage,
+                    checkedAt = if (activity.checkedAt != 0L) activity.checkedAt else existing.checkedAt
+                )
+                ipoMasterDao.insertActivity(merged)
+            }
+        }
     }
 
     suspend fun resetAllotmentStatus(companyName: String, boid: String) {
         ipoMasterDao.resetAllotmentStatus(companyName, boid)
+    }
+
+    suspend fun resetAllAllotments(companyName: String) {
+        ipoMasterDao.resetAllAllotments(companyName)
     }
 
     suspend fun updateApplyStatus(companyName: String, boid: String, status: String, message: String?, timestamp: Long) {
@@ -134,10 +154,13 @@ class IpoRepository(
         }
     }
 
-    suspend fun updateBoidToggle(boid: String, isCheck: Boolean, enabled: Boolean) {
-        val existing = portfolioDao.getAllBoidsSync().find { it.boid == boid }
-        if (existing != null) {
-            portfolioDao.insertBoid(if (isCheck) existing.copy(isEnabledForCheck = enabled) else existing.copy(isEnabledForApply = enabled))
+    suspend fun updateBoidToggle(boid: String, isCheck: Boolean, enabled: Boolean?) {
+        val existing = portfolioDao.getAllBoidsSync().find { it.boid == boid } ?: return
+        val newEnabled = enabled ?: if (isCheck) !existing.isEnabledForCheck else !existing.isEnabledForApply
+        if (isCheck) {
+            portfolioDao.updateCheckEnabled(boid, newEnabled)
+        } else {
+            portfolioDao.updateApplyEnabled(boid, newEnabled)
         }
     }
 
@@ -270,7 +293,7 @@ class IpoRepository(
                                 val allotment = cleanDate(getSafeString(obj, listOf("allotmentDateAD", "allotmentDate", "AllotmentDate", "allottedDate")))
                                 
                                 newIpos.add(IpoMaster(
-                                    companyName = name,
+                                    companyName = existing?.companyName ?: name,
                                     shareType = getSafeString(obj, listOf("shareType", "ShareType", "type", "IssueType", "ipoType")),
                                     units = getSafeString(obj, listOf("units", "Units", "quantity", "Quantity", "kitta", "totalKitta")),
                                     openingDate = if (!opening.isNullOrBlank()) opening else existing?.openingDate,
@@ -341,7 +364,7 @@ class IpoRepository(
                                         val mngr = if (mngrIdx != -1 && mngrIdx < cells.size) cells[mngrIdx].text().trim() else ""
 
                                         newIpos.add(IpoMaster(
-                                            companyName = name,
+                                            companyName = existing?.companyName ?: name,
                                             shareType = type,
                                             units = qty,
                                             openingDate = if (!opening.isNullOrBlank()) opening else existing?.openingDate,

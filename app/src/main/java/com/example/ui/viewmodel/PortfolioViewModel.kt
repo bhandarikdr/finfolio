@@ -55,9 +55,9 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     val defaultScrapers = com.example.data.model.ScraperDefaults.defaultScrapersByCategory
 
-    fun registerUser(name: String, email: String) {
+    fun registerUser(name: String, email: String, boid: String? = null) {
         viewModelScope.launch {
-            repository.saveUserProfile(name, email)
+            repository.saveUserProfile(name, email, boid)
         }
     }
 
@@ -196,6 +196,13 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     private val _pendingSectorUpdate = MutableStateFlow<TransactionRecord?>(null)
     val pendingSectorUpdate = _pendingSectorUpdate.asStateFlow()
+
+    private val _pendingTransaction = MutableStateFlow<TransactionRecord?>(null)
+    val pendingTransaction = _pendingTransaction.asStateFlow()
+
+    fun setPendingTransaction(record: TransactionRecord?) {
+        _pendingTransaction.value = record
+    }
 
     // Column show/hide configuration sets
     private val _itemColumns = MutableStateFlow(

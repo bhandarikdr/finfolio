@@ -105,7 +105,8 @@ class PortfolioRepository(
             primaryIndexName = entity?.primaryIndexName ?: "NEPSE Index",
             commissionRate = entity?.commissionRate ?: 0.0038,
             flatFee = entity?.flatFee ?: 25.0,
-            cgtRate = entity?.cgtRate ?: 0.075
+            cgtRate = entity?.cgtRate ?: 0.075,
+            boid = entity?.boid
         )
     }
 
@@ -119,7 +120,7 @@ class PortfolioRepository(
         _snackbarMessage.emit(message)
     }
 
-    suspend fun saveUserProfile(name: String, email: String) {
+    suspend fun saveUserProfile(name: String, email: String, boid: String? = null) {
         withContext(Dispatchers.IO) {
             val existing = portfolioDao.getUserProfileSync()
             portfolioDao.saveUserProfile(
@@ -139,7 +140,8 @@ class PortfolioRepository(
                     primaryIndexName = existing?.primaryIndexName ?: "NEPSE Index",
                     commissionRate = existing?.commissionRate ?: 0.0038,
                     flatFee = existing?.flatFee ?: 25.0,
-                    cgtRate = existing?.cgtRate ?: 0.075
+                    cgtRate = existing?.cgtRate ?: 0.075,
+                    boid = boid ?: existing?.boid
                 )
             )
         }
@@ -851,13 +853,36 @@ class PortfolioRepository(
                 for (url in statusUrls) {
                     try {
                         AppLogger.d("MarketStatus", "Attempting scrape from: $url")
-                        val doc = Jsoup.connect(url).userAgent(userAgent).timeout(10000).get()
+                        val useUnsafe = url.contains("nepalstock.com")
+                        val html = if (useUnsafe) {
+                            val client = com.example.data.util.NetworkUtils.getUnsafeOkHttpClient()
+                            val request = Request.Builder().url(url).header("User-Agent", userAgent).build()
+                            client.newCall(request).execute().use { response ->
+                                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                                response.body?.string() ?: ""
+                            }
+                        } else {
+                            Jsoup.connect(url).userAgent(userAgent).timeout(15000).get().html()
+                        }
                         
-                        // 1. Market Status Identification
-                        val statusEl = doc.select(".market-status, .live-market, :containsOwn(Market Open), :containsOwn(Market Closed), #ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()
+                        if (html.isBlank()) continue
+                        val doc = Jsoup.parse(html)
+                        
+                        // 1. Market Status Identification (Improved regex/contains)
+                        val fullText = doc.text()
+                        if (fullText.contains("Market Open", true) || fullText.contains("Market Live", true) || fullText.contains("Live Market", true)) {
+                            marketStatus = "Market Open"
+                        } else if (fullText.contains("Market Closed", true) || fullText.contains("Market Close", true)) {
+                            marketStatus = "Market Closed"
+                        }
+
+                        // Also check specific elements for status
+                        val statusEl = doc.select(".market-status, .live-market, #ctl00_ContentPlaceHolder1_lblMarketStatus").firstOrNull()
                         if (statusEl != null) {
                             val text = statusEl.text()
-                            marketStatus = if (text.contains("Open", true) || text.contains("Live", true)) "Market Open" else "Market Closed"
+                            if (text.isNotBlank()) {
+                                marketStatus = if (text.contains("Open", true) || text.contains("Live", true)) "Market Open" else "Market Closed"
+                            }
                         }
 
                         // 2. Primary Index Value Extraction (Prioritize exact match for primaryName)
@@ -929,9 +954,10 @@ class PortfolioRepository(
                     if (idxVal > 0) {
                         val existing = portfolioDao.getIndexByName(primaryName)
                         val isSameValue = existing != null && Math.abs(existing.currentValue - idxVal) < 0.01
+                        val isRecent = existing != null && (System.currentTimeMillis() - existing.timestamp) < 60000
                         val isInvalidZero = existing != null && Math.abs(existing.pointChange) > 0.01 && Math.abs(pointChg) < 0.01
                         
-                        if (!isSameValue && !isInvalidZero) {
+                        if (!(isSameValue && isRecent) && !isInvalidZero) {
                             val prevVal = idxVal - pointChg
                             portfolioDao.insertMarketIndices(listOf(com.example.data.db.MarketIndexEntity(
                                 indexName = primaryName,

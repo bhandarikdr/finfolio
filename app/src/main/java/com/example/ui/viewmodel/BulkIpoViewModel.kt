@@ -45,8 +45,9 @@ class BulkIpoViewModel(
             !it.allotmentDate.isNullOrBlank() || 
             it.status.contains("Allotted", true) || 
             it.status.contains("Completed", true) ||
-            it.status.contains("Result", true)
-        }.sortedByDescending { it.allotmentDate ?: "0000-00-00" }
+            it.status.contains("Result", true) ||
+            it.status.contains("Close", true)
+        }.sortedByDescending { it.allotmentDate ?: it.closingDate ?: "0000-00-00" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val applyIpos: StateFlow<List<IpoMaster>> = ipos.map { list ->
@@ -115,9 +116,18 @@ class BulkIpoViewModel(
     val enabledBoids: Map<String, Boolean> = _enabledBoids
 
     init {
-        // Automatically select the first IPO if available
+        // Automatically select the first relevant IPO (preferring Results for the Check screen)
         viewModelScope.launch {
-            ipos.collect { list ->
+            checkIpos.collect { list ->
+                if (list.isNotEmpty() && _selectedIpo.value == null) {
+                    _selectedIpo.value = list.first()
+                }
+            }
+        }
+
+        // Fallback to Apply list if no Check IPOs are found
+        viewModelScope.launch {
+            applyIpos.collect { list ->
                 if (list.isNotEmpty() && _selectedIpo.value == null) {
                     _selectedIpo.value = list.first()
                 }
@@ -131,23 +141,20 @@ class BulkIpoViewModel(
             }
         }
 
-        // Initialize enabled boids
+        // Initialize and sync enabled boids map
         viewModelScope.launch {
             boids.collect { list ->
                 list.forEach { 
-                    if (!_enabledBoids.containsKey(it.boid)) {
-                        _enabledBoids[it.boid] = it.isEnabledForBulk
-                    }
+                    // Update if already exists or add if new
+                    _enabledBoids[it.boid] = it.isEnabledForCheck || it.isEnabledForApply || it.isEnabledForBulk
                 }
             }
         }
     }
 
-    fun toggleBoidEnabled(boid: String, isCheck: Boolean) {
+    fun toggleBoidEnabled(boidId: String, isCheck: Boolean) {
         viewModelScope.launch {
-            val current = boids.value.find { it.boid == boid } ?: return@launch
-            val newEnabled = if (isCheck) !current.isEnabledForCheck else !current.isEnabledForApply
-            repository.updateBoidToggle(boid, isCheck, newEnabled)
+            repository.updateBoidToggle(boidId, isCheck, null)
         }
     }
 
@@ -241,7 +248,9 @@ class BulkIpoViewModel(
 
     fun addBoid(name: String, boid: String) {
         viewModelScope.launch {
-            repository.addBoid(name, boid)
+            // AUTO-PARSING: Username is the last 8 digits of 16-digit BOID
+            val autoUser = if (boid.length == 16) boid.substring(8) else null
+            repository.addBoid(name, boid, autoUser?.let { mapOf("username" to it) })
         }
     }
 
@@ -308,8 +317,13 @@ class BulkIpoViewModel(
                         val boid = cols[boidIdx].filter { it.isDigit() }.takeLast(16)
                         if (boid.length == 16) {
                             val name = if (nameIdx != -1 && nameIdx < cols.size) cols[nameIdx] else "User_${boid.takeLast(4)}"
+                            
+                            // AUTO-PARSING LOGIC: DP is digits 4-8 (index 3 to 7) of 16-digit BOID
+                            // Username is the remaining digits to the right of DP (index 8 onwards)
+                            val autoUser = boid.substring(8)
+
                             val details = mutableMapOf<String, String>()
-                            if (userIdx != -1 && userIdx < cols.size) details["username"] = cols[userIdx]
+                            details["username"] = if (userIdx != -1 && userIdx < cols.size && cols[userIdx].isNotBlank()) cols[userIdx] else autoUser
                             if (passIdx != -1 && passIdx < cols.size) details["password"] = cols[passIdx]
                             if (pinIdx != -1 && pinIdx < cols.size) details["pin"] = cols[pinIdx]
                             if (crnIdx != -1 && crnIdx < cols.size) details["crn"] = cols[crnIdx]
@@ -329,7 +343,9 @@ class BulkIpoViewModel(
                         var name = line.replace(boid, "").replace(Regex("[,:|\\t]"), " ").trim()
                         if (name.isBlank()) name = "User_${boid.takeLast(4)}"
                         if (boids.value.none { it.boid == boid }) {
-                            repository.addBoid(name, boid)
+                            // AUTO-PARSING for raw text paste
+                            val autoUser = boid.substring(8)
+                            repository.addBoid(name, boid, mapOf("username" to autoUser))
                         }
                     }
                 }
@@ -340,6 +356,9 @@ class BulkIpoViewModel(
 
     private val _isHybridChecking = MutableStateFlow(false)
     val isHybridChecking = _isHybridChecking.asStateFlow()
+
+    private val _hybridBoids = MutableStateFlow<List<BoidEntry>>(emptyList())
+    val hybridBoids = _hybridBoids.asStateFlow()
 
     private fun extractUnits(message: String): Int {
         return try {
@@ -352,6 +371,13 @@ class BulkIpoViewModel(
         val ipo = _selectedIpo.value ?: return
         viewModelScope.launch {
             repository.resetAllotmentStatus(ipo.companyName, boid)
+        }
+    }
+
+    fun resetAllResults() {
+        val ipo = _selectedIpo.value ?: return
+        viewModelScope.launch {
+            repository.resetAllAllotments(ipo.companyName)
         }
     }
 
@@ -382,6 +408,14 @@ class BulkIpoViewModel(
             _isChecking.value = true
             
             for (boid in currentBoids) {
+                // Mark as checking in UI
+                repository.updateIpoMemberActivity(IpoMemberActivity(
+                    companyName = companyName,
+                    boid = boid.boid,
+                    allotmentStatus = "CHECKING",
+                    checkedAt = System.currentTimeMillis()
+                ))
+
                 val loginResult = msRepository.login(boid.boid, boid.msUsername!!, boid.msPassword!!)
                 loginResult.onSuccess { token ->
                     val result = msRepository.checkResult(token, companyName)
@@ -394,7 +428,23 @@ class BulkIpoViewModel(
                             allotmentMessage = result.message,
                             checkedAt = System.currentTimeMillis()
                         ))
+                    } else {
+                        repository.updateIpoMemberActivity(IpoMemberActivity(
+                            companyName = companyName,
+                            boid = boid.boid,
+                            allotmentStatus = "ERROR",
+                            allotmentMessage = "Result not found in MeroShare reports",
+                            checkedAt = System.currentTimeMillis()
+                        ))
                     }
+                }.onFailure { err ->
+                    repository.updateIpoMemberActivity(IpoMemberActivity(
+                        companyName = companyName,
+                        boid = boid.boid,
+                        allotmentStatus = "ERROR",
+                        allotmentMessage = "Login Failed: ${err.message}",
+                        checkedAt = System.currentTimeMillis()
+                    ))
                 }
                 delay(1000)
             }
@@ -402,10 +452,44 @@ class BulkIpoViewModel(
         }
     }
 
+    fun startIndividualHybridCheck(boid: BoidEntry) {
+        val ipo = _selectedIpo.value ?: return
+        _hybridBoids.value = listOf(boid)
+        _isHybridChecking.value = true
+        _isChecking.value = true
+
+        viewModelScope.launch {
+            repository.updateIpoMemberActivity(IpoMemberActivity(
+                companyName = ipo.companyName,
+                boid = boid.boid,
+                allotmentStatus = "CHECKING",
+                checkedAt = System.currentTimeMillis()
+            ))
+        }
+    }
+
     fun startBulkCheck(hybrid: Boolean = false) {
         if (hybrid) {
+            val ipo = _selectedIpo.value ?: return
+            val enabled = boids.value.filter { _enabledBoids[it.boid] ?: it.isEnabledForBulk }
+            if (enabled.isEmpty()) return
+
+            _hybridBoids.value = enabled
             _isHybridChecking.value = true
             _isChecking.value = true
+            
+            // Mark all enabled members as checking in the database
+            val companyName = ipo.companyName
+            viewModelScope.launch {
+                enabled.forEach { boid ->
+                    repository.updateIpoMemberActivity(IpoMemberActivity(
+                        companyName = companyName,
+                        boid = boid.boid,
+                        allotmentStatus = "CHECKING",
+                        checkedAt = System.currentTimeMillis()
+                    ))
+                }
+            }
         } else {
             startAutoCheck()
         }
@@ -413,6 +497,7 @@ class BulkIpoViewModel(
 
     fun onHybridResultReceived(boidEntry: BoidEntry, message: String, success: Boolean) {
         val ipo = _selectedIpo.value ?: return
+        com.example.data.util.AppLogger.i("IpoCheck", "Result received for ${boidEntry.name}: $message (Success: $success)")
         viewModelScope.launch {
             repository.updateIpoMemberActivity(IpoMemberActivity(
                 companyName = ipo.companyName,
@@ -428,6 +513,7 @@ class BulkIpoViewModel(
     fun finishHybridCheck() {
         _isHybridChecking.value = false
         _isChecking.value = false
+        _hybridBoids.value = emptyList()
     }
 
     private fun showTemporaryMessage(msg: String) {

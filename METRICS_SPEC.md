@@ -31,7 +31,12 @@ Users can toggle visibility for the following columns:
 - **Sector Sorting**: The sector list is sorted alphabetically, with "All" always at the top.
 - **Scrip Count**: Real-time display of total unique scrips in the current view.
 
-## 5. UI Implementation
-- **Sticky Column**: The "Scrip" name remains visible while horizontally scrolling.
-- **Color Coding**: Positive gains in Green; losses in Red.
-- **Stale Data Warning**: Scrips with LTP older than 24 hours are displayed with a "Stale" indicator.
+## 6. Refresh & Sync Standards
+- **User-Triggered Refresh**: To preserve battery and data, all network-intensive market syncs must be manually triggered by the user via a dedicated Refresh button.
+- **Relaxed Update Logic**: 
+    - To provide responsive feedback, index and LTP updates should be accepted even if the value has not changed, provided the previous update occurred more than **60 seconds** ago.
+    - This ensures the "Last Updated" timestamp refreshes and the user receives a "Sync Successful" confirmation.
+- **Robust Scraping**: 
+    - The system must use categorized scrapers with circuit breakers to handle flaky network sources.
+    - Market status (Open/Closed) must be detected via both targeted CSS elements and full-text document scans for high reliability.
+- **Primary Index Sync**: The app's primary market badge (Top Bar) and the database-level index metrics must stay synchronized using a unified naming convention.

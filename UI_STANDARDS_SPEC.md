@@ -35,6 +35,12 @@ Font sizes are standardized to ensure accessibility and professional readability
 ## 4. Component Patterns
 ### List Items & Cards
 - **Enclosure**: Wrap items (Scrips, IPOs, BOIDs) in `Card` or `Surface` with rounded corners (`8.dp` to `12.dp`).
+- **Security & Privacy**: 
+    - **Masking**: Sensitive credentials like Transaction PINs and CRN numbers must be masked in UI cards (e.g., `••••`) and only visible/editable within dedicated secure dialogs.
+    - **Credential Logic**: Usernames and DPs for external logins (like MeroShare) should be auto-parsed from the primary identifier (BOID) where possible to minimize manual entry errors. 
+        - **DP Logic**: 5 digits starting from the 4th position of the 16-digit BOID.
+        - **Username Logic**: All digits to the right of the DP.
+    - **Fuzzy Portal Mapping**: For external portals (like CDSC IPO Result), the app must prioritize matching entities by name (fuzzy matching) over internal IDs. This ensures the app remains functional even if the portal's internal numbering changes.
 - **Badges**: Use the `Badge` component for counts and status indicators (e.g., "Holding", "Allotted").
 
 ### Centralized Family Management
@@ -74,6 +80,8 @@ Font sizes are standardized to ensure accessibility and professional readability
     - For screens like "IPO Master (Companies)", use **Single Expansion Mode** where expanding one category automatically collapses others.
     - **Animated Transitions**: Always wrap expandable content in `AnimatedVisibility` for smooth transitions.
     - **Search-Driven Expansion**: Searching within a grouped list must trigger auto-expansion of the category containing the matching result.
+    - **Dynamic Context (Filter Counts)**: Group headers and filter selectors (Sectors, Scrips, Years) must include the count of child items in parentheses, e.g., `January (12)`, `Sector: All (45)`, `Scrip: AAPL (12)`.
+    - **Filter Count Consistency**: The count in the filter title must match the number of visible items when that filter is applied.
 
 ## 9. Sorting & Filtering Rules
 - **Date-Based Sorting**:
@@ -86,5 +94,8 @@ Font sizes are standardized to ensure accessibility and professional readability
 - **Label Integrity**: Use `10.sp` font size and `softWrap = false` for critical action buttons in tight layouts to prevent text wrap from breaking the UI.
 
 ## 11. Functional Icons
-- **Exporting**: Use `Icons.Default.FileUpload` (Up Arrow) for data exports to represent "sending data out."
+- **Exporting**: Use `Icons.Default.Download` or `Icons.Default.FileUpload` (Up Arrow) for data exports to represent "sending data out."
 - **Importing/Downloading**: Use `Icons.Default.FileDownload` for data retrieval.
+- **Surgical Toggles**:
+    - **Atomic Interaction**: Toggles for independent features (e.g., "Result Check" vs "IPO Apply") must be decoupled at the repository level.
+    - **Interaction Source**: Ensure click listeners are placed on the `Row` or `Text` label rather than just the `Switch` to increase the touch target and prevent double-triggering.

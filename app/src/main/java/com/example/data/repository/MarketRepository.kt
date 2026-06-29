@@ -197,10 +197,8 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
 
     suspend fun fetchMarketIndices(force: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        if (!force && (now - lastIndicesSync) < BACKGROUND_SYNC_COOLDOWN) {
-            AppLogger.d("MarketSync", "Skipping Market Indices Sync (Cooldown active)", throttle = true)
-            return@withContext Result.success(0)
-        }
+        // Removed BACKGROUND_SYNC_COOLDOWN check to allow user-triggered refresh always
+        
         lastIndicesSync = now
         AppLogger.i("MarketSync", "Starting Market Indices Sync")
         val urls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
@@ -246,16 +244,17 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                     var nameIdx = -1; var valIdx = -1; var chgIdx = -1; var pctIdx = -1
                     var headerRowIdx = -1
 
+                    // Try to find header in first 5 rows
                     for (i in 0 until minOf(allRows.size, 5)) {
                         val cells = allRows[i].select("th, td")
                         val headerText = cells.map { it.text().lowercase().trim() }
                         
                         var foundName = -1; var foundVal = -1; var foundChg = -1; var foundPct = -1
                         headerText.forEachIndexed { index, text ->
-                            if (text.contains("index") || text.contains("indices") || text.contains("sector") || text.contains("nifty")) foundName = index
-                            if (text.contains("value") || text.contains("close") || text.contains("current") || text.contains("pts") || text == "ltp") foundVal = index
+                            if (text.contains("index") || text.contains("sector") || text.contains("indices") || text.contains("nifty") || text == "particulars") foundName = index
+                            if (text.contains("value") || text.contains("close") || text.contains("current") || text.contains("pts") || text == "ltp" || text == "points") foundVal = index
                             if (text.contains("change") && !text.contains("%") || text == "+/-") foundChg = index
-                            if (text.contains("%")) foundPct = index
+                            if (text.contains("%") || text.contains("percentage")) foundPct = index
                         }
                         
                         if (foundName != -1 && foundVal != -1) {
@@ -265,9 +264,19 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                         }
                     }
 
-                    if (headerRowIdx != -1) {
+                    // FALLBACK: If no header found but table has 2-5 columns, assume first is name, second is value
+                    if (headerRowIdx == -1 && allRows[0].select("td, th").size in 2..6) {
+                        val firstRowCells = allRows[0].select("td, th")
+                        val firstVal = firstRowCells.getOrNull(1)?.text()?.replace(",", "")?.toDoubleOrNull()
+                        if (firstVal != null && firstVal > 0) {
+                            nameIdx = 0; valIdx = 1; chgIdx = 2; pctIdx = 3
+                            headerRowIdx = -1 // Start from first row
+                        }
+                    }
+
+                    if (nameIdx != -1) {
                         allRows.drop(headerRowIdx + 1).forEach { row ->
-                            val cells = row.select("td")
+                            val cells = row.select("td, th")
                             if (cells.size > maxOf(nameIdx, valIdx)) {
                                 val rawName = cells[nameIdx].text().trim()
                                 val valStr = cells[valIdx].text().replace(",", "").trim()
@@ -281,25 +290,22 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                                     
                                     val change = changeStr.toDoubleOrNull() ?: 0.0
                                     val pct = pctStr.toDoubleOrNull() ?: 0.0
-                                    val isNeg = (chgIdx != -1 && cells[chgIdx].text().contains("-")) || (pctIdx != -1 && cells[pctIdx].text().contains("-"))
+                                    val isNeg = (chgIdx != -1 && chgIdx < cells.size && cells[chgIdx].text().contains("-")) || (pctIdx != -1 && pctIdx < cells.size && cells[pctIdx].text().contains("-"))
                                     
-                                    val finalChg = if (isNeg) -Math.abs(change) else change
-                                    val finalPct = if (isNeg) -Math.abs(pct) else pct
+                                    val finalChg = if (isNeg) -Math.abs(change) else Math.abs(change)
+                                    val finalPct = if (isNeg) -Math.abs(pct) else Math.abs(pct)
                                     
                                     val existing = portfolioDao.getIndexByName(name)
                                     
-                                    // STRICT FLAT LOGIC: 
-                                    // Discard if value is same OR if we are trying to overwrite a non-zero change with zero.
+                                    // RELAXED FLAT LOGIC: Allow update if timestamp is old
                                     val isSameValue = existing != null && Math.abs(existing.currentValue - value) < 0.01
-                                    val isInvalidZero = existing != null && Math.abs(existing.pointChange) > 0.01 && Math.abs(finalChg) < 0.01
+                                    val isRecent = existing != null && (timestamp - existing.timestamp) < 60000
                                     
-                                    if (isSameValue || isInvalidZero) {
-                                        return@forEach
-                                    }
+                                    if (isSameValue && isRecent) return@forEach
 
-                                    // Aggregate results: If we already found this index in a previous URL/table, we don't overwrite
-                                    // unless the current one is likely the user's primary index and the previous wasn't.
-                                    if (!scrapedIndices.containsKey(name)) {
+                                    // If we already have this index from a previous source/table, only overwrite if current has more info (non-zero change)
+                                    val current = scrapedIndices[name]
+                                    if (current == null || (Math.abs(current.change) < 0.01 && Math.abs(finalChg) > 0.01)) {
                                         scrapedIndices[name] = MarketIndex(name, value, finalChg, finalPct, value - finalChg)
                                     }
                                 }

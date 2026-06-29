@@ -64,6 +64,9 @@ interface IpoMasterDao {
     @Query("UPDATE ipo_member_activity SET allotmentStatus = 'NOT_CHECKED', allotmentUnits = 0, allotmentMessage = NULL, checkedAt = 0 WHERE companyName = :companyName AND boid = :boid")
     suspend fun resetAllotmentStatus(companyName: String, boid: String)
 
+    @Query("UPDATE ipo_member_activity SET allotmentStatus = 'NOT_CHECKED', allotmentUnits = 0, allotmentMessage = NULL, checkedAt = 0 WHERE companyName = :companyName")
+    suspend fun resetAllAllotments(companyName: String)
+
     @Query("UPDATE ipo_member_activity SET applyStatus = :status, applyMessage = :message, appliedAt = :timestamp WHERE companyName = :companyName AND boid = :boid")
     suspend fun updateApplyStatus(companyName: String, boid: String, status: String, message: String?, timestamp: Long)
 }

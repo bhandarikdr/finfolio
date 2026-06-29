@@ -84,14 +84,19 @@ class MarketViewModel(private val repository: MarketRepository, private val port
     val isLoading = _isLoading.asStateFlow()
 
     init {
-        refreshMarketData()
-        syncMasterScrips()
+        // Initial setup only, no automatic network sync on init
+        viewModelScope.launch {
+            checkDefaultIndices()
+        }
     }
 
     fun refreshMarketData(force: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
+                // Ensure live status is refreshed along with generic indices
+                portfolioRepository.refreshLivePrices()
+
                 val indexResult = repository.fetchMarketIndices(force)
                 val priceResult = repository.fetchPriceChanges(force)
                 

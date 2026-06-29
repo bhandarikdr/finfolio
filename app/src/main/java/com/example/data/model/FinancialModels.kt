@@ -73,7 +73,8 @@ data class UserProfile(
     val primaryIndexName: String = "NEPSE Index",
     val commissionRate: Double = 0.0038,
     val flatFee: Double = 25.0,
-    val cgtRate: Double = 0.075
+    val cgtRate: Double = 0.075,
+    val boid: String? = null
 )
 
 data class MarketStatus(

@@ -21,5 +21,6 @@ data class UserEntity(
     val primaryIndexName: String = "NEPSE Index", // The main index name to track
     val commissionRate: Double = 0.0038, // Default commission rate
     val flatFee: Double = 25.0, // Default flat fee (e.g., DP fee)
-    val cgtRate: Double = 0.075 // Default capital gains tax rate
+    val cgtRate: Double = 0.075, // Default capital gains tax rate
+    val boid: String? = null // Primary User's BOID for transaction matching
 )
