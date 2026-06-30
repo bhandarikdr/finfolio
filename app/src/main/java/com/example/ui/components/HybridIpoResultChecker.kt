@@ -269,16 +269,16 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: S
                     el.dispatchEvent(new Event('change', { bubbles: true }));
                 }
 
-                var companySelect = document.querySelector('select[name="companyShare"]') || document.querySelector('select');
-                if (companySelect && !companySelect.hasAttribute('data-filled')) {
+                var companySelect = document.getElementById('companyShare') || document.querySelector('select[name="companyShare"]') || document.querySelector('select');
+                if (companySelect && companySelect.options.length > 1 && !companySelect.hasAttribute('data-filled')) {
                     var searchName = "${companyName.lowercase().trim()}";
                     var searchScrip = "${scrip.lowercase().trim()}";
                     
                     // Fuzzy match logic
                     function cleanName(n) {
                         return n.toLowerCase()
-                            .replace(/limited|ltd|investment|bank|indutries|industries|corp|corporation/g, '')
-                            .replace(/[\s.,()-]/g, '')
+                            .replace(/limited|ltd|investment|bank|indutries|industries|corp|corporation|microfinance|finance|hydropower|insurance/g, '')
+                            .replace(/[^a-z0-9]/g, '')
                             .trim();
                     }
                     
@@ -289,6 +289,8 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: S
                         var optText = companySelect.options[i].text.toLowerCase();
                         var optValue = companySelect.options[i].value;
                         
+                        if (!optValue || optValue === "" || optValue === "0") continue;
+
                         // Priority 1: Scrip Match (if available)
                         if (searchScrip && optText.includes(searchScrip)) {
                             foundId = optValue; break;
@@ -296,21 +298,43 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: S
                         
                         // Priority 2: Fuzzy Name Match
                         var optClean = cleanName(optText);
-                        if (optClean.includes(targetClean) || targetClean.includes(optClean)) {
+                        if (optClean.length > 3 && (optClean.includes(targetClean) || targetClean.includes(optClean))) {
                             foundId = optValue; break;
                         }
                     }
 
                     if (foundId) {
                         companySelect.value = foundId;
+                        companySelect.dispatchEvent(new Event('input', { bubbles: true }));
                         companySelect.dispatchEvent(new Event('change', { bubbles: true }));
                         companySelect.setAttribute('data-filled', 'true');
+                        window.AndroidInterface.updateStatus("Company selected automatically");
                     }
                 }
 
-                var boidInput = document.querySelector('input[name="boid"]') || document.querySelector('input[placeholder*="BOID"]');
+                var boidInput = document.getElementById('boid') || document.querySelector('input[name="boid"]') || document.querySelector('input[placeholder*="BOID"]');
                 if (boidInput && boidInput.value != '$boid') {
                     triggerInput(boidInput, '$boid');
+                }
+
+                // Auto-click search button if form is filled but result not yet detected
+                if (companySelect && companySelect.value && boidInput && boidInput.value.length === 16 && !window.resultReported) {
+                    var searchBtn = document.querySelector('button[type="submit"]') || 
+                                    Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('view') || b.innerText.toLowerCase().includes('check'));
+                    
+                    if (searchBtn && !searchBtn.hasAttribute('data-clicked')) {
+                        // Wait a bit after filling to ensure Angular has processed the inputs
+                        if (!window.clickTimeout) {
+                            window.clickTimeout = setTimeout(function() {
+                                if (!window.resultReported) {
+                                    searchBtn.click();
+                                    searchBtn.setAttribute('data-clicked', 'true');
+                                    window.AndroidInterface.updateStatus("Checking result...");
+                                }
+                                window.clickTimeout = null;
+                            }, 1000);
+                        }
+                    }
                 }
 
                 // Captcha Detection
