@@ -398,7 +398,7 @@ fun MoreScreen(
         "Market" -> MarketScreen(marketVM, portfolioVM) { onSubViewChange(null) }
         "BulkCheck" -> IpoCheckScreen(ipoVM, portfolioVM, onNavigateToData) { onSubViewChange(null) }
         "BulkApply" -> IpoApplyScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
-        "IpoMaster" -> CompaniesScreen(ipoVM) { onSubViewChange(null) }
+        "IpoMaster" -> CompaniesScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
         "Settings" -> SettingsScreen(portfolioVM, marketVM, onSendToDeveloper, onBack = { onSubViewChange(null) })
         "Scraper" -> ScraperSettingsScreen(portfolioVM) { onSubViewChange(null) }
         "Contact" -> DeveloperProfilePanel(
@@ -981,6 +981,8 @@ fun IpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onNavi
     val syncLog by vm.syncLog.collectAsStateWithLifecycle()
     val syncMsg by vm.syncMessage.collectAsStateWithLifecycle()
     
+    val dateFormat = userProfile?.dateFormat ?: "AD"
+
     // Auto-select the first available result IPO if the current selection is null or not in the result list
     LaunchedEffect(ipos, sel) {
         if (ipos.isNotEmpty() && (sel == null || !ipos.any { it.companyName == sel!!.companyName })) {
@@ -1103,7 +1105,7 @@ fun IpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onNavi
                                     Row {
                                         if (!ipo.scrip.isNullOrBlank()) Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                                         Spacer(Modifier.width(8.dp))
-                                        Text("Allotment: ${ipo.allotmentDate ?: "N/A"}", fontSize = 10.sp)
+                                        Text("Allotment: ${displayDate(ipo.allotmentDate, dateFormat)}", fontSize = 10.sp)
                                     }
                                 }
                             },
@@ -1336,7 +1338,9 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
+fun CompaniesScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack: () -> Unit) {
+    val userProfile by portfolioVM.userProfile.collectAsStateWithLifecycle()
+    val dateFormat = userProfile?.dateFormat ?: "AD"
     val ipos by vm.ipos.collectAsStateWithLifecycle()
     val dps by vm.allDps.collectAsStateWithLifecycle()
     val isS by vm.isSyncing.collectAsStateWithLifecycle()
@@ -1454,7 +1458,7 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 IpoSubSectionHeader("Open Issues", openIssues.size, (expandedSubSection == "OPEN"), { expandedSubSection = if (expandedSubSection == "OPEN") null else "OPEN" }, Color(0xFF10B981))
             }
             if (expandedSubSection == "OPEN") {
-                items(openIssues, key = { "open_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+                items(openIssues, key = { "open_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context, dateFormat) }
             }
 
             // Upcoming
@@ -1462,7 +1466,7 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 IpoSubSectionHeader("Upcoming Issues", upcoming.size, (expandedSubSection == "UPCOMING"), { expandedSubSection = if (expandedSubSection == "UPCOMING") null else "UPCOMING" }, Color(0xFF3B82F6))
             }
             if (expandedSubSection == "UPCOMING") {
-                items(upcoming, key = { "upcoming_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+                items(upcoming, key = { "upcoming_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context, dateFormat) }
             }
 
             // Closed
@@ -1470,7 +1474,7 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 IpoSubSectionHeader("Closed Issues", closedIssues.size, (expandedSubSection == "CLOSED"), { expandedSubSection = if (expandedSubSection == "CLOSED") null else "CLOSED" }, Color(0xFFEF4444))
             }
             if (expandedSubSection == "CLOSED") {
-                items(closedIssues, key = { "closed_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+                items(closedIssues, key = { "closed_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context, dateFormat) }
             }
 
             // Allotted
@@ -1478,7 +1482,7 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 IpoSubSectionHeader("Allotment Completed", allotmentCompleted.size, (expandedSubSection == "ALLOTTED"), { expandedSubSection = if (expandedSubSection == "ALLOTTED") null else "ALLOTTED" }, Color(0xFF8B5CF6))
             }
             if (expandedSubSection == "ALLOTTED") {
-                items(allotmentCompleted, key = { "allotted_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+                items(allotmentCompleted, key = { "allotted_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context, dateFormat) }
             }
 
             // Previous
@@ -1486,7 +1490,7 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 IpoSubSectionHeader("Previous Issues", previousIssues.size, (expandedSubSection == "PREVIOUS"), { expandedSubSection = if (expandedSubSection == "PREVIOUS") null else "PREVIOUS" }, Color(0xFF6B7280))
             }
             if (expandedSubSection == "PREVIOUS") {
-                items(previousIssues, key = { "prev_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+                items(previousIssues, key = { "prev_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context, dateFormat) }
             }
 
             item { Spacer(Modifier.height(16.dp)) }
@@ -2662,7 +2666,7 @@ fun IpoSectionHeader(
 }
 
 @Composable
-fun IpoMasterCard(ipo: IpoMaster, vm: BulkIpoViewModel, context: android.content.Context) {
+fun IpoMasterCard(ipo: IpoMaster, vm: BulkIpoViewModel, context: android.content.Context, dateFormat: String = "AD") {
     val isSearchingItem = vm.searchingIpos[ipo.companyName] ?: false
     var showDatePicker by remember { mutableStateOf(false) }
     if (showDatePicker) {
@@ -2737,16 +2741,16 @@ fun IpoMasterCard(ipo: IpoMaster, vm: BulkIpoViewModel, context: android.content
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
                 Text("Opening Date", fontSize = 9.sp, color = Color.Gray)
-                Text(ipo.openingDate ?: "N/A", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Text(displayDate(ipo.openingDate, dateFormat), fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Closing Date", fontSize = 9.sp, color = Color.Gray)
-                Text(ipo.closingDate ?: "N/A", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Text(displayDate(ipo.closingDate, dateFormat), fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("Allotment Date", fontSize = 9.sp, color = Color.Gray)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { showDatePicker = true }) {
-                    Text(ipo.allotmentDate ?: "Set", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (ipo.allotmentDate == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                    Text(displayDate(ipo.allotmentDate, dateFormat), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (ipo.allotmentDate == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                     Icon(Icons.Default.EditCalendar, null, modifier = Modifier.padding(start = 2.dp).size(12.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -4035,6 +4039,20 @@ fun YearHeader(y: String, c: Int, ex: Boolean, onClick: () -> Unit) {
             Badge { Text("$c tx") }
         }
     }
+}
+
+fun displayDate(date: String?, format: String): String {
+    if (date.isNullOrBlank() || date == "N/A" || date == "Set") return date ?: "N/A"
+    if (format == "BS") {
+        try {
+            val adDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date)
+            if (adDate != null) {
+                val bsDate = com.example.data.util.NepDateUtils.adToBs(adDate)
+                return bsDate?.toString() ?: date
+            }
+        } catch (e: Exception) {}
+    }
+    return date
 }
 
 @Composable

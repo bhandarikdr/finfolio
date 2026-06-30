@@ -407,6 +407,9 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 val request = Request.Builder()
                     .url(url)
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Referer", "https://www.google.com/")
                     .build()
                 
                 val html = client.newCall(request).execute().use { it.body?.string() ?: "" }
@@ -419,33 +422,28 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 val dps = mutableListOf<com.example.data.db.DpMaster>()
                 val now = System.currentTimeMillis()
 
-                val tables = doc.select("table")
-                AppLogger.d("DpSync", "Found ${tables.size} tables in $url")
+                // Strategy: Focus on the specific structure of ShareSansar's DP member list
+                val tables = doc.select("table#example, table.table")
+                AppLogger.d("DpSync", "Found ${tables.size} potential tables in $url")
 
                 tables.forEachIndexed { tableIdx, table ->
                     val rows = table.select("tr")
-                    if (rows.size < 5) {
-                        AppLogger.d("DpSync", "Table $tableIdx skipped: only ${rows.size} rows")
-                        return@forEachIndexed
-                    }
+                    if (rows.size < 5) return@forEachIndexed
 
                     var codeIdx = -1; var nameIdx = -1; var addrIdx = -1; var telIdx = -1
                     var headerRowIdx = -1
 
-                    for (i in 0 until minOf(rows.size, 30)) {
+                    // Robust header identification based on ShareSansar's specific column names
+                    for (i in 0 until minOf(rows.size, 10)) {
                         val headerCells = rows[i].select("th, td")
                         val header = headerCells.map { it.text().lowercase().trim() }
                         
                         header.forEachIndexed { idx, text ->
-                            if (text == "s.n." || text == "sn" || text == "s.no" || text == "sl.no") { /* skip sn */ }
-                            else if (text.contains("dp id") || text.contains("code") || text.contains("id") || text == "dp code" || text == "member id" || text.contains("participant id") || text == "dp_id") {
-                                if (codeIdx == -1) codeIdx = idx
-                            } else if (text.contains("participant") || text.contains("name") || text == "dp name" || text.contains("member") || text.contains("depository") || text.contains("institution")) {
-                                if (nameIdx == -1) nameIdx = idx
-                            } else if (text.contains("address") || text.contains("location")) {
-                                if (addrIdx == -1) addrIdx = idx
-                            } else if (text.contains("tel") || text.contains("phone") || text.contains("contact") || text.contains("mobile")) {
-                                if (telIdx == -1) telIdx = idx
+                            when {
+                                text.contains("dp id") -> codeIdx = idx
+                                text.contains("participant") && text.contains("name") -> nameIdx = idx
+                                text.contains("address") -> addrIdx = idx
+                                text.contains("telephone") || text.contains("phone") -> telIdx = idx
                             }
                         }
                         if (codeIdx != -1 && nameIdx != -1) {
@@ -454,31 +452,29 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                         }
                     }
 
-                    // Log identifying headers
-                    if (headerRowIdx != -1) {
-                        AppLogger.d("DpSync", "Found headers at row $headerRowIdx: NameIdx=$nameIdx, CodeIdx=$codeIdx, AddrIdx=$addrIdx, TelIdx=$telIdx")
+                    if (codeIdx != -1 && nameIdx != -1) {
+                        AppLogger.d("DpSync", "Processing Table $tableIdx (Header row: $headerRowIdx)")
                         rows.drop(headerRowIdx + 1).forEach { row ->
                             val cells = row.select("td")
                             if (cells.size > maxOf(codeIdx, nameIdx)) {
                                 val rawCode = cells[codeIdx].text().trim()
                                 val rawName = cells[nameIdx].text().trim()
-                                val rawAddr = if (addrIdx != -1 && addrIdx < cells.size) cells[addrIdx].text().trim() else null
-                                val rawTel = if (telIdx != -1 && telIdx < cells.size) cells[telIdx].text().trim() else null
+                                val rawAddr = if (addrIdx != -1 && addrIdx < cells.size) cells[addrIdx].text().trim() else ""
+                                val rawTel = if (telIdx != -1 && telIdx < cells.size) cells[telIdx].text().trim() else ""
                                 
+                                // ShareSansar provides 8-digit DP ID (e.g. 13013200)
+                                // We need the last 5 digits for the MeroShare clientId mapping (e.g. 13200)
                                 val digitsOnly = rawCode.filter { it.isDigit() }
-                                val cleanCode = if (digitsOnly.length >= 8) digitsOnly.take(8).takeLast(5) 
-                                                else if (digitsOnly.length >= 5) digitsOnly.takeLast(5) 
-                                                else digitsOnly
-                                
-                                val clientId = if (cleanCode.isNotEmpty()) getClientIdFromFallback(cleanCode) else 0
-                                
-                                if (cleanCode.length >= 3 && rawName.isNotEmpty() && !garbageTerms.contains(rawName.lowercase())) {
-                                    dps.add(com.example.data.db.DpMaster(cleanCode, rawName, clientId, rawAddr, rawTel, now))
+                                if (digitsOnly.length >= 5) {
+                                    val cleanCode = if (digitsOnly.length >= 8) digitsOnly.take(8).takeLast(5) else digitsOnly.takeLast(5)
+                                    val clientId = getClientIdFromFallback(cleanCode)
+                                    
+                                    if (rawName.length > 3 && !garbageTerms.contains(rawName.lowercase())) {
+                                        dps.add(com.example.data.db.DpMaster(cleanCode, rawName, clientId, rawAddr, rawTel, now))
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        AppLogger.d("DpSync", "Headers not found in Table $tableIdx. Row 0: ${rows[0].text()}")
                     }
                 }
 
@@ -486,11 +482,9 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                     portfolioDao.insertDpMaster(dps)
                     AppLogger.i("DpSync", "Successfully synced ${dps.size} DPs from $url")
                     return@withContext true
-                } else {
-                    AppLogger.w("DpSync", "No DPs extracted from tables at $url")
                 }
             } catch (e: Exception) {
-                AppLogger.e("DpSync", "Failed to sync DP Master from $url", e)
+                AppLogger.e("DpSync", "Failed to sync DP Master from $url: ${e.message}")
             }
         }
         false

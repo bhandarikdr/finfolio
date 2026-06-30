@@ -521,6 +521,16 @@ class IpoRepository(
         if (dateStr.isNullOrBlank() || dateStr == "null") return null
         
         val trimmed = dateStr.trim()
+
+        // Handle BS (Bikram Sambat) conversion if suffix present or year > 2070
+        val bsPart = trimmed.removeSuffix("BS").trim().replace(":", "-").replace("/", "-")
+        val yearMatch = Regex("""^(\d{4})""").find(bsPart)
+        val possibleBsYear = yearMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        
+        if (trimmed.endsWith("BS", ignoreCase = true) || possibleBsYear in 2070..2100) {
+            val converted = com.example.data.util.NepDateUtils.bsToAd(bsPart)
+            if (converted != null) return converted
+        }
         
         // Handle ISO with Time: 2024-06-27T00:00:00
         val tIndex = trimmed.indexOf('T')
