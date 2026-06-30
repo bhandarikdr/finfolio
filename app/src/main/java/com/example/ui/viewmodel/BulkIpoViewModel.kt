@@ -45,9 +45,8 @@ class BulkIpoViewModel(
             !it.allotmentDate.isNullOrBlank() || 
             it.status.contains("Allotted", true) || 
             it.status.contains("Completed", true) ||
-            it.status.contains("Result", true) ||
-            it.status.contains("Close", true)
-        }.sortedByDescending { it.allotmentDate ?: it.closingDate ?: "0000-00-00" }
+            it.status.contains("Result", true)
+        }.sortedByDescending { it.allotmentDate ?: "0000-00-00" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val applyIpos: StateFlow<List<IpoMaster>> = ipos.map { list ->

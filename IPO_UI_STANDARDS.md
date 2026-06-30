@@ -35,4 +35,4 @@ This document outlines the standard UI/UX patterns established for IPO-related s
 *   **Contextual Auto-Selection**: On screen entry, automatically select the most relevant IPO for that context (e.g., most recent "Closed" IPO for the Check screen).
 
 ---
-*Last Updated: June 2024*
+*Last Updated: 29 June 2026*

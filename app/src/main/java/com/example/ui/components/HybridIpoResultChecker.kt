@@ -34,6 +34,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun HybridIpoResultChecker(
     companyName: String,
+    scrip: String = "",
     boids: List<BoidEntry>,
     portalUrl: String,
     onResultFound: (BoidEntry, String, Boolean) -> Unit,
@@ -162,7 +163,7 @@ fun HybridIpoResultChecker(
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
-                            injectCheckerScript(view, boids.getOrNull(currentBoidIndex)?.boid, companyName)
+                            injectCheckerScript(view, boids.getOrNull(currentBoidIndex)?.boid, companyName, scrip)
                         }
                     }
                     
@@ -197,7 +198,7 @@ fun HybridIpoResultChecker(
     }
 }
 
-private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: String) {
+private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: String, scrip: String = "") {
     if (webView == null || boid == null) return
     
     val script = """
@@ -259,15 +260,11 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: S
                     }
                 `;
 
-                // 2. Automated Form Injection
+                // Automated Form Injection
                 function triggerInput(el, val) {
                     if (!el || el.value === val) return;
                     var nativeValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                    if (nativeValueSetter) {
-                        nativeValueSetter.call(el, val);
-                    } else {
-                        el.value = val;
-                    }
+                    if (nativeValueSetter) { nativeValueSetter.call(el, val); } else { el.value = val; }
                     el.dispatchEvent(new Event('input', { bubbles: true }));
                     el.dispatchEvent(new Event('change', { bubbles: true }));
                 }
@@ -275,14 +272,35 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: S
                 var companySelect = document.querySelector('select[name="companyShare"]') || document.querySelector('select');
                 if (companySelect && !companySelect.hasAttribute('data-filled')) {
                     var searchName = "${companyName.lowercase().trim()}";
+                    var searchScrip = "${scrip.lowercase().trim()}";
+                    
+                    // Fuzzy match logic
+                    function cleanName(n) {
+                        return n.toLowerCase()
+                            .replace(/limited|ltd|investment|bank|indutries|industries|corp|corporation/g, '')
+                            .replace(/[\s.,()-]/g, '')
+                            .trim();
+                    }
+                    
+                    var targetClean = cleanName(searchName);
                     var foundId = null;
+                    
                     for (var i = 0; i < companySelect.options.length; i++) {
-                        var optionText = companySelect.options[i].text.toLowerCase();
-                        if (optionText.includes(searchName) || searchName.includes(optionText)) {
-                            foundId = companySelect.options[i].value;
-                            break;
+                        var optText = companySelect.options[i].text.toLowerCase();
+                        var optValue = companySelect.options[i].value;
+                        
+                        // Priority 1: Scrip Match (if available)
+                        if (searchScrip && optText.includes(searchScrip)) {
+                            foundId = optValue; break;
+                        }
+                        
+                        // Priority 2: Fuzzy Name Match
+                        var optClean = cleanName(optText);
+                        if (optClean.includes(targetClean) || targetClean.includes(optClean)) {
+                            foundId = optValue; break;
                         }
                     }
+
                     if (foundId) {
                         companySelect.value = foundId;
                         companySelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -290,22 +308,20 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: S
                     }
                 }
 
-                var boidInput = document.querySelector('input[name="boid"]') || 
-                                document.querySelector('input[placeholder*="BOID"]');
+                var boidInput = document.querySelector('input[name="boid"]') || document.querySelector('input[placeholder*="BOID"]');
                 if (boidInput && boidInput.value != '$boid') {
                     triggerInput(boidInput, '$boid');
                 }
 
-                // 3. Captcha Detection
+                // Captcha Detection
                 var captchaImg = document.querySelector('img[alt="Captcha"]') || document.querySelector('img[src*="captcha"]');
                 if (captchaImg && !window.captchaNotified) {
                     window.AndroidInterface.onCaptchaDetected();
                     window.captchaNotified = true;
                 }
 
-                // 4. Robust Results Observer
+                // Results Observer
                 if (!window.resultReported) {
-                    // Search for result keywords in all relevant text-containing elements
                     var elements = document.querySelectorAll('p, span, div, h4');
                     for (var i = 0; i < elements.length; i++) {
                         var txt = elements[i].innerText.toLowerCase();
@@ -329,7 +345,7 @@ private fun injectCheckerScript(webView: WebView?, boid: String?, companyName: S
 
             applyFinfolioFixes();
             if (!window.finfolioLoop) {
-                window.finfolioLoop = setInterval(applyFinfolioFixes, 1000);
+                window.finfolioLoop = setInterval(applyFinfolioFixes, 1500);
             }
         })();
     """.trimIndent()

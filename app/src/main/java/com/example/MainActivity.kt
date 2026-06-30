@@ -79,6 +79,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import androidx.core.content.FileProvider
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -174,6 +176,11 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
     var currentSubView by remember { mutableStateOf<String?>(null) }
     var isUnlocked by remember { mutableStateOf(false) }
 
+    // Support pre-fill state
+    var supportSubject by remember { mutableStateOf("") }
+    var supportMessage by remember { mutableStateOf("") }
+    var supportAttachments by remember { mutableStateOf<List<Uri>>(emptyList()) }
+
     val isMigrationRequired = false // Discarded as per user request
     var backupCompleted by remember { mutableStateOf(false) }
     var testCompleted by remember { mutableStateOf(false) }
@@ -219,21 +226,21 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
                 GlobalProfileDrawer(userProfile, symbol = userProfile?.currencySymbol ?: "रु.",
                     onSupport = { 
                         cs.launch { 
-                            pagerState.animateScrollToPage(3)
+                            pagerState.scrollToPage(3)
                             currentSubView = "Contact"
                             drawerState.close() 
                         } 
                     },
                     onSettings = {
                         cs.launch {
-                            pagerState.animateScrollToPage(3)
+                            pagerState.scrollToPage(3)
                             currentSubView = "Settings"
                             drawerState.close()
                         }
                     },
                     onProfile = {
                         cs.launch {
-                            pagerState.animateScrollToPage(3)
+                            pagerState.scrollToPage(3)
                             currentSubView = "Profile"
                             drawerState.close()
                         }
@@ -254,14 +261,43 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
                 ipoViewModel.refreshAllCompanies()
                 Toast.makeText(context, "Refreshing all data...", Toast.LENGTH_SHORT).show()
             }) { Icon(Icons.Default.Refresh, null) } }) },
-            bottomBar = { NavigationBar { tabs.forEachIndexed { i, tab -> NavigationBarItem(selected = pagerState.currentPage == i, onClick = { if (tab == NavigationTab.MORE) currentSubView = null; cs.launch { pagerState.animateScrollToPage(i) } }, label = { Text(tab.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }) }, icon = { Icon(when(tab){ NavigationTab.DASHBOARD -> Icons.Default.Dashboard; NavigationTab.MATRIX -> Icons.Default.TableChart; NavigationTab.DATA -> Icons.AutoMirrored.Filled.Input; NavigationTab.MORE -> Icons.Default.MoreHoriz }, null) }) } } }
+            bottomBar = { NavigationBar { tabs.forEachIndexed { i, tab -> NavigationBarItem(selected = pagerState.currentPage == i, onClick = { if (tab == NavigationTab.MORE) currentSubView = null; cs.launch { pagerState.scrollToPage(i) } }, label = { Text(tab.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }) }, icon = { Icon(when(tab){ NavigationTab.DASHBOARD -> Icons.Default.Dashboard; NavigationTab.MATRIX -> Icons.Default.TableChart; NavigationTab.DATA -> Icons.AutoMirrored.Filled.Input; NavigationTab.MORE -> Icons.Default.MoreHoriz }, null) }) } } }
         ) { inner ->
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().padding(inner), userScrollEnabled = true) { page ->
                 when (tabs[page]) {
                     NavigationTab.DASHBOARD -> DashboardScreen(viewModel)
                     NavigationTab.MATRIX -> MatrixScreen(viewModel)
                     NavigationTab.DATA -> DataScreen(viewModel)
-                    NavigationTab.MORE -> MoreScreen(marketViewModel, viewModel, ipoViewModel, currentSubView, { currentSubView = it }, onNavigateToData = { cs.launch { pagerState.animateScrollToPage(2) } })
+                    NavigationTab.MORE -> MoreScreen(
+                        marketVM = marketViewModel,
+                        portfolioVM = viewModel,
+                        ipoVM = ipoViewModel,
+                        subView = currentSubView,
+                        onSubViewChange = { 
+                            if (it != "Contact") {
+                                // Reset support pre-fill when navigating away from support unless we are going TO it
+                                supportSubject = ""
+                                supportMessage = ""
+                                supportAttachments = emptyList()
+                            }
+                            currentSubView = it 
+                        },
+                        onNavigateToData = { cs.launch { pagerState.scrollToPage(2) } },
+                        supportSubject = supportSubject,
+                        supportMessage = supportMessage,
+                        supportAttachments = supportAttachments,
+                        onSupportReset = {
+                            supportSubject = ""
+                            supportMessage = ""
+                            supportAttachments = emptyList()
+                        },
+                        onSendToDeveloper = { subject, message, attachments ->
+                            supportSubject = subject
+                            supportMessage = message
+                            supportAttachments = attachments
+                            currentSubView = "Contact"
+                        }
+                    )
                 }
             }
         }
@@ -339,7 +375,19 @@ fun DrawerItem(i: androidx.compose.ui.graphics.vector.ImageVector, l: String, c:
 }
 
 @Composable
-fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM: BulkIpoViewModel, subView: String?, onSubViewChange: (String?) -> Unit, onNavigateToData: () -> Unit) {
+fun MoreScreen(
+    marketVM: MarketViewModel,
+    portfolioVM: PortfolioViewModel,
+    ipoVM: BulkIpoViewModel,
+    subView: String?,
+    onSubViewChange: (String?) -> Unit,
+    onNavigateToData: () -> Unit,
+    supportSubject: String = "",
+    supportMessage: String = "",
+    supportAttachments: List<Uri> = emptyList(),
+    onSupportReset: () -> Unit = {},
+    onSendToDeveloper: (String, String, List<Uri>) -> Unit = { _, _, _ -> }
+) {
     val userProfile by portfolioVM.userProfile.collectAsStateWithLifecycle()
 
     when (subView) {
@@ -347,9 +395,19 @@ fun MoreScreen(marketVM: MarketViewModel, portfolioVM: PortfolioViewModel, ipoVM
         "BulkCheck" -> IpoCheckScreen(ipoVM, portfolioVM, onNavigateToData) { onSubViewChange(null) }
         "BulkApply" -> IpoApplyScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
         "IpoMaster" -> CompaniesScreen(ipoVM) { onSubViewChange(null) }
-        "Settings" -> SettingsScreen(portfolioVM, marketVM) { onSubViewChange(null) }
+        "Settings" -> SettingsScreen(portfolioVM, marketVM, onSendToDeveloper, onBack = { onSubViewChange(null) })
         "Scraper" -> ScraperSettingsScreen(portfolioVM) { onSubViewChange(null) }
-        "Contact" -> DeveloperProfilePanel(userProfile?.name ?: "User", userProfile?.email ?: "") { onSubViewChange(null) }
+        "Contact" -> DeveloperProfilePanel(
+            userName = userProfile?.name ?: "User",
+            userEmail = userProfile?.email ?: "",
+            initialSubject = supportSubject,
+            initialMessage = supportMessage,
+            initialAttachments = supportAttachments,
+            onBack = { 
+                onSupportReset()
+                onSubViewChange(null) 
+            }
+        )
         "Profile" -> UserProfileScreen(portfolioVM) { onSubViewChange(null) }
         "Calculator" -> FinanceCalculatorScreen { onSubViewChange(null) }
         "Vault" -> CredentialVaultScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
@@ -932,6 +990,7 @@ fun IpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onNavi
                         
                         HybridIpoResultChecker(
                             companyName = sel!!.companyName,
+                            scrip = sel!!.scrip ?: "",
                             boids = hybridBoids,
                             portalUrl = portalUrl,
                             onResultFound = { entry, msg, success -> vm.onHybridResultReceived(entry, msg, success) },
@@ -1984,7 +2043,12 @@ fun formatCurrency(amount: Double, symbol: String): String {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(vm: PortfolioViewModel, mvm: MarketViewModel, onBack: () -> Unit) {
+fun SettingsScreen(
+    vm: PortfolioViewModel,
+    mvm: MarketViewModel,
+    onSendToDeveloper: (String, String, List<Uri>) -> Unit,
+    onBack: () -> Unit
+) {
     val userProfile by vm.userProfile.collectAsStateWithLifecycle()
     val currentCurrency = userProfile?.currencySymbol ?: "रु."
     val currentDateFormat = userProfile?.dateFormat ?: "AD"
@@ -2066,6 +2130,37 @@ fun SettingsScreen(vm: PortfolioViewModel, mvm: MarketViewModel, onBack: () -> U
                             Icon(Icons.Default.BugReport, null)
                             Spacer(Modifier.width(8.dp))
                             Text("Export Debug Logs")
+                        }
+                        
+                        Spacer(Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                cs.launch {
+                                    val logContent = AppLogger.exportLogs()
+                                    val logFile = File(context.cacheDir, "finfolio_debug_logs.txt")
+                                    withContext(Dispatchers.IO) {
+                                        logFile.writeText(logContent)
+                                    }
+                                    val logUri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        logFile
+                                    )
+                                    onSendToDeveloper(
+                                        "Bug Report & Debug Logs",
+                                        "Hi Developer, I'm experiencing some issues. Please find the attached logs for debugging.",
+                                        listOf(logUri)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ContactSupport, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Send to Developer")
                         }
                         
                         Spacer(Modifier.height(8.dp))
@@ -4060,15 +4155,26 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
 }
 
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DeveloperProfilePanel(
     userName: String,
     userEmail: String,
+    initialSubject: String = "",
+    initialMessage: String = "",
+    initialAttachments: List<Uri> = emptyList(),
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var customMessage by remember { mutableStateOf("") }
-    var subject by remember { mutableStateOf("") }
+    var customMessage by remember(initialMessage) { mutableStateOf(initialMessage) }
+    var subject by remember(initialSubject) { mutableStateOf(initialSubject) }
+    var attachments by remember(initialAttachments) { mutableStateOf(initialAttachments) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        attachments = (attachments + uris).distinct()
+    }
 
     Column(
         modifier = Modifier
@@ -4084,48 +4190,56 @@ fun DeveloperProfilePanel(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                modifier = Modifier.size(100.dp)
+                modifier = Modifier.size(80.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.SupportAgent,
                         contentDescription = null,
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(40.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             
             Text(
                 text = "Kedar Bhandari",
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center
             )
             Text(
                 text = "Lead Developer",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
-            HorizontalDivider(Modifier.padding(bottom = 24.dp), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(Modifier.padding(bottom = 16.dp), thickness = 0.5.dp)
 
             OutlinedTextField(
                 value = subject,
                 onValueChange = { subject = it },
                 label = { Text("Subject", fontSize = 12.sp) },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                singleLine = true
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                trailingIcon = {
+                    if (subject.isNotEmpty()) {
+                        IconButton(onClick = { subject = "" }) {
+                            Icon(Icons.Default.Close, "Clear", Modifier.size(18.dp))
+                        }
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -4134,22 +4248,73 @@ fun DeveloperProfilePanel(
                 value = customMessage,
                 onValueChange = { customMessage = it },
                 label = { Text("Message", fontSize = 12.sp) },
-                modifier = Modifier.fillMaxWidth().height(120.dp),
-                shape = RoundedCornerShape(8.dp)
+                modifier = Modifier.fillMaxWidth().height(150.dp),
+                shape = RoundedCornerShape(12.dp),
+                trailingIcon = {
+                    if (customMessage.isNotEmpty()) {
+                        IconButton(onClick = { customMessage = "" }) {
+                            Icon(Icons.Default.Close, "Clear", Modifier.size(18.dp))
+                        }
+                    }
+                }
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Attachments Section
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Attachments (${attachments.size})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { filePickerLauncher.launch("*/*") }) {
+                        Icon(Icons.Default.AttachFile, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add Files", fontSize = 12.sp)
+                    }
+                }
+
+                if (attachments.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        attachments.forEach { uri ->
+                            val fileName = uri.lastPathSegment ?: "File"
+                            AssistChip(
+                                onClick = { },
+                                label = { Text(fileName, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                trailingIcon = {
+                                    IconButton(onClick = { attachments = attachments - uri }, modifier = Modifier.size(16.dp)) {
+                                        Icon(Icons.Default.Close, null, Modifier.size(12.dp))
+                                    }
+                                },
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
                 onClick = {
-                    val intent = Intent(Intent.ACTION_SENDTO).apply {
-                        data = Uri.parse("mailto:")
+                    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                        type = "*/*"
                         putExtra(Intent.EXTRA_EMAIL, arrayOf("bkedarnp@gmail.com"))
                         putExtra(Intent.EXTRA_SUBJECT, "[FinFolio Support] $subject")
                         val body = "User: $userName ($userEmail)\n\nMessage:\n$customMessage\n\n---\nSystem: Android ${android.os.Build.VERSION.RELEASE}"
                         putExtra(Intent.EXTRA_TEXT, body)
+                        if (attachments.isNotEmpty()) {
+                            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(attachments))
+                        }
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    context.startActivity(Intent.createChooser(intent, "Choose Email Client"))
+                    context.startActivity(Intent.createChooser(intent, "Submit Request via Email"))
                 },
                 enabled = customMessage.isNotBlank() && subject.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -4159,6 +4324,8 @@ fun DeveloperProfilePanel(
                 Spacer(Modifier.width(8.dp))
                 Text("Submit Request", fontWeight = FontWeight.Bold)
             }
+            
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
