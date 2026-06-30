@@ -50,8 +50,13 @@ Font sizes are standardized to ensure accessibility and professional readability
 
 ### Input Forms & Dialogs
 - **Field Heights**: Standardize form input heights (Buttons and TextFields) to `60.dp`.
+- **Clear Buttons**: Use a `trailingIcon` (Close/X) in `OutlinedTextField` for searchable or long-form text fields to allow one-tap clearance of the entire content. Icon size should be `18.dp`.
 - **Row Alignment**: When a dropdown and text field share a row, use a Read-Only `OutlinedTextField` with a `trailingIcon` for the dropdown to ensure perfect vertical alignment.
 - **Smart Selectors**: Prefer dropdowns for Scrips/Sectors to minimize errors, prioritized by "Recent Items".
+- **Attachment Management**: 
+    - **Chips**: Use `AssistChip` or similar small chips for file attachments.
+    - **Removal**: Each attachment chip must include a trailing close icon to allow individual removal.
+    - **Visual Feedback**: Show the dynamic count of attachments, e.g., `Attachments (2)`.
 - **Focus**: Use clean, focused dialogs for adding new entities that aren't in existing lists.
 - **Column Selection Dialogs**:
     - The primary identifier (e.g., "Scrip") must be listed at the top, pre-selected, and disabled for modification to maintain table integrity.

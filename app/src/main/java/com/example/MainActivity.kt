@@ -412,15 +412,14 @@ fun MoreScreen(
         "Calculator" -> FinanceCalculatorScreen { onSubViewChange(null) }
         "Vault" -> CredentialVaultScreen(ipoVM, portfolioVM) { onSubViewChange(null) }
         else -> {
-            val ipos by ipoVM.ipos.collectAsStateWithLifecycle()
-            LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                item { Text("Utilities", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                item { SubScreenHeader("Utilities", onBack = {}) }
                 item { 
                     MoreGrid(
                         { MoreCard("Markets", Icons.AutoMirrored.Filled.TrendingUp, Color(0xFF10B981)) { onSubViewChange("Market") } }, 
                         { MoreCard("IPO Check", Icons.AutoMirrored.Filled.FactCheck, Color(0xFFEF4444)) { onSubViewChange("BulkCheck") } }, 
                         { MoreCard("IPO Apply", Icons.AutoMirrored.Filled.Send, Color(0xFF3B82F6)) { onSubViewChange("BulkApply") } },
-                        { MoreCard("Companies (${ipos.size})", Icons.Default.Inventory, Color(0xFF8B5CF6)) { onSubViewChange("IpoMaster") } },
+                        { MoreCard("Companies", Icons.Default.Inventory, Color(0xFF8B5CF6)) { onSubViewChange("IpoMaster") } },
                         { MoreCard("Vault", Icons.Default.VpnKey, Color(0xFF6366F1)) { onSubViewChange("Vault") } },
                         { MoreCard("Scrapers", Icons.Default.CloudSync, Color(0xFFEC4899)) { onSubViewChange("Scraper") } },
                         { MoreCard("Settings", Icons.Default.Settings, Color(0xFF6366F1)) { onSubViewChange("Settings") } },
@@ -436,10 +435,21 @@ fun MoreScreen(
 @Composable
 fun MoreGrid(vararg cards: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        cards.asList().chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { Box(Modifier.weight(1f)) { it() } }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
+        val list = cards.asList()
+        list.chunked(2).forEach { row ->
+            Row(
+                Modifier.fillMaxWidth(), 
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (row.size == 1) {
+                    Spacer(Modifier.weight(0.5f))
+                    Box(Modifier.weight(1f)) { row[0]() }
+                    Spacer(Modifier.weight(0.5f))
+                } else {
+                    row.forEach { 
+                        Box(Modifier.weight(1f)) { it() } 
+                    }
+                }
             }
         }
     }
@@ -447,10 +457,29 @@ fun MoreGrid(vararg cards: @Composable () -> Unit) {
 
 @Composable
 fun MoreCard(t: String, i: androidx.compose.ui.graphics.vector.ImageVector, c: Color, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth().height(90.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.5f))) {
+    Card(
+        onClick = onClick, 
+        modifier = Modifier.fillMaxWidth().height(90.dp), 
+        shape = RoundedCornerShape(16.dp), 
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(Modifier.size(36.dp).clip(CircleShape).background(c.copy(0.1f)), contentAlignment = Alignment.Center) { Icon(i, null, tint = c, modifier = Modifier.size(20.dp)) }
-            Spacer(Modifier.height(4.dp)); Text(t, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(c.copy(0.12f)), 
+                contentAlignment = Alignment.Center
+            ) { 
+                Icon(i, null, tint = c, modifier = Modifier.size(22.dp)) 
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(t, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
