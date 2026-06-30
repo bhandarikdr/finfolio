@@ -9,6 +9,7 @@ import com.example.data.db.ExternalLtp
 enum class ScraperCategory(val displayName: String, val description: String) {
     LTP_UPDATE("Live Price (LTP) Update", "Fetches latest market prices for portfolio stocks."),
     INDEX_UPDATE("Market Index Update", "Updates market and sector indices."),
+    PRIMARY_INDEX_STATUS("Primary Index Status", "Monitors the main NEPSE index status."),
     SCRIP_SYNC("Scrip Master Sync", "Downloads list of all listed companies."),
     IPO_LISTING("IPO Pipeline", "Tracks upcoming and ongoing IPOs."),
     IPO_RESULT("IPO Result Checker", "Endpoint for verifying IPO allotment status."),
@@ -20,14 +21,16 @@ enum class ScraperCategory(val displayName: String, val description: String) {
 object ScraperDefaults {
     val defaultScrapersByCategory = mapOf(
         ScraperCategory.LTP_UPDATE to listOf(
-            "https://www.nepalstock.com/",
+            "https://www.nepalstock.com/today-price",
             "https://www.sharesansar.com/live-trading",
             "https://merolagani.com/latestmarket.aspx"
         ),
         ScraperCategory.INDEX_UPDATE to listOf(
-            "https://www.nepalstock.com/",
             "https://www.sharesansar.com/market",
             "https://merolagani.com/latestmarket.aspx"
+        ),
+        ScraperCategory.PRIMARY_INDEX_STATUS to listOf(
+            "https://www.nepalstock.com/"
         ),
         ScraperCategory.SCRIP_SYNC to listOf(
             "https://www.sharesansar.com/company-list",

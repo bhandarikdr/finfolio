@@ -317,6 +317,24 @@ class PortfolioRepository(
         }
     }
 
+    /** Wipes custom scraper overrides for a specific category. */
+    suspend fun resetScraperUrls(category: ScraperCategory) {
+        withContext(Dispatchers.IO) {
+            val existing = portfolioDao.getUserProfileSync()
+            if (existing != null && !existing.scraperUrlsJson.isNullOrBlank()) {
+                try {
+                    val json = JSONObject(existing.scraperUrlsJson)
+                    if (json.has(category.name)) {
+                        json.remove(category.name)
+                        portfolioDao.saveUserProfile(existing.copy(scraperUrlsJson = json.toString()))
+                    }
+                } catch (e: Exception) {
+                    AppLogger.e("PortfolioRepo", "Failed to reset scraper for ${category.name}", e)
+                }
+            }
+        }
+    }
+
     /** Returns the prioritized list of URLs for a category, falling back to defaults if none saved. */
     suspend fun getScraperUrls(category: ScraperCategory): List<String> {
         return withContext(Dispatchers.IO) {
@@ -847,7 +865,7 @@ class PortfolioRepository(
 
                 val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-                val statusUrls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
+                val statusUrls = getScraperUrls(ScraperCategory.PRIMARY_INDEX_STATUS) + getScraperUrls(ScraperCategory.INDEX_UPDATE)
                 val primaryName = portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
 
                 for (url in statusUrls) {
@@ -888,25 +906,64 @@ class PortfolioRepository(
                         // 2. Primary Index Value Extraction (Prioritize exact match for primaryName)
                         val tables = doc.select("table")
                         var foundPrimaryInTable = false
+                        
                         for (table in tables) {
-                            val rows = table.select("tr")
-                            val row = rows.find { it.text().contains(primaryName, ignoreCase = true) }
-                            if (row != null) {
-                                val cells = row.select("td")
-                                if (cells.size >= 2) {
-                                    // Heuristic: Find the first few numbers in the row
+                            val allRows = table.select("tr")
+                            if (allRows.size < 2) continue
+                            
+                            // Identify columns via headers (similar to MarketRepository for consistency)
+                            var nameIdx = -1; var valIdx = -1; var chgIdx = -1; var pctIdx = -1
+                            
+                            for (i in 0 until minOf(allRows.size, 3)) {
+                                val cells = allRows[i].select("th, td")
+                                val texts = cells.map { it.text().lowercase().trim() }
+                                texts.forEachIndexed { idx, text ->
+                                    if (text.contains("index") || text == "particulars") nameIdx = idx
+                                    if (text == "close" || text == "ltp" || text == "current" || text == "value") valIdx = idx
+                                    if ((text.contains("change") || text == "+/-") && !text.contains("%")) chgIdx = idx
+                                    if (text.contains("%") || text.contains("percent")) pctIdx = idx
+                                }
+                                if (nameIdx != -1 && valIdx != -1) break
+                            }
+
+                            // If headers found, find the row for primaryName
+                            if (nameIdx != -1 && valIdx != -1) {
+                                val targetRow = allRows.find { it.select("td, th").getOrNull(nameIdx)?.text()?.contains(primaryName, true) == true }
+                                if (targetRow != null) {
+                                    val cells = targetRow.select("td, th")
+                                    if (cells.size > maxOf(valIdx, chgIdx, pctIdx)) {
+                                        indexValue = cells[valIdx].text().replace(",", "").trim()
+                                        if (chgIdx != -1) ptChange = cells[chgIdx].text().replace(",", "").replace("+", "").trim()
+                                        if (pctIdx != -1) pctChange = cells[pctIdx].text().replace(",", "").replace("+", "").trim()
+                                        isPositive = !targetRow.text().contains("-")
+                                        foundPrimaryInTable = true
+                                        break
+                                    }
+                                }
+                            }
+                        }
+
+                        // Fallback 1: Row-based search (improved heuristic)
+                        if (!foundPrimaryInTable) {
+                            for (table in tables) {
+                                val row = table.select("tr").find { it.text().contains(primaryName, ignoreCase = true) }
+                                if (row != null) {
+                                    val cells = row.select("td")
                                     val numbers = cells.map { it.text().replace(",", "").replace("%", "").replace("+", "").trim() }
                                         .filter { it.toDoubleOrNull() != null }
                                     
-                                    if (numbers.isNotEmpty()) {
+                                    if (numbers.size >= 4) {
+                                        // HEURISTIC: In 6-7 column tables (Open, High, Low, Close, Change, %), Close is the 4th number (index 3)
+                                        indexValue = numbers[3] 
+                                        ptChange = if (numbers.size >= 5) numbers[4] else ""
+                                        pctChange = if (numbers.size >= 6) numbers[5] else ""
+                                        isPositive = !row.text().contains("-")
+                                        foundPrimaryInTable = true
+                                        break
+                                    } else if (numbers.isNotEmpty()) {
                                         indexValue = numbers[0]
-                                        if (numbers.size >= 2) {
-                                            val rawChg = numbers[1]
-                                            ptChange = rawChg
-                                        }
-                                        if (numbers.size >= 3) {
-                                            pctChange = numbers[2] + "%"
-                                        }
+                                        if (numbers.size >= 2) ptChange = numbers[1]
+                                        if (numbers.size >= 3) pctChange = numbers[2]
                                         isPositive = !row.text().contains("-")
                                         foundPrimaryInTable = true
                                         break

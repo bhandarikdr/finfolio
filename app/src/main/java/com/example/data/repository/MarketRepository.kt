@@ -201,7 +201,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         
         lastIndicesSync = now
         AppLogger.i("MarketSync", "Starting Market Indices Sync")
-        val urls = getScraperUrls(ScraperCategory.INDEX_UPDATE)
+        val urls = getScraperUrls(ScraperCategory.PRIMARY_INDEX_STATUS) + getScraperUrls(ScraperCategory.INDEX_UPDATE)
         val scrapedIndices = mutableMapOf<String, MarketIndex>()
         val timestamp = System.currentTimeMillis()
         val primaryName = portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
@@ -237,44 +237,92 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 val doc = Jsoup.parse(html)
                 val tables = doc.select("table")
                 
-                tables.forEachIndexed { tableIdx, table ->
+                tables.forEach { table ->
                     val allRows = table.select("tr")
-                    if (allRows.size < 2) return@forEachIndexed
+                    if (allRows.size < 2) return@forEach
                     
                     var nameIdx = -1; var valIdx = -1; var chgIdx = -1; var pctIdx = -1
                     var headerRowIdx = -1
 
-                    // Try to find header in first 5 rows
-                    for (i in 0 until minOf(allRows.size, 5)) {
+                    // 1. INTELLIGENT HEADER IDENTIFICATION (Keyword-First)
+                    // Search first 3 rows for a valid header set
+                    for (i in 0 until minOf(allRows.size, 3)) {
                         val cells = allRows[i].select("th, td")
-                        val headerText = cells.map { it.text().lowercase().trim() }
+                        val texts = cells.map { it.text().lowercase().trim() }
                         
-                        var foundName = -1; var foundVal = -1; var foundChg = -1; var foundPct = -1
-                        headerText.forEachIndexed { index, text ->
-                            if (text.contains("index") || text.contains("sector") || text.contains("indices") || text.contains("nifty") || text == "particulars") foundName = index
-                            if (text.contains("value") || text.contains("close") || text.contains("current") || text.contains("pts") || text == "ltp" || text == "points") foundVal = index
-                            if (text.contains("change") && !text.contains("%") || text == "+/-") foundChg = index
-                            if (text.contains("%") || text.contains("percentage")) foundPct = index
+                        var fName = -1; var fVal = -1; var fChg = -1; var fPct = -1
+                        
+                        texts.forEachIndexed { idx, text ->
+                            // Name identification
+                            if (text == "index" || text == "sub index" || text == "indices" || text == "particulars") {
+                                fName = idx
+                            } else if (fName == -1 && (text.contains("index") || text.contains("sector"))) {
+                                fName = idx
+                            }
+                            
+                            // Value identification (Strict priority for Close/LTP)
+                            if (text == "close" || text == "ltp" || text == "current" || text == "points") {
+                                fVal = idx
+                            } else if (fVal == -1 && (text == "value" || text == "price")) {
+                                fVal = idx
+                            }
+                            
+                            // Change identification (Must contain change but NOT %)
+                            if ((text.contains("point") || text == "diff" || text == "+/-") && text.contains("change") && !text.contains("%")) {
+                                fChg = idx
+                            } else if (fChg == -1 && text == "change" && !text.contains("%")) {
+                                fChg = idx
+                            }
+                            
+                            // Percentage identification
+                            if (text.contains("%") || text.contains("percentage") || text.contains("percent")) {
+                                fPct = idx
+                            }
                         }
                         
-                        if (foundName != -1 && foundVal != -1) {
-                            nameIdx = foundName; valIdx = foundVal; chgIdx = foundChg; pctIdx = foundPct
+                        // Valid if we at least have Name and Value
+                        if (fName != -1 && fVal != -1) {
+                            nameIdx = fName; valIdx = fVal; chgIdx = fChg; pctIdx = fPct
                             headerRowIdx = i
                             break
                         }
                     }
 
-                    // FALLBACK: If no header found but table has 2-5 columns, assume first is name, second is value
-                    if (headerRowIdx == -1 && allRows[0].select("td, th").size in 2..6) {
-                        val firstRowCells = allRows[0].select("td, th")
-                        val firstVal = firstRowCells.getOrNull(1)?.text()?.replace(",", "")?.toDoubleOrNull()
-                        if (firstVal != null && firstVal > 0) {
-                            nameIdx = 0; valIdx = 1; chgIdx = 2; pctIdx = 3
-                            headerRowIdx = -1 // Start from first row
+                    // 2. DATA-DRIVEN INFERENCE (Validation-Second)
+                    // If no header found, analyze the first data row to guess columns
+                    if (headerRowIdx == -1) {
+                        val firstRow = allRows[0].select("td, th")
+                        if (firstRow.size >= 2) {
+                            nameIdx = 0
+                            
+                            val numbers = firstRow.mapIndexed { idx, cell -> 
+                                idx to cell.text().replace(",", "").replace("%", "").replace("+", "").trim().toDoubleOrNull()
+                            }.filter { it.second != null }
+
+                            if (numbers.size >= 2) {
+                                // HEURISTIC: Large numbers > 10.0 are likely index values. 
+                                // In tables with OHLC, Close is usually the LAST large number before the small change numbers.
+                                val valueCandidates = numbers.filter { it.second!! > 10.0 }
+                                if (valueCandidates.isNotEmpty()) {
+                                    valIdx = valueCandidates.last().first
+                                    
+                                    // Change and Pct are usually the numbers immediately following the value
+                                    val following = numbers.filter { it.first > valIdx }
+                                    if (following.size >= 1) chgIdx = following[0].first
+                                    if (following.size >= 2) pctIdx = following[1].first
+                                    
+                                    // Reverse check: if only one following and it contains %, it's pct
+                                    if (following.size == 1 && firstRow[following[0].first].text().contains("%")) {
+                                        pctIdx = following[0].first
+                                        chgIdx = -1
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    if (nameIdx != -1) {
+                    // 3. EXTRACTION
+                    if (nameIdx != -1 && valIdx != -1) {
                         allRows.drop(headerRowIdx + 1).forEach { row ->
                             val cells = row.select("td, th")
                             if (cells.size > maxOf(nameIdx, valIdx)) {
@@ -285,15 +333,21 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                                 val cleanName = rawName.replace(",", "")
                                 if (rawName.isNotEmpty() && value > 0 && !garbageTerms.contains(rawName.lowercase()) && cleanName.toDoubleOrNull() == null) {
                                     val name = normalizeIndexName(rawName, primaryName)
-                                    val changeStr = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim() else "0"
-                                    val pctStr = if (pctIdx != -1 && pctIdx < cells.size) cells[pctIdx].text().replace(",", "").replace("+", "").replace("%", "").trim() else "0"
                                     
-                                    val change = changeStr.toDoubleOrNull() ?: 0.0
-                                    val pct = pctStr.toDoubleOrNull() ?: 0.0
-                                    val isNeg = (chgIdx != -1 && chgIdx < cells.size && cells[chgIdx].text().contains("-")) || (pctIdx != -1 && pctIdx < cells.size && cells[pctIdx].text().contains("-"))
+                                    // Dynamic fallbacks for change values
+                                    val rawChg = if (chgIdx != -1 && chgIdx < cells.size) 
+                                        cells[chgIdx].text().replace(",", "").replace("+", "").trim().toDoubleOrNull() ?: 0.0 
+                                        else 0.0
+                                    val rawPct = if (pctIdx != -1 && pctIdx < cells.size) 
+                                        cells[pctIdx].text().replace(",", "").replace("+", "").replace("%", "").trim().toDoubleOrNull() ?: 0.0 
+                                        else 0.0
+                                        
+                                    // Heuristic to detect negative status if "-" sign is present in text but missing in parsed double
+                                    val isNegText = (chgIdx != -1 && chgIdx < cells.size && cells[chgIdx].text().contains("-")) || 
+                                                    (pctIdx != -1 && pctIdx < cells.size && cells[pctIdx].text().contains("-"))
                                     
-                                    val finalChg = if (isNeg) -Math.abs(change) else Math.abs(change)
-                                    val finalPct = if (isNeg) -Math.abs(pct) else Math.abs(pct)
+                                    val finalChg = if (isNegText) -Math.abs(rawChg) else rawChg
+                                    val finalPct = if (isNegText) -Math.abs(rawPct) else rawPct
                                     
                                     val existing = portfolioDao.getIndexByName(name)
                                     
@@ -375,19 +429,23 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                         return@forEachIndexed
                     }
 
-                    var codeIdx = -1; var nameIdx = -1
+                    var codeIdx = -1; var nameIdx = -1; var addrIdx = -1; var telIdx = -1
                     var headerRowIdx = -1
 
-                    for (i in 0 until minOf(rows.size, 20)) {
+                    for (i in 0 until minOf(rows.size, 30)) {
                         val headerCells = rows[i].select("th, td")
                         val header = headerCells.map { it.text().lowercase().trim() }
                         
                         header.forEachIndexed { idx, text ->
                             if (text == "s.n." || text == "sn" || text == "s.no" || text == "sl.no") { /* skip sn */ }
-                            else if (text.contains("dp id") || text.contains("code") || text.contains("id") || text == "dp code" || text == "member id" || text.contains("participant id")) {
+                            else if (text.contains("dp id") || text.contains("code") || text.contains("id") || text == "dp code" || text == "member id" || text.contains("participant id") || text == "dp_id") {
                                 if (codeIdx == -1) codeIdx = idx
-                            } else if (text.contains("participant") || text.contains("name") || text == "dp name" || text.contains("member") || text.contains("depository")) {
+                            } else if (text.contains("participant") || text.contains("name") || text == "dp name" || text.contains("member") || text.contains("depository") || text.contains("institution")) {
                                 if (nameIdx == -1) nameIdx = idx
+                            } else if (text.contains("address") || text.contains("location")) {
+                                if (addrIdx == -1) addrIdx = idx
+                            } else if (text.contains("tel") || text.contains("phone") || text.contains("contact") || text.contains("mobile")) {
+                                if (telIdx == -1) telIdx = idx
                             }
                         }
                         if (codeIdx != -1 && nameIdx != -1) {
@@ -396,12 +454,16 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                         }
                     }
 
+                    // Log identifying headers
                     if (headerRowIdx != -1) {
+                        AppLogger.d("DpSync", "Found headers at row $headerRowIdx: NameIdx=$nameIdx, CodeIdx=$codeIdx, AddrIdx=$addrIdx, TelIdx=$telIdx")
                         rows.drop(headerRowIdx + 1).forEach { row ->
                             val cells = row.select("td")
                             if (cells.size > maxOf(codeIdx, nameIdx)) {
                                 val rawCode = cells[codeIdx].text().trim()
                                 val rawName = cells[nameIdx].text().trim()
+                                val rawAddr = if (addrIdx != -1 && addrIdx < cells.size) cells[addrIdx].text().trim() else null
+                                val rawTel = if (telIdx != -1 && telIdx < cells.size) cells[telIdx].text().trim() else null
                                 
                                 val digitsOnly = rawCode.filter { it.isDigit() }
                                 val cleanCode = if (digitsOnly.length >= 8) digitsOnly.take(8).takeLast(5) 
@@ -411,10 +473,12 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                                 val clientId = if (cleanCode.isNotEmpty()) getClientIdFromFallback(cleanCode) else 0
                                 
                                 if (cleanCode.length >= 3 && rawName.isNotEmpty() && !garbageTerms.contains(rawName.lowercase())) {
-                                    dps.add(com.example.data.db.DpMaster(cleanCode, rawName, clientId, now))
+                                    dps.add(com.example.data.db.DpMaster(cleanCode, rawName, clientId, rawAddr, rawTel, now))
                                 }
                             }
                         }
+                    } else {
+                        AppLogger.d("DpSync", "Headers not found in Table $tableIdx. Row 0: ${rows[0].text()}")
                     }
                 }
 

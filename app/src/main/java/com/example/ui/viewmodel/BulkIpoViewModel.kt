@@ -17,6 +17,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import com.example.data.db.IpoMemberActivity
+import java.text.SimpleDateFormat
+import java.util.*
 
 /**
  * UI & LOGIC STANDARDS - BulkIpoViewModel:
@@ -42,10 +44,7 @@ class BulkIpoViewModel(
 
     val checkIpos: StateFlow<List<IpoMaster>> = ipos.map { list ->
         list.filter { 
-            !it.allotmentDate.isNullOrBlank() || 
-            it.status.contains("Allotted", true) || 
-            it.status.contains("Completed", true) ||
-            it.status.contains("Result", true)
+            it.status.contains("Completed", true) || it.status.contains("Result", true) || it.status.contains("Allotted", true)
         }.sortedByDescending { it.allotmentDate ?: "0000-00-00" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -124,18 +123,9 @@ class BulkIpoViewModel(
             }
         }
 
-        // Fallback to Apply list if no Check IPOs are found
-        viewModelScope.launch {
-            applyIpos.collect { list ->
-                if (list.isNotEmpty() && _selectedIpo.value == null) {
-                    _selectedIpo.value = list.first()
-                }
-            }
-        }
-        
         // Sync if empty
         viewModelScope.launch {
-            if (ipos.value.isEmpty()) {
+            if (ipos.value.isEmpty() || allDps.value.isEmpty()) {
                 refreshAllCompanies()
             }
         }

@@ -12,5 +12,7 @@ data class DpMaster(
     @PrimaryKey val dpCode: String, // e.g., "10600"
     val name: String,             // e.g., "NIMB ACE CAPITAL LIMITED"
     val clientId: Int,            // e.g., 173 (Required for MeroShare API login)
+    val address: String? = null,
+    val telephone: String? = null,
     val updatedAt: Long = System.currentTimeMillis()
 )

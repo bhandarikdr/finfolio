@@ -1,6 +1,9 @@
 package com.example
 
 import android.app.DatePickerDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -104,7 +107,8 @@ fun MarketPillBadge(index: String, value: Double, pct: Double, status: String) {
 
     Surface(modifier = Modifier.padding(end = 8.dp), shape = RoundedCornerShape(100.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, baseColor.copy(0.3f))) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(if (isOpen) Color(0xFF10B981).copy(alpha = alpha) else Color(0xFFEF4444)))
+            val dotColor = if (isOpen) Color(0xFF10B981) else Color(0xFFEF4444)
+            Box(Modifier.size(8.dp).clip(CircleShape).background(if (isOpen) dotColor.copy(alpha = alpha) else dotColor))
             Column(horizontalAlignment = Alignment.End) {
                 Text(text = index, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
                 Text(text = String.format(Locale.US, "%,.1f (%+.2f%%)", value, pct), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = baseColor)
@@ -1408,7 +1412,7 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 4.dp)) {
         SubScreenHeader(
             title = "Companies (${ipos.size})",
             onBack = onBack,
@@ -1425,71 +1429,71 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
             Text(syncLog, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 4.dp))
         }
 
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // --- TOP LEVEL: IPO MASTER ---
+        // --- TOP LEVEL SEARCH (IPO ONLY) ---
+        OutlinedTextField(
+            value = ipoSearchQuery,
+            onValueChange = { ipoSearchQuery = it },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            placeholder = { Text("Search issuing companies...") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (ipoSearchQuery.isNotEmpty()) {
+                    IconButton(onClick = { ipoSearchQuery = "" }) { Icon(Icons.Default.Close, null) }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp)
+        )
+
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // --- IPO CATEGORIES (FLATTENED) ---
+            
+            // Open
             item {
-                IpoSectionHeader(
-                    title = "IPO Master (${displayIpos.size})", 
-                    count = displayIpos.size, 
-                    isExpanded = expandedTopSection == "IPO", 
-                    onToggle = { expandedTopSection = if (expandedTopSection == "IPO") null else "IPO" }, 
-                    color = MaterialTheme.colorScheme.primary
-                )
+                IpoSubSectionHeader("Open Issues", openIssues.size, (expandedSubSection == "OPEN"), { expandedSubSection = if (expandedSubSection == "OPEN") null else "OPEN" }, Color(0xFF10B981))
+            }
+            if (expandedSubSection == "OPEN") {
+                items(openIssues, key = { "open_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
             }
 
-            if (expandedTopSection == "IPO") {
-                item {
-                    OutlinedTextField(
-                        value = ipoSearchQuery,
-                        onValueChange = { ipoSearchQuery = it },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        placeholder = { Text("Search issuing companies...") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        trailingIcon = {
-                            if (ipoSearchQuery.isNotEmpty()) {
-                                IconButton(onClick = { ipoSearchQuery = "" }) { Icon(Icons.Default.Close, null) }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-
-                item {
-                    IpoSubSection("Upcoming Issues (${upcoming.size})", upcoming.size, (expandedSubSection == "UPCOMING") && upcoming.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "UPCOMING") null else "UPCOMING" }, Color(0xFF3B82F6)) {
-                        upcoming.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
-                    }
-                }
-
-                item {
-                    IpoSubSection("Open Issues (${openIssues.size})", openIssues.size, (expandedSubSection == "OPEN") && openIssues.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "OPEN") null else "OPEN" }, Color(0xFF10B981)) {
-                        openIssues.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
-                    }
-                }
-
-                item {
-                    IpoSubSection("Closed Issues (${closedIssues.size})", closedIssues.size, (expandedSubSection == "CLOSED") && closedIssues.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "CLOSED") null else "CLOSED" }, Color(0xFFEF4444)) {
-                        closedIssues.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
-                    }
-                }
-
-                item {
-                    IpoSubSection("Allotment Completed (${allotmentCompleted.size})", allotmentCompleted.size, (expandedSubSection == "ALLOTTED") && allotmentCompleted.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "ALLOTTED") null else "ALLOTTED" }, Color(0xFF8B5CF6)) {
-                        allotmentCompleted.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
-                    }
-                }
-
-                item {
-                    IpoSubSection("Previous Issues (${previousIssues.size})", previousIssues.size, (expandedSubSection == "PREVIOUS") && previousIssues.isNotEmpty(), { expandedSubSection = if (expandedSubSection == "PREVIOUS") null else "PREVIOUS" }, Color(0xFF6B7280)) {
-                        previousIssues.forEach { ipo -> IpoMasterCard(ipo, vm, context) }
-                    }
-                }
+            // Upcoming
+            item {
+                IpoSubSectionHeader("Upcoming Issues", upcoming.size, (expandedSubSection == "UPCOMING"), { expandedSubSection = if (expandedSubSection == "UPCOMING") null else "UPCOMING" }, Color(0xFF3B82F6))
+            }
+            if (expandedSubSection == "UPCOMING") {
+                items(upcoming, key = { "upcoming_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
             }
 
-            // --- TOP LEVEL: LICENSED DPS ---
+            // Closed
             item {
-                IpoSectionHeader(
-                    title = "Licensed DPs (${displayDps.size})", 
+                IpoSubSectionHeader("Closed Issues", closedIssues.size, (expandedSubSection == "CLOSED"), { expandedSubSection = if (expandedSubSection == "CLOSED") null else "CLOSED" }, Color(0xFFEF4444))
+            }
+            if (expandedSubSection == "CLOSED") {
+                items(closedIssues, key = { "closed_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+            }
+
+            // Allotted
+            item {
+                IpoSubSectionHeader("Allotment Completed", allotmentCompleted.size, (expandedSubSection == "ALLOTTED"), { expandedSubSection = if (expandedSubSection == "ALLOTTED") null else "ALLOTTED" }, Color(0xFF8B5CF6))
+            }
+            if (expandedSubSection == "ALLOTTED") {
+                items(allotmentCompleted, key = { "allotted_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+            }
+
+            // Previous
+            item {
+                IpoSubSectionHeader("Previous Issues", previousIssues.size, (expandedSubSection == "PREVIOUS"), { expandedSubSection = if (expandedSubSection == "PREVIOUS") null else "PREVIOUS" }, Color(0xFF6B7280))
+            }
+            if (expandedSubSection == "PREVIOUS") {
+                items(previousIssues, key = { "prev_${it.companyName}" }) { ipo -> IpoMasterCard(ipo, vm, context) }
+            }
+
+            item { Spacer(Modifier.height(16.dp)) }
+
+            // --- LICENSED DPS ---
+            item {
+                IpoSubSectionHeader(
+                    title = "Licensed DPs", 
                     count = displayDps.size, 
                     isExpanded = expandedTopSection == "DP", 
                     onToggle = { expandedTopSection = if (expandedTopSection == "DP") null else "DP" }, 
@@ -1516,10 +1520,20 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
                 }
 
                 if (displayDps.isEmpty()) {
-                    item { EmptyStatePlaceholder("No DPs found. Sync Master to load data.") }
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("No DPs found in local master.", color = Color.Gray, fontSize = 13.sp)
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = { vm.syncDpMaster() }, shape = RoundedCornerShape(8.dp)) {
+                                Icon(Icons.Default.Sync, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Sync DP Master")
+                            }
+                        }
+                    }
                 }
 
-                items(displayDps) { dp ->
+                items(displayDps, key = { "dp_${it.dpCode}" }) { dp ->
                     DpCard(dp)
                 }
             }
@@ -1528,10 +1542,18 @@ fun CompaniesScreen(vm: BulkIpoViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-fun IpoSubSection(title: String, count: Int, isExpanded: Boolean, onToggle: () -> Unit, color: Color, content: @Composable () -> Unit) {
-    Column(Modifier.padding(vertical = 4.dp)) {
+fun IpoSubSectionHeader(title: String, count: Int, isExpanded: Boolean, onToggle: () -> Unit, color: Color) {
+    Card(
+        onClick = onToggle,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isExpanded) color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+        ),
+        border = BorderStroke(1.dp, if (isExpanded) color.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    ) {
         Row(
-            Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 8.dp, horizontal = 4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -1540,20 +1562,9 @@ fun IpoSubSection(title: String, count: Int, isExpanded: Boolean, onToggle: () -
                 tint = color,
                 modifier = Modifier.size(20.dp)
             )
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color, modifier = Modifier.padding(start = 8.dp).weight(1f))
-            Badge(containerColor = color.copy(alpha = 0.1f), contentColor = color) { Text(count.toString(), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-        }
-        
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp), 
-                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
-            ) {
-                content()
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Black, color = if (isExpanded) color else MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(start = 12.dp).weight(1f))
+            Badge(containerColor = color, contentColor = Color.White) { 
+                Text(count.toString(), fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 6.dp))
             }
         }
     }
@@ -1789,14 +1800,36 @@ fun DpCard(dp: com.example.data.db.DpMaster) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                Text(dp.dpCode.takeLast(2), color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                    Text(dp.dpCode.takeLast(2), color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(dp.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("DP ID: ${dp.dpCode}", fontSize = 11.sp, color = Color.Gray)
+                }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(dp.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("DP Code: ${dp.dpCode}", fontSize = 11.sp, color = Color.Gray)
+            
+            if (!dp.address.isNullOrBlank() || !dp.telephone.isNullOrBlank()) {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                
+                if (!dp.address.isNullOrBlank()) {
+                    Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(bottom = 4.dp)) {
+                        Icon(Icons.Default.LocationOn, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                        Spacer(Modifier.width(6.dp))
+                        Text(dp.address, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), lineHeight = 14.sp)
+                    }
+                }
+                
+                if (!dp.telephone.isNullOrBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Call, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                        Spacer(Modifier.width(6.dp))
+                        Text(dp.telephone, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                    }
+                }
             }
         }
     }
@@ -3139,7 +3172,7 @@ fun MatrixScreen(vm: PortfolioViewModel) {
             }
             
             IconButton(onClick = { exLauncher.launch("finfolio_matrix.csv") }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.Download, "Export CSV", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.FileUpload, "Export CSV", tint = MaterialTheme.colorScheme.primary)
             }
 
             Button(onClick = { showCfg = true }, modifier = Modifier.height(36.dp), shape = RoundedCornerShape(8.dp)) { 
@@ -4043,6 +4076,7 @@ fun SectorExpandableHeader(sector: String, count: Int, isExpanded: Boolean, onTo
 
 @Composable
 fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
     val userProfile by vm.userProfile.collectAsStateWithLifecycle()
     val currentScrapers = userProfile?.scraperUrls ?: emptyMap()
     val cs = rememberCoroutineScope()
@@ -4076,10 +4110,15 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
             title = "Scraper Configuration",
             onBack = onBack,
             trailingIcon = {
-                TextButton(onClick = { showResetDialog = true }) {
-                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                TextButton(onClick = {
+                    val csv = vm.exportScraperConfigToCsv()
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Scraper Config", csv))
+                    com.example.data.util.AppLogger.i("ScraperConfig", "Configuration exported to clipboard")
+                }) {
+                    Icon(Icons.Default.FileUpload, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Restore All", fontSize = 12.sp)
+                    Text("Export CSV", fontSize = 12.sp)
                 }
             }
         )
@@ -4100,11 +4139,27 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                 val urls = currentScrapers[category] ?: emptyList()
                 val pendingUrls = remember(urls) { mutableStateListOf(*urls.toTypedArray()) }
                 val hasChanges = remember(urls, pendingUrls.toList()) { urls != pendingUrls.toList() }
+                val isDefault = remember(urls) { 
+                    urls == com.example.data.model.ScraperDefaults.defaultScrapersByCategory[category] 
+                }
                 
                 Card(Modifier.fillMaxWidth(), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.5f))) {
                     Column(Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Text(text = category.displayName, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                            
+                            if (!isDefault && !hasChanges) {
+                                TextButton(
+                                    onClick = { vm.resetScraperUrls(category) },
+                                    modifier = Modifier.height(28.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(Icons.Default.History, null, Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Reset", fontSize = 10.sp)
+                                }
+                            }
+
                             if (hasChanges) {
                                 Button(
                                     onClick = {
@@ -4178,6 +4233,21 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                         }
                     }
                 }
+            }
+
+            item {
+                Spacer(Modifier.height(16.dp))
+                OutlinedButton(
+                    onClick = { showResetDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(0.5f))
+                ) {
+                    Icon(Icons.Default.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("RESTORE ALL FACTORY DEFAULTS")
+                }
+                Spacer(Modifier.height(32.dp))
             }
         }
     }

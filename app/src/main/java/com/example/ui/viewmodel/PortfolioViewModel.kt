@@ -559,6 +559,35 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
+    /** Wipes custom scraper overrides for a specific category. */
+    fun resetScraperUrls(category: ScraperCategory) {
+        viewModelScope.launch {
+            com.example.data.util.AppLogger.w("ScraperConfig", "Restoring scraper for ${category.displayName} to default")
+            repository.resetScraperUrls(category)
+            repository.triggerSnackbar("${category.displayName} restored to default")
+        }
+    }
+
+    /**
+     * Exports the current scraper configuration (all categories and their URLs) to a CSV format.
+     */
+    fun exportScraperConfigToCsv(): String {
+        val profile = userProfile.value
+        val currentScrapers = profile?.scraperUrls ?: emptyMap()
+        
+        return buildString {
+            append("Category,Priority,URL\n")
+            ScraperCategory.values().forEach { category ->
+                val urls = currentScrapers[category] ?: defaultScrapers[category] ?: emptyList()
+                urls.forEachIndexed { index, url ->
+                    // Escape commas in URLs if any (rare but possible)
+                    val safeUrl = if (url.contains(",")) "\"$url\"" else url
+                    append("${category.name},${index + 1},$safeUrl\n")
+                }
+            }
+        }
+    }
+
     /** 
      * Tests a specific URL for its ability to provide data for a given category.
      * Uses a robust OkHttp client to handle SSL issues and various content types.
@@ -585,6 +614,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
                 
                 val success = when(category) {
                     ScraperCategory.INDEX_UPDATE -> body.contains("ctl00_ContentPlaceHolder1_lblIndexValue") || body.contains("table")
+                    ScraperCategory.PRIMARY_INDEX_STATUS -> body.contains("Index") || body.contains("Market") || body.contains("table")
                     ScraperCategory.LTP_UPDATE -> body.contains("table") && body.length > 500
                     ScraperCategory.SCRIP_SYNC -> body.contains("table") && body.length > 1000
                     ScraperCategory.IPO_LISTING -> {

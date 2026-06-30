@@ -104,3 +104,14 @@ Font sizes are standardized to ensure accessibility and professional readability
 - **Surgical Toggles**:
     - **Atomic Interaction**: Toggles for independent features (e.g., "Result Check" vs "IPO Apply") must be decoupled at the repository level.
     - **Interaction Source**: Ensure click listeners are placed on the `Row` or `Text` label rather than just the `Switch` to increase the touch target and prevent double-triggering.
+
+## 12. Companies & Entities Restructuring Standards
+To maintain consistency while managing listed companies and IPO entities:
+- **Centralized Master List**: Use `ScripMaster` as the single source of truth for all listed companies.
+- **Fuzzy Name Matching**: Always implement fuzzy matching (ignoring case and common suffixes like "Ltd", "Pvt") when linking external scraped data to internal database records.
+- **Data Enrichment**: When restructuring company lists, prioritize showing both the Scrip Symbol (Primary) and the Full Company Name (Secondary) to aid user identification.
+- **Status-Driven Visibility**: 
+    - **IPO Checking**: Only show companies where the allotment process is completed or result is published.
+    - **IPO Application**: Dynamically filter to only show "Open" or "Ongoing" issues.
+- **Consistent Call-to-Action**: Use standardized buttons for "Check Result" (Outlined) and "Apply Now" (Filled) to provide clear visual hierarchy.
+- **Scraper Separation**: Separate scraper categories for high-traffic updates (like Live Price) from structural updates (like Index Status) to isolate failure points and improve debuggability.

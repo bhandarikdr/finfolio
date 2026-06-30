@@ -21,7 +21,7 @@ import androidx.room.RoomDatabase
         DpMaster::class,
         IpoMemberActivity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,11 +41,18 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "portfolio_database"
                 )
-                .addMigrations(MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
+                .addMigrations(MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
                 .fallbackToDestructiveMigration(false)
                 .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_23_24 = object : androidx.room.migration.Migration(23, 24) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `DpMaster` ADD COLUMN `address` TEXT")
+                database.execSQL("ALTER TABLE `DpMaster` ADD COLUMN `telephone` TEXT")
             }
         }
 
