@@ -482,6 +482,13 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
+    private val _showSyncRecommendation = MutableStateFlow(false)
+    val showSyncRecommendation = _showSyncRecommendation.asStateFlow()
+
+    fun setShowSyncRecommendation(show: Boolean) {
+        _showSyncRecommendation.value = show
+    }
+
     fun importTransactions(csvText: String, overwrite: Boolean, isWacc: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
@@ -489,6 +496,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             result.onSuccess { count ->
                 val type = if (isWacc) "WACC" else "Standard"
                 repository.triggerSnackbar("Successfully imported $count $type records")
+                _showSyncRecommendation.value = true
             }.onFailure { err ->
                 repository.triggerSnackbar("Import Error: ${err.message}")
             }
@@ -522,6 +530,7 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
             val result = repository.importPortfolioSyncCsv(csvText.byteInputStream())
             result.onSuccess { count ->
                 repository.triggerSnackbar("Sync Complete: $count scrips updated. Adjustment records added to match actual holdings. Please review amounts in History.")
+                _showSyncRecommendation.value = false
             }.onFailure { err ->
                 repository.triggerSnackbar("Portfolio Data Error: ${err.message}")
             }

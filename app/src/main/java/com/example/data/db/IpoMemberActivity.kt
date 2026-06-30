@@ -30,5 +30,6 @@ data class IpoMemberActivity(
     val allotmentStatus: String = "NOT_CHECKED", // NOT_CHECKED, ALLOTTED, NOT_ALLOTTED, ERROR
     val allotmentUnits: Int = 0,
     val allotmentMessage: String? = null,
-    val checkedAt: Long = 0
+    val checkedAt: Long = 0,
+    val isRecorded: Boolean = false
 )

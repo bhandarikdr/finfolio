@@ -1173,6 +1173,7 @@ fun IpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onNavi
                                     amount = units.toDouble() * 100.0
                                 )
                             )
+                            vm.markAsRecorded(boid.boid)
                             onNavigateToData()
                         }
                     } else null
@@ -1680,7 +1681,7 @@ fun BoidItem(
                                         Text(
                                             text = when {
                                                 isChecking -> "Checking Allotment..."
-                                                isAllotted -> "CONGRATULATIONS! ALLOTTED"
+                                                isAllotted -> "CONGRATULATIONS! ALLOTTED${if (activity.allotmentUnits > 0) " ${activity.allotmentUnits} Units" else ""}"
                                                 isError -> "ERROR"
                                                 else -> "Sorry, NOT ALLOTTED"
                                             },
@@ -1733,7 +1734,7 @@ fun BoidItem(
                                     }
                                 }
                                 
-                                if (isAllotted && activity.allotmentUnits > 0 && onAddTransaction != null) {
+                                if (isAllotted && activity.allotmentUnits > 0 && onAddTransaction != null && !activity.isRecorded) {
                                     Spacer(Modifier.height(8.dp))
                                     Button(
                                         onClick = { onAddTransaction(activity.allotmentUnits) },
@@ -1745,6 +1746,19 @@ fun BoidItem(
                                         Icon(Icons.Default.Add, null, Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text("Add to Transactions", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                } else if (isAllotted && activity.isRecorded) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Surface(
+                                        color = statusColor.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                            Icon(Icons.Default.Check, null, tint = statusColor, modifier = Modifier.size(14.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Recorded in History", style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
 
@@ -3673,7 +3687,7 @@ fun DataScreen(viewModel: PortfolioViewModel) {
     var showImport by remember { mutableStateOf(false) }
     var csvText by remember { mutableStateOf<String?>(null) }
     var isWacc by remember { mutableStateOf(false) }
-    var showMS by remember { mutableStateOf(false) }
+    val showMS by viewModel.showSyncRecommendation.collectAsStateWithLifecycle()
     
     val pendingSync by viewModel.pendingPortfolioSync.collectAsStateWithLifecycle()
     val pendingTransaction by viewModel.pendingTransaction.collectAsStateWithLifecycle()
@@ -3784,9 +3798,9 @@ fun DataScreen(viewModel: PortfolioViewModel) {
             }
         }
     }
-    if (showImport) AlertDialog({ showImport = false }, title = { Text("Import Mode") }, text = { Text("Append or Overwrite existing transactions?") }, confirmButton = { Button({ viewModel.importTransactions(csvText!!, false, isWacc); showImport = false; showMS = true }) { Text("Append") } }, dismissButton = { TextButton({ viewModel.importTransactions(csvText!!, true, isWacc); showImport = false; showMS = true }) { Text("Overwrite") } })
+    if (showImport) AlertDialog({ showImport = false }, title = { Text("Import Mode") }, text = { Text("Append or Overwrite existing transactions?") }, confirmButton = { Button({ viewModel.importTransactions(csvText!!, false, isWacc); showImport = false }) { Text("Append") } }, dismissButton = { TextButton({ viewModel.importTransactions(csvText!!, true, isWacc); showImport = false }) { Text("Overwrite") } })
     if (editingRec != null) EditTransactionDialog(editingRec!!, dItems, dSectors, onGetSector = { viewModel.getSectorForScrip(it) }, symbol = symbol, onS = { pUpd = it; editingRec = null }, onD = { editingRec = null })
-    if (pendingSync != null) AlertDialog({ viewModel.cancelPortfolioSync() }, title = { Text("Align Portfolio?") }, text = { Text("This will create ${pendingSync!!.second} new history entries (System Adjustments) to match your current portfolio export. Proceed?") }, confirmButton = { Button({ viewModel.importPortfolioSync(pendingSync!!.first); viewModel.cancelPortfolioSync(); showMS = false }) { Text("Proceed") } }, dismissButton = { TextButton({ viewModel.cancelPortfolioSync() }) { Text("Cancel") } })
+    if (pendingSync != null) AlertDialog({ viewModel.cancelPortfolioSync() }, title = { Text("Align Portfolio?") }, text = { Text("This will create ${pendingSync!!.second} new history entries (System Adjustments) to match your current portfolio export. Proceed?") }, confirmButton = { Button({ viewModel.importPortfolioSync(pendingSync!!.first); viewModel.cancelPortfolioSync() }) { Text("Proceed") } }, dismissButton = { TextButton({ viewModel.cancelPortfolioSync() }) { Text("Cancel") } })
     if (pDel != null) AlertDialog({ pDel = null }, title = { Text("Confirm Deletion") }, text = { Text("Are you sure you want to permanently delete this transaction for '${pDel!!.item}'? This action cannot be undone.") }, confirmButton = { Button({ viewModel.deleteTransaction(pDel!!); pDel = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton({ pDel = null }) { Text("Cancel") } })
     if (pAdd != null) AlertDialog({ pAdd = null }, title = { Text("Confirm Record") }, text = { Text("Add this ${pAdd!!.action} transaction for '${pAdd!!.item}' to your history?") }, confirmButton = { Button({ viewModel.addTransaction(pAdd!!); pAdd = null }) { Text("Confirm") } }, dismissButton = { TextButton({ pAdd = null }) { Text("Cancel") } })
     if (pUpd != null) AlertDialog({ pUpd = null }, title = { Text("Confirm Update") }, text = { Text("Apply changes to this transaction for '${pUpd!!.item}'?") }, confirmButton = { Button({ viewModel.updateTransaction(pUpd!!); pUpd = null }) { Text("Update") } }, dismissButton = { TextButton({ pUpd = null }) { Text("Cancel") } })

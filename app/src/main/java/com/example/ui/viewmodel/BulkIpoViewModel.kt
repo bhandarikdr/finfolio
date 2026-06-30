@@ -352,8 +352,15 @@ class BulkIpoViewModel(
     private fun extractUnits(message: String): Int {
         return try {
             val regex = """(\d+)\s+units""".toRegex()
-            regex.find(message)?.groupValues?.get(1)?.toInt() ?: 0
-        } catch (e: Exception) { 0 }
+            val match = regex.find(message.lowercase())
+            if (match != null) {
+                match.groupValues[1].toInt()
+            } else if (message.lowercase().contains("allotted")) {
+                10 // Default to 10 for standard IPOs if allotted but units not specified in text
+            } else 0
+        } catch (e: Exception) { 
+            if (message.lowercase().contains("allotted")) 10 else 0 
+        }
     }
 
     fun resetAllotment(boid: String) {
@@ -374,6 +381,17 @@ class BulkIpoViewModel(
         val ipo = _selectedIpo.value ?: return
         viewModelScope.launch {
             repository.updateApplyStatus(ipo.companyName, boid, "APPLIED", "Manually Marked", System.currentTimeMillis())
+        }
+    }
+
+    fun markAsRecorded(boid: String) {
+        val ipo = _selectedIpo.value ?: return
+        viewModelScope.launch {
+            repository.updateIpoMemberActivity(IpoMemberActivity(
+                companyName = ipo.companyName,
+                boid = boid,
+                isRecorded = true
+            ))
         }
     }
 
@@ -487,13 +505,17 @@ class BulkIpoViewModel(
     fun onHybridResultReceived(boidEntry: BoidEntry, message: String, success: Boolean) {
         val ipo = _selectedIpo.value ?: return
         com.example.data.util.AppLogger.i("IpoCheck", "Result received for ${boidEntry.name}: $message (Success: $success)")
+        
+        val units = if (success) extractUnits(message) else 0
+        
         viewModelScope.launch {
             repository.updateIpoMemberActivity(IpoMemberActivity(
                 companyName = ipo.companyName,
                 boid = boidEntry.boid,
                 allotmentStatus = if (success) "ALLOTTED" else "NOT_ALLOTTED",
-                allotmentUnits = if (success) extractUnits(message) else 0,
-                allotmentMessage = message,
+                allotmentUnits = units,
+                allotmentMessage = if (success && units > 0 && !message.contains("$units")) 
+                    "$message ($units Units)" else message,
                 checkedAt = System.currentTimeMillis()
             ))
         }

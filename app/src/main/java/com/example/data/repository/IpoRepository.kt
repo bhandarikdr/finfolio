@@ -129,7 +129,8 @@ class IpoRepository(
                     allotmentStatus = if (activity.allotmentStatus != "NOT_CHECKED") activity.allotmentStatus else existing.allotmentStatus,
                     allotmentUnits = if (activity.allotmentUnits != 0) activity.allotmentUnits else existing.allotmentUnits,
                     allotmentMessage = if (activity.allotmentMessage != null) activity.allotmentMessage else existing.allotmentMessage,
-                    checkedAt = if (activity.checkedAt != 0L) activity.checkedAt else existing.checkedAt
+                    checkedAt = if (activity.checkedAt != 0L) activity.checkedAt else existing.checkedAt,
+                    isRecorded = activity.isRecorded || existing.isRecorded
                 )
                 ipoMasterDao.insertActivity(merged)
             }
