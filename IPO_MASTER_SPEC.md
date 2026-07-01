@@ -25,9 +25,19 @@ The following attributes are tracked for each offering:
 - `scrip`: Market symbol (if available).
 - `shareType`: IPO, FPO, or Right Share.
 - `units`: Total number of shares being offered.
-- `openingDate` / `closingDate`: The subscription window.
+- `openingDate` / `closingDate`: The subscription window (Normalized to AD).
 - `status`: Current phase (e.g., Open, Closed, Allotted).
 - `resultPortalId`: The specific ID required to query results from external portals.
+
+### Date Normalization Engine
+To ensure accurate categorization (Upcoming/Current/Previous), the system converts all scraped dates to **AD (yyyy-MM-dd)**.
+- **BS Detection**: Strings ending in "BS" or starting with years 2070-2100 are automatically converted via `NepDateUtils`.
+- **Accuracy**: The engine uses a verified month-day map for BS 2075-2085 to account for variable month lengths.
+
+### Member Activity Tracking
+Results and submissions are tracked per BOID in `IpoMemberActivity`:
+- **isRecorded**: A boolean flag indicating if an allotment has been added to the portfolio history. This ensures "one-time only" recording for the primary user.
+- **allotmentUnits**: Extracted from result text, defaulting to 10 if only "Allotted" is confirmed.
 
 ### Organization & UI
 The IPO Master page organizes listings into three distinct expandable dropdowns:

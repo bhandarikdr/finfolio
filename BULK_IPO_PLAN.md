@@ -101,6 +101,17 @@ To ensure robustness and clarity in IPO management, the following standards are 
 
 ---
 
+## 📅 Data Integrity: Date Conversion Logic
+To ensure consistent sorting and filtering, all IPO dates are stored in **AD (Anno Domini)** format.
+
+1.  **BS Detection**: The `IpoRepository` automatically detects **Bikram Sambat (BS)** dates from sources like Nepali Paisa (suffix "BS" or year range 2070-2100).
+2.  **Conversion Engine**: `NepDateUtils` provides precise mapping for BS years 2075-2085.
+    *   **Reference Point**: 2075-01-01 BS = 2018-04-14 AD.
+    *   **Logic**: Month lengths are mapped per year to account for 365/366 day variations.
+3.  **UI Localization**: Users can toggle between BS and AD in settings. The `displayDate` utility dynamically converts stored AD dates back to BS for localized viewing without losing underlying data precision.
+
+---
+
 ## ⚠️ Technical Constraints & WebView Hacks
 
 ### CDSC Result Portal Centering

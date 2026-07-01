@@ -33,10 +33,17 @@ Due to external portals implementing strict CAPTCHA and rate-limiting, FinFolio 
 
 ## 3. Results Parsing & Caching
 - **Regex Extraction**: The result message (e.g., "...allotted 10 units") is parsed to extract the numerical count.
+- **Defaulting**: If a user is allotted but the specific unit count isn't in the text, the engine defaults to **10 Units** (standard IPO minimum).
+- **One-Time Recording**: Users can add their own allotment ("ME" profile) to history. Once added, the `isRecorded` flag prevents duplicate entries, replacing the button with a "Recorded in History" status.
 - **UI States**: 
-    - **Allotted**: Highlighted in green with unit count.
+    - **Allotted**: Highlighted in green with unit count (e.g., "CONGRATULATIONS! ALLOTTED 10 Units").
     - **Not Allotted**: Marked in red.
-- **Persistence**: Results are cached in `ipo_result_cache` for 24 hours to avoid redundant network requests.
+- **Persistence**: Results are cached in `ipo_result_cache` for 24 hours.
+
+## 4. UI/UX Flow Refinements
+- **Persistent Data Sync**: The "Sync" recommendation in the Data screen is state-managed in the ViewModel. It appears after a standard import and remains visible across navigation until the user successfully completes the portfolio alignment.
+- **Dynamic Dropdowns**: The company selection in IPO Check includes all companies with a recorded `allotmentDate`, ensuring "Allotment Completed" and "Previous Issues" are always accessible.
+- **Automation Engine**: The Hybrid Checker uses fuzzy matching (ignoring "Ltd", "Microfinance", etc.) to auto-select companies on the CDSC portal and automatically triggers the "View Result" action once fields are populated.
 
 ---
 
