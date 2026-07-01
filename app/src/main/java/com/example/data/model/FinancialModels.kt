@@ -1,19 +1,19 @@
 package com.example.data.model
 
-import com.example.data.db.Holdings
+import com.example.data.db.ExternalLtp
 
 /**
  * Categories for data scrapers used throughout the app.
  * Each category supports prioritized multiple URLs for fallback reliability.
  */
 enum class ScraperCategory(val displayName: String, val description: String) {
-    PRIMARY_INDEX_STATUS("Primary Index Status", "Monitors the main NEPSE index status."),
-    INDICES_UPDATE("Market Index Update", "Updates market and sector indices."),
-    SCRIP_SYNC("Scrip Master Sync", "Downloads list of all listed companies."),
     LTP_UPDATE("Live Price (LTP) Update", "Fetches latest market prices for portfolio stocks."),
-    DP_MASTER("DP Member List", "Syncs Depository Participants for automated MeroShare login."),
-    ISSUES_LISTING("Issues Pipeline", "Tracks upcoming and ongoing IPO, FPO, Auction, Dividend and Bonds."),
+    INDEX_UPDATE("Market Index Update", "Updates market and sector indices."),
+    PRIMARY_INDEX_STATUS("Primary Index Status", "Monitors the main NEPSE index status."),
+    SCRIP_SYNC("Scrip Master Sync", "Downloads list of all listed companies."),
+    IPO_LISTING("IPO Pipeline", "Tracks upcoming and ongoing IPOs."),
     IPO_RESULT("IPO Result Checker", "Endpoint for verifying IPO allotment status."),
+    DP_MASTER("DP Member List", "Syncs Depository Participants for automated MeroShare login."),
     MEROSHARE_WEB("MeroShare Web Portal", "Official MeroShare login portal for manual or automated application."),
     MEROSHARE_API("MeroShare Backend API", "Private API endpoint for automated results and application.")
 }
@@ -21,29 +21,24 @@ enum class ScraperCategory(val displayName: String, val description: String) {
 object ScraperDefaults {
     val defaultScrapersByCategory = mapOf(
         ScraperCategory.LTP_UPDATE to listOf(
+            "https://www.nepalstock.com/today-price",
             "https://www.sharesansar.com/live-trading",
-            "https://merolagani.com/latestmarket.aspx",
-            "https://www.nepalstock.com/today-price"
+            "https://merolagani.com/latestmarket.aspx"
         ),
-        ScraperCategory.INDICES_UPDATE to listOf(
-            "https://merolagani.com/latestmarket.aspx",
-            "https://www.sharesansar.com/market"
+        ScraperCategory.INDEX_UPDATE to listOf(
+            "https://www.sharesansar.com/market",
+            "https://merolagani.com/latestmarket.aspx"
         ),
         ScraperCategory.PRIMARY_INDEX_STATUS to listOf(
-            "https://merolagani.com/latestmarket.aspx",
-            "https://www.sharesansar.com/live-trading",
             "https://www.nepalstock.com/"
         ),
         ScraperCategory.SCRIP_SYNC to listOf(
             "https://www.sharesansar.com/company-list",
             "https://merolagani.com/CompanyList.aspx"
         ),
-        ScraperCategory.ISSUES_LISTING to listOf(
-            "https://nepalipaisa.com/ipo",
-            "https://nepalipaisa.com/fpo",
-            "https://nepalipaisa.com/auction",
-            "https://nepalipaisa.com/dividend",
-            "https://nepalipaisa.com/bond"
+        ScraperCategory.IPO_LISTING to listOf(
+            "https://nepalipaisa.com/api/GetIpos?stockSymbol=&pageNo=1&itemsPerPage=100&pagePerDisplay=5",
+            "https://www.sharesansar.com/ipo-fpo-news"
         ),
         ScraperCategory.IPO_RESULT to listOf(
             "https://iporesult.cdsc.com.np/"
@@ -154,11 +149,18 @@ object FinancialEngines {
      * Optimized: Compute metrics using pre-computed Holdings table.
      */
     fun computeItemMetricsFromHoldings(
-        holdings: List<Holdings>,
+        holdings: List<com.example.data.db.Holdings>,
+        ltpList: List<ExternalLtp>,
         commissionRate: Double = 0.0038,
         flatFee: Double = 25.0,
         cgtRate: Double = 0.075
     ): List<ItemMetrics> {
+        val ltpMap = mutableMapOf<String, ExternalLtp>()
+        ltpList.sortedBy { it.timestamp }.forEach { ltpMap[it.symbol.uppercase().trim()] = it }
+
+        val externalSyncFlags = ltpList.groupBy { it.symbol.uppercase().trim() }
+            .mapValues { (_, list) -> list.any { it.isInExternalSync } }
+
         return holdings.map { h ->
             val symbol = h.symbol
             val sector = h.sector
@@ -176,9 +178,10 @@ object FinancialEngines {
             
             val netInvest = round((buyAmount - saleAmount).coerceAtLeast(0.0))
 
-            val ltp = h.ltp
-            val prevLtp = h.prevLtp
-            val isInSync = h.isInExternalSync
+            val ltpValRecord = ltpMap[symbol]
+            val ltp = ltpValRecord?.ltp ?: 0.0
+            val prevLtp = ltpValRecord?.previousLtp ?: 0.0
+            val isInSync = externalSyncFlags[symbol] ?: false
 
             val evaluation = round(if (avgCp > 0.0) (balanceQty * ltp) else netInvest)
             val realizedGain = round((saleAmount - buyAmount) + returnsCash + netInvest)

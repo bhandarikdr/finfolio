@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.data.db.PortfolioDao
 import com.example.data.db.ScripMaster
+import com.example.data.db.MarketIndexEntity
 import com.example.data.model.*
 import com.example.data.util.AppLogger
 import com.example.data.util.CircuitBreaker
@@ -15,7 +16,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONObject
 import org.jsoup.Jsoup
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
+import android.util.Log
 
 data class MarketIndex(
     val index: String,
@@ -78,7 +82,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
     suspend fun updateWishlist(symbol: String, isWishlisted: Boolean) {
         val sector = portfolioDao.getSectorFromMaster(symbol)
         if (sector == null) {
-            portfolioDao.insertScripMasterSingle(ScripMaster(symbol, symbol, "Other", isWishlisted = isWishlisted))
+            portfolioDao.insertScripMasterSingle(ScripMaster(symbol, symbol, "Other", isWishlisted))
         } else {
             portfolioDao.updateWishlistStatus(symbol, isWishlisted)
         }
@@ -140,7 +144,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 
                 doc.select("table").forEach { table ->
                     val allRows = table.select("tr")
-                    if (allRows.size < 2) return@forEach
+                    if (allRows.size < 5) return@forEach
                     
                     var symIdx = -1; var nameIdx = -1; var secIdx = -1
                     
@@ -154,29 +158,14 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                         }
                         if (symIdx != -1) break
                     }
-
-                    // If no sector column, try to infer from headings (Required for sites like Merolagani)
-                    var inferredSector = "Other"
-                    if (secIdx == -1) {
-                        var prev = table.previousElementSibling()
-                        while (prev != null && inferredSector == "Other") {
-                            val h = prev.select("h1, h2, h3, h4, h5, h6, .panel-title, .title, .heading").firstOrNull()
-                            if (h != null) inferredSector = h.text().trim()
-                            prev = prev.previousElementSibling()
-                        }
-                        if (inferredSector == "Other") {
-                            inferredSector = table.parents().select(".panel-default, .panel, .section, .category-box").firstOrNull()
-                                ?.select("h1, h2, h3, h4, h5, h6, .panel-title, .title, .heading")?.firstOrNull()?.text()?.trim() ?: "Other"
-                        }
-                    }
                     
                     if (symIdx != -1) {
-                        allRows.forEach { row ->
+                        allRows.drop(1).forEach { row ->
                             val cells = row.select("td")
                             if (cells.size > symIdx) {
                                 val symbol = cells[symIdx].text().trim().uppercase()
                                 val name = if (nameIdx != -1 && nameIdx < cells.size) cells[nameIdx].text().trim() else symbol
-                                val sector = if (secIdx != -1 && secIdx < cells.size) cells[secIdx].text().trim() else inferredSector
+                                val sector = if (secIdx != -1 && secIdx < cells.size) cells[secIdx].text().trim() else "Other"
                                 
                                 if (symbol.isNotEmpty() && 
                                     !garbageTerms.contains(symbol.lowercase()) && 
@@ -191,21 +180,9 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 if (scrips.isNotEmpty()) {
                     val existing = portfolioDao.getAllScripMaster().first()
                     val wishlistedSymbols = existing.filter { it.isWishlisted }.map { it.symbol }.toSet()
-                    val scripDataMap = existing.associateBy { it.symbol }
                     
-                    val updatedScrips = scrips.map { scrip ->
-                        val existingData = scripDataMap[scrip.symbol]
-                        scrip.copy(
-                            isWishlisted = wishlistedSymbols.contains(scrip.symbol),
-                            ltp = existingData?.ltp ?: 0.0,
-                            previousLtp = existingData?.previousLtp ?: 0.0,
-                            pointChange = existingData?.pointChange ?: 0.0,
-                            changePercent = existingData?.changePercent ?: 0.0,
-                            open = existingData?.open ?: 0.0,
-                            high = existingData?.high ?: 0.0,
-                            low = existingData?.low ?: 0.0,
-                            timestamp = existingData?.timestamp ?: 0L
-                        )
+                    val updatedScrips = scrips.map { 
+                        if (wishlistedSymbols.contains(it.symbol)) it.copy(isWishlisted = true) else it 
                     }
                     
                     portfolioDao.insertScripMaster(updatedScrips)
@@ -224,7 +201,7 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
         
         lastIndicesSync = now
         AppLogger.i("MarketSync", "Starting Market Indices Sync")
-        val urls = getScraperUrls(ScraperCategory.PRIMARY_INDEX_STATUS) + getScraperUrls(ScraperCategory.INDICES_UPDATE)
+        val urls = getScraperUrls(ScraperCategory.PRIMARY_INDEX_STATUS) + getScraperUrls(ScraperCategory.INDEX_UPDATE)
         val scrapedIndices = mutableMapOf<String, MarketIndex>()
         val timestamp = System.currentTimeMillis()
         val primaryName = portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
@@ -589,13 +566,13 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                 }
 
                 val doc = Jsoup.parse(html)
+                val scrapedLtps = mutableListOf<com.example.data.db.ExternalLtp>()
                 val timestamp = System.currentTimeMillis()
 
                 doc.select("table").forEachIndexed { tableIdx, table ->
                     val rows = table.select("tr")
                     if (rows.isEmpty()) return@forEachIndexed
                     var symIdx = -1; var ltpIdx = -1; var prvIdx = -1; var chgIdx = -1; var pctIdx = -1
-                    var openIdx = -1; var highIdx = -1; var lowIdx = -1
                     var headerIdx = -1
                     for (i in 0 until minOf(rows.size, 5)) {
                         val header = rows[i].select("th, td").map { it.text().lowercase().trim() }
@@ -605,9 +582,6 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                             if (text.contains("prev") || (text == "close" && ltpIdx != index)) prvIdx = index
                             if (text.contains("change") && !text.contains("%") || text == "+/-") chgIdx = index
                             if (text.contains("%")) pctIdx = index
-                            if (text == "open") openIdx = index
-                            if (text == "high") highIdx = index
-                            if (text == "low") lowIdx = index
                         }
                         if (symIdx != -1 && ltpIdx != -1) { 
                             headerIdx = i
@@ -621,17 +595,12 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
                                 val symbol = cells[symIdx].text().trim().uppercase()
                                 val ltp = cells[ltpIdx].text().replace(",", "").trim().toDoubleOrNull() ?: 0.0
                                 if (symbol.isNotEmpty() && ltp > 0 && !garbageTerms.contains(symbol.lowercase())) {
-                                    val existingScrip = portfolioDao.getScripMasterBySymbol(symbol)
-                                    val existingHolding = portfolioDao.getHoldingsBySymbol(symbol)
+                                    val existing = portfolioDao.getExternalLtpBySymbol(symbol)
                                     
                                     // Try direct change/percent if available
                                     val directChange = if (chgIdx != -1 && chgIdx < cells.size) cells[chgIdx].text().replace(",", "").replace("+", "").trim().toDoubleOrNull() else null
                                     val directPct = if (pctIdx != -1 && pctIdx < cells.size) cells[pctIdx].text().replace(",", "").replace("+", "").replace("%", "").trim().toDoubleOrNull() else null
                                     
-                                    val openVal = if (openIdx != -1 && openIdx < cells.size) cells[openIdx].text().replace(",", "").trim().toDoubleOrNull() ?: 0.0 else 0.0
-                                    val highVal = if (highIdx != -1 && highIdx < cells.size) cells[highIdx].text().replace(",", "").trim().toDoubleOrNull() ?: 0.0 else 0.0
-                                    val lowVal = if (lowIdx != -1 && lowIdx < cells.size) cells[lowIdx].text().replace(",", "").trim().toDoubleOrNull() ?: 0.0 else 0.0
-
                                     val isNeg = (chgIdx != -1 && chgIdx < cells.size && cells[chgIdx].text().contains("-")) || 
                                                 (pctIdx != -1 && pctIdx < cells.size && cells[pctIdx].text().contains("-"))
 
@@ -640,80 +609,42 @@ class MarketRepository(private val portfolioDao: PortfolioDao) {
 
                                     // SMART UPDATE LOGIC:
                                     // 1. If current data shows ZERO change, but DB has valid NON-ZERO change, skip it (likely stale/closed market data).
-                                    val isInvalidZero = existingScrip != null && Math.abs(existingScrip.pointChange) > 0.01 && Math.abs(finalChg) < 0.01
+                                    val isInvalidZero = existing != null && Math.abs(existing.pointChange) > 0.01 && Math.abs(finalChg) < 0.01
                                     
                                     // 2. If LTP is same AND current change is same (or zero), skip update to avoid unnecessary writes.
-                                    val isExactlySame = existingScrip != null && Math.abs(existingScrip.ltp - ltp) < 0.001 && Math.abs(existingScrip.pointChange - finalChg) < 0.01
+                                    val isExactlySame = existing != null && Math.abs(existing.ltp - ltp) < 0.001 && Math.abs(existing.pointChange - finalChg) < 0.01
                                     
                                     if (isInvalidZero || isExactlySame) {
                                         return@forEach
                                     }
 
                                     val prevLtp = if (prvIdx != -1 && prvIdx < cells.size) cells[prvIdx].text().replace(",", "").trim().toDoubleOrNull() ?: (ltp - finalChg) else (ltp - finalChg)
-                                    val finalPctComputed = if (directPct != null) finalPct else (if (prevLtp > 0) (ltp - prevLtp) / prevLtp * 100.0 else 0.0)
-
-                                    if (existingScrip == null) {
-                                        portfolioDao.insertScripMasterSingle(
-                                            ScripMaster(
-                                                symbol = symbol,
-                                                name = symbol,
-                                                sector = "Other",
-                                                ltp = ltp,
-                                                previousLtp = prevLtp,
-                                                pointChange = finalChg,
-                                                changePercent = finalPctComputed,
-                                                open = openVal,
-                                                high = highVal,
-                                                low = lowVal,
-                                                timestamp = timestamp
-                                            )
-                                        )
-                                    } else {
-                                        // Update Global ScripMaster
-                                        portfolioDao.updateScripPriceFull(
-                                            symbol = symbol,
-                                            ltp = ltp,
-                                            prev = prevLtp,
-                                            chg = finalChg,
-                                            pct = finalPctComputed,
-                                            o = openVal,
-                                            h = highVal,
-                                            l = lowVal,
-                                            ts = timestamp
-                                        )
-                                    }
-
-                                    // Update User Holdings (Overwrite imported price on Market Refresh as per user instruction)
-                                    if (existingHolding != null) {
-                                        portfolioDao.updateHoldingPrice(
-                                            symbol = symbol,
-                                            ltp = ltp,
-                                            prev = prevLtp,
-                                            source = "Scraped",
-                                            sync = existingHolding.isInExternalSync,
-                                            ts = timestamp
-                                        )
-                                    }
                                     
-                                    updateCount++
-                                    changes.add(ScripPriceChange(symbol, ltp, finalChg, finalPctComputed, prevLtp, "Scraped"))
-
-                                    // 2.2: Price Audit Buffer (RAM caching layer)
-                                    PriceAuditBuffer.onPriceUpdate(
+                                    val ltpEntity = com.example.data.db.ExternalLtp(
                                         symbol = symbol,
                                         ltp = ltp,
-                                        changePercent = finalPctComputed,
+                                        previousLtp = prevLtp,
+                                        pointChange = finalChg,
+                                        changePercent = if (directPct != null) finalPct else (if (prevLtp > 0) (ltp - prevLtp) / prevLtp * 100.0 else 0.0),
                                         source = "Scraped",
-                                        isHeldOrWishlisted = watchedScrips.contains(symbol)
+                                        timestamp = timestamp,
+                                        isInExternalSync = existing?.isInExternalSync ?: false
                                     )
+                                    scrapedLtps.add(ltpEntity)
+                                    changes.add(ScripPriceChange(symbol, ltp, finalChg, finalPct, ltpEntity.previousLtp, "Scraped"))
+                                    
+                                    // 2.2: Price Audit Buffer (RAM caching layer)
+                                    PriceAuditBuffer.onPriceUpdate(ltpEntity, watchedScrips.contains(symbol))
                                 }
                             }
                         }
                     }
                 }
-                if (updateCount > 0) {
+                if (scrapedLtps.isNotEmpty()) {
+                    portfolioDao.insertExternalLtps(scrapedLtps)
                     cb.recordSuccess()
-                    AppLogger.i("LtpSync", "Sync successful from $baseUrl. Updated $updateCount items.")
+                    AppLogger.i("LtpSync", "Sync successful from $baseUrl. Scraped ${scrapedLtps.size} items.")
+                    updateCount = scrapedLtps.size
                     return@withContext Result.success(updateCount)
                 }
             } catch (e: Exception) {

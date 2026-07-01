@@ -3,13 +3,30 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.data.db.AppDatabase
+import com.example.data.db.ExternalLtp
 import com.example.data.db.TransactionRecord
-import com.example.data.model.*
+import com.example.data.model.FinancialEngines
+import com.example.data.model.ItemMetrics
+import com.example.data.model.MarketStatus
+import com.example.data.model.ScraperCategory
+import com.example.data.model.TypeMetrics
+import com.example.data.model.UserProfile
 import com.example.data.repository.PortfolioRepository
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jsoup.Jsoup
+import java.io.InputStream
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
@@ -24,105 +41,11 @@ enum class DatasetScope {
     PORTFOLIO
 }
 
-class PortfolioViewModel(
-    private val repository: PortfolioRepository,
-    private val marketRepository: com.example.data.repository.MarketRepository? = null,
-    private val ipoRepository: com.example.data.repository.IpoRepository? = null
-) : ViewModel() {
-
-    private val _isScraping = MutableStateFlow(false)
-    val isScraping = _isScraping.asStateFlow()
-
-    private val _scrapeStatus = MutableStateFlow("")
-    val scrapeStatus = _scrapeStatus.asStateFlow()
-
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading = _isLoading.asStateFlow()
-
-    fun triggerIndividualScrape(category: ScraperCategory) {
-        viewModelScope.launch {
-            _isScraping.value = true
-            _scrapeStatus.value = "Starting ${category.displayName}..."
-            com.example.data.util.AppLogger.i("ScraperConfig", "Manual trigger for ${category.name}")
-            
-            try {
-                when (category) {
-                    ScraperCategory.PRIMARY_INDEX_STATUS, ScraperCategory.INDICES_UPDATE -> {
-                        repository.refreshLivePrices()
-                        marketRepository?.fetchMarketIndices(force = true)
-                    }
-                    ScraperCategory.SCRIP_SYNC -> {
-                        marketRepository?.fetchMasterScrips()
-                    }
-                    ScraperCategory.LTP_UPDATE -> {
-                        marketRepository?.fetchPriceChanges(force = true)
-                    }
-                    ScraperCategory.DP_MASTER -> {
-                        marketRepository?.fetchDpMaster()
-                    }
-                    ScraperCategory.ISSUES_LISTING -> {
-                        ipoRepository?.syncIpos(force = true)
-                    }
-                    else -> {
-                        repository.triggerSnackbar("Direct scraping for ${category.displayName} is not supported.")
-                    }
-                }
-                repository.triggerSnackbar("${category.displayName} completed.")
-            } catch (e: Exception) {
-                com.example.data.util.AppLogger.e("ScraperConfig", "Failed scrape for ${category.name}", e)
-                repository.triggerSnackbar("${category.displayName} failed: ${e.message}")
-            } finally {
-                _isScraping.value = false
-                _scrapeStatus.value = ""
-            }
-        }
-    }
-
-    fun triggerGlobalRefresh() {
-        viewModelScope.launch {
-            if (_isScraping.value) return@launch
-            _isScraping.value = true
-            _isLoading.value = true
-            
-            val sequence = listOf(
-                ScraperCategory.PRIMARY_INDEX_STATUS to "Updating Market Status...",
-                ScraperCategory.INDICES_UPDATE to "Fetching Market Indices...",
-                ScraperCategory.SCRIP_SYNC to "Syncing Master Scrip List...",
-                ScraperCategory.LTP_UPDATE to "Updating Live Prices (LTP)...",
-                ScraperCategory.DP_MASTER to "Refreshing DP Member List...",
-                ScraperCategory.ISSUES_LISTING to "Checking IPO Pipeline..."
-            )
-            
-            com.example.data.util.AppLogger.i("GlobalRefresh", "Sequence started")
-            
-            try {
-                for (step in sequence) {
-                    val (cat, status) = step
-                    _scrapeStatus.value = status
-                    com.example.data.util.AppLogger.d("GlobalRefresh", "Task: $status")
-                    
-                    when (cat) {
-                        ScraperCategory.PRIMARY_INDEX_STATUS -> repository.refreshLivePrices()
-                        ScraperCategory.INDICES_UPDATE -> marketRepository?.fetchMarketIndices(force = true)
-                        ScraperCategory.SCRIP_SYNC -> marketRepository?.fetchMasterScrips()
-                        ScraperCategory.LTP_UPDATE -> marketRepository?.fetchPriceChanges(force = true)
-                        ScraperCategory.DP_MASTER -> marketRepository?.fetchDpMaster()
-                        ScraperCategory.ISSUES_LISTING -> ipoRepository?.syncIpos(force = true)
-                        else -> {}
-                    }
-                    kotlinx.coroutines.delay(500)
-                }
-                repository.triggerSnackbar("Global Market Refresh Complete")
-            } catch (e: Exception) {
-                com.example.data.util.AppLogger.e("GlobalRefresh", "Sequence interrupted", e)
-                repository.triggerSnackbar("Refresh failed: ${e.message}")
-            } finally {
-                _isScraping.value = false
-                _isLoading.value = false
-                _scrapeStatus.value = ""
-            }
-        }
-    }
+/**
+ * ViewModel responsible for managing portfolio metrics, transactions, and user settings.
+ * Handles the logic for prioritized scraper URL management and testing.
+ */
+class PortfolioViewModel(private val repository: PortfolioRepository) : ViewModel() {
 
     val userProfile: StateFlow<UserProfile?> = repository.userProfile
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -133,11 +56,15 @@ class PortfolioViewModel(
     val defaultScrapers = com.example.data.model.ScraperDefaults.defaultScrapersByCategory
 
     fun registerUser(name: String, email: String, boid: String? = null) {
-        viewModelScope.launch { repository.saveUserProfile(name, email, boid) }
+        viewModelScope.launch {
+            repository.saveUserProfile(name, email, boid)
+        }
     }
 
     fun updateAppSettings(currency: String, dateFormat: String) {
-        viewModelScope.launch { repository.updateAppSettings(currency, dateFormat) }
+        viewModelScope.launch {
+            repository.updateAppSettings(currency, dateFormat)
+        }
     }
 
     fun updateFinancialRates(commission: Double, flat: Double, cgt: Double) {
@@ -174,12 +101,43 @@ class PortfolioViewModel(
     val allHoldings: StateFlow<List<com.example.data.db.Holdings>> = repository.allHoldings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * MIGRATION LOGIC (UX Refinement):
+     * Determines if the "Finalizing Setup" screen should be shown.
+     * Required if Transactions exist but Holdings (Core Engine V2) is not yet populated.
+     */
     private val _isMigrationSkipped = MutableStateFlow(false)
     val isMigrationRequired: StateFlow<Boolean> = combine(allTransactions, allHoldings, _isMigrationSkipped) { txs, holdings, skipped ->
         !skipped && txs.isNotEmpty() && holdings.isEmpty()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    fun skipMigration() { _isMigrationSkipped.value = true }
+    fun skipMigration() {
+        _isMigrationSkipped.value = true
+    }
+
+    fun performV2Migration() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.performV2Migration()
+                repository.triggerSnackbar("App optimization complete")
+            } catch (e: Exception) {
+                repository.triggerSnackbar("Migration failed: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun createBackup(context: android.content.Context, onComplete: (String?) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.createFullBackup(context)
+            result.onSuccess { onComplete(it) }.onFailure { onComplete(null) }
+        }
+    }
+
+    val allExternalLtps: StateFlow<List<ExternalLtp>> = repository.allExternalLtps
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val distinctItems: StateFlow<List<String>> = combine(
         repository.distinctItems,
@@ -201,12 +159,17 @@ class PortfolioViewModel(
     val distinctSectors: StateFlow<List<String>> = repository.distinctSectors
         .map { fromData ->
             val garbage = listOf("sector", "type", "total", "action", "company", "s.no", "name", "symbol", "index", "indices")
-            fromData.filter { 
-                val clean = it.lowercase().trim()
-                it.isNotBlank() && !garbage.contains(clean) && it.replace(",", "").toDoubleOrNull() == null 
-            }.distinct().sorted()
+            fromData
+                .filter { 
+                    val clean = it.lowercase().trim()
+                    it.isNotBlank() && !garbage.contains(clean) && it.replace(",", "").toDoubleOrNull() == null 
+                }
+                .distinct()
+                .sorted()
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+
+    // UI States and Filters - Independent Dashboard and Matrix Scopes
     private val _dashboardScope = MutableStateFlow(DatasetScope.OVERALL)
     val dashboardScope: StateFlow<DatasetScope> = combine(_dashboardScope, userProfile) { current, profile ->
         if (profile != null) {
@@ -226,6 +189,9 @@ class PortfolioViewModel(
         if (profile != null) profile.selectedSectorFilter else current
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "All")
 
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     val snackbarMessage = repository.snackbarMessage
 
     private val _pendingSectorUpdate = MutableStateFlow<TransactionRecord?>(null)
@@ -234,8 +200,11 @@ class PortfolioViewModel(
     private val _pendingTransaction = MutableStateFlow<TransactionRecord?>(null)
     val pendingTransaction = _pendingTransaction.asStateFlow()
 
-    fun setPendingTransaction(record: TransactionRecord?) { _pendingTransaction.value = record }
+    fun setPendingTransaction(record: TransactionRecord?) {
+        _pendingTransaction.value = record
+    }
 
+    // Column show/hide configuration sets
     private val _itemColumns = MutableStateFlow(
         setOf(
             "Buy_Amount", "Buy_Count", "Buy_Qty", "Sale_Amount", "Sale_Count", "Sale_Qty",
@@ -259,53 +228,86 @@ class PortfolioViewModel(
         if (profile != null && profile.sectorColumns.isNotEmpty()) profile.sectorColumns else current
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), _sectorColumns.value)
 
+    // Aggregated Metrics - Calculated twice to support independent dashboard and matrix filters
     val dashboardItemMetrics: StateFlow<List<ItemMetrics>> = combine(
-        allHoldings, dashboardScope, userProfile
-    ) { holdingsList, scope, profile ->
+        allHoldings,
+        allExternalLtps,
+        dashboardScope,
+        userProfile
+    ) { holdingsList, ltpList, scope, profile ->
         val computedAll = FinancialEngines.computeItemMetricsFromHoldings(
             holdingsList, 
+            ltpList,
             commissionRate = profile?.commissionRate ?: 0.0038,
             flatFee = profile?.flatFee ?: 25.0,
             cgtRate = profile?.cgtRate ?: 0.075
         )
-        if (scope == DatasetScope.OVERALL) computedAll else computedAll.filter { it.isInExternalSync || it.balanceQty > 0.0 }
+        when (scope) {
+            DatasetScope.OVERALL -> computedAll
+            DatasetScope.PORTFOLIO -> computedAll.filter { it.isInExternalSync || it.balanceQty > 0.0 }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val matrixItemMetrics: StateFlow<List<ItemMetrics>> = combine(
-        allHoldings, matrixScope, userProfile
-    ) { holdingsList, scope, profile ->
+        allHoldings,
+        allExternalLtps,
+        matrixScope,
+        userProfile
+    ) { holdingsList, ltpList, scope, profile ->
         val computedAll = FinancialEngines.computeItemMetricsFromHoldings(
             holdingsList, 
+            ltpList,
             commissionRate = profile?.commissionRate ?: 0.0038,
             flatFee = profile?.flatFee ?: 25.0,
             cgtRate = profile?.cgtRate ?: 0.075
         )
-        if (scope == DatasetScope.OVERALL) computedAll else computedAll.filter { it.isInExternalSync || it.balanceQty > 0.0 }
+        when (scope) {
+            DatasetScope.OVERALL -> computedAll
+            DatasetScope.PORTFOLIO -> computedAll.filter { it.isInExternalSync || it.balanceQty > 0.0 }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * MATRIX SECTOR FILTER (Context-Aware UX):
+     * Dynamically lists sectors based on the active [DatasetScope].
+     * Portfolio Scope -> Shows only sectors with active holdings.
+     * Overall Scope -> Lists every discovered sector.
+     */
     val matrixSectors: StateFlow<List<String>> = combine(
-        matrixScope, distinctSectors, matrixItemMetrics
+        matrixScope,
+        distinctSectors,
+        matrixItemMetrics
     ) { scope, allSectors, currentItems ->
-        if (scope == DatasetScope.OVERALL) allSectors else currentItems.map { it.sector }.distinct().sorted()
+        if (scope == DatasetScope.OVERALL) {
+            allSectors
+        } else {
+            currentItems.map { it.sector }.distinct().sorted()
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val dashboardSectorMetrics: StateFlow<List<TypeMetrics>> = dashboardItemMetrics.map { activeItems ->
-        FinancialEngines.computeTypeMetrics(activeItems)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val dashboardSectorMetrics: StateFlow<List<TypeMetrics>> = dashboardItemMetrics
+        .map { activeItems ->
+            FinancialEngines.computeTypeMetrics(activeItems)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val matrixSectorMetrics: StateFlow<List<TypeMetrics>> = matrixItemMetrics.map { activeItems ->
-        FinancialEngines.computeTypeMetrics(activeItems)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val matrixSectorMetrics: StateFlow<List<TypeMetrics>> = matrixItemMetrics
+        .map { activeItems ->
+            FinancialEngines.computeTypeMetrics(activeItems)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val totalInvestment: StateFlow<Double> = dashboardItemMetrics.map { items -> items.sumOf { it.netInvest } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val totalInvestment: StateFlow<Double> = dashboardItemMetrics.map { items ->
+        items.sumOf { it.netInvest }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val totalEvaluation: StateFlow<Double> = dashboardItemMetrics.map { items -> items.sumOf { it.evaluation } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val totalEvaluation: StateFlow<Double> = dashboardItemMetrics.map { items ->
+        items.sumOf { it.evaluation }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     fun setDashboardScope(scope: DatasetScope) {
         _dashboardScope.value = scope
-        viewModelScope.launch { repository.updateDashboardScope(scope.name) }
+        viewModelScope.launch { 
+            repository.updateDashboardScope(scope.name)
+        }
     }
 
     fun setMatrixScope(scope: DatasetScope) {
@@ -317,7 +319,9 @@ class PortfolioViewModel(
         }
     }
 
-    suspend fun getSectorForScrip(symbol: String): String = repository.getSectorForScrip(symbol)
+    suspend fun getSectorForScrip(symbol: String): String {
+        return repository.getSectorForScrip(symbol)
+    }
 
     fun setSelectedSectorFilter(sector: String) {
         _selectedSectorFilter.value = sector
@@ -326,21 +330,29 @@ class PortfolioViewModel(
 
     fun toggleItemColumn(column: String) {
         val current = itemColumns.value.toMutableSet()
-        if (current.contains(column)) current.remove(column) else current.add(column)
+        if (current.contains(column)) {
+            current.remove(column)
+        } else {
+            current.add(column)
+        }
         _itemColumns.value = current
         viewModelScope.launch { repository.updateItemColumns(current) }
-    }
-
-    fun toggleSectorColumn(column: String) {
-        val current = sectorColumns.value.toMutableSet()
-        if (current.contains(column)) current.remove(column) else current.add(column)
-        _sectorColumns.value = current
-        viewModelScope.launch { repository.updateSectorColumns(current) }
     }
 
     fun setItemColumns(columns: Set<String>) {
         _itemColumns.value = columns
         viewModelScope.launch { repository.updateItemColumns(columns) }
+    }
+
+    fun toggleSectorColumn(column: String) {
+        val current = sectorColumns.value.toMutableSet()
+        if (current.contains(column)) {
+            current.remove(column)
+        } else {
+            current.add(column)
+        }
+        _sectorColumns.value = current
+        viewModelScope.launch { repository.updateSectorColumns(current) }
     }
 
     fun setSectorColumns(columns: Set<String>) {
@@ -365,8 +377,11 @@ class PortfolioViewModel(
     fun updateTransaction(record: TransactionRecord) {
         viewModelScope.launch {
             val existing = allTransactions.value.find { it.id == record.id }
-            if (existing != null && existing.sector != record.sector) _pendingSectorUpdate.value = record
-            else performUpdate(record)
+            if (existing != null && existing.sector != record.sector) {
+                _pendingSectorUpdate.value = record
+            } else {
+                performUpdate(record)
+            }
         }
     }
 
@@ -380,7 +395,9 @@ class PortfolioViewModel(
                     repository.triggerSnackbar("Sector '${record.sector}' applied to all ${record.item} records.")
                 }
                 repository.updateTransaction(record)
-                if (!approve) repository.triggerSnackbar("Successfully modified record (Bulk update skipped)")
+                if (!approve) {
+                    repository.triggerSnackbar("Successfully modified record (Bulk update skipped)")
+                }
             } catch (e: Exception) {
                 repository.triggerSnackbar("Error updating transaction: ${e.message}")
             } finally {
@@ -443,10 +460,34 @@ class PortfolioViewModel(
         }
     }
 
+    fun refreshLivePrices() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val result = repository.refreshLivePrices()
+                result.onSuccess { updated ->
+                    if (updated) {
+                        repository.triggerSnackbar("Market prices updated successfully")
+                    } else {
+                        repository.triggerSnackbar("No new market updates available at this time")
+                    }
+                }.onFailure { e ->
+                    repository.triggerSnackbar("Sync failed: ${e.message}")
+                }
+            } catch (e: Exception) {
+                repository.triggerSnackbar("Network failure: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     private val _showSyncRecommendation = MutableStateFlow(false)
     val showSyncRecommendation = _showSyncRecommendation.asStateFlow()
 
-    fun setShowSyncRecommendation(show: Boolean) { _showSyncRecommendation.value = show }
+    fun setShowSyncRecommendation(show: Boolean) {
+        _showSyncRecommendation.value = show
+    }
 
     fun importTransactions(csvText: String, overwrite: Boolean, isWacc: Boolean = false) {
         viewModelScope.launch {
@@ -456,7 +497,9 @@ class PortfolioViewModel(
                 val type = if (isWacc) "WACC" else "Standard"
                 repository.triggerSnackbar("Successfully imported $count $type records")
                 _showSyncRecommendation.value = true
-            }.onFailure { err -> repository.triggerSnackbar("Import Error: ${err.message}") }
+            }.onFailure { err ->
+                repository.triggerSnackbar("Import Error: ${err.message}")
+            }
             _isLoading.value = false
         }
     }
@@ -468,57 +511,85 @@ class PortfolioViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             val result = repository.calculatePortfolioSyncAdjustments(csvText.byteInputStream())
-            result.onSuccess { count -> _pendingPortfolioSync.value = csvText to count }
-            .onFailure { err -> repository.triggerSnackbar("CSV Parse Error: ${err.message}") }
+            result.onSuccess { count ->
+                _pendingPortfolioSync.value = csvText to count
+            }.onFailure { err ->
+                repository.triggerSnackbar("CSV Parse Error: ${err.message}")
+            }
             _isLoading.value = false
         }
     }
 
-    fun cancelPortfolioSync() { _pendingPortfolioSync.value = null }
+    fun cancelPortfolioSync() {
+        _pendingPortfolioSync.value = null
+    }
 
     fun importPortfolioSync(csvText: String) {
         viewModelScope.launch {
             _isLoading.value = true
             val result = repository.importPortfolioSyncCsv(csvText.byteInputStream())
             result.onSuccess { count ->
-                repository.triggerSnackbar("Sync Complete: $count scrips updated. Adjustment records added to match actual holdings.")
+                repository.triggerSnackbar("Sync Complete: $count scrips updated. Adjustment records added to match actual holdings. Please review amounts in History.")
                 _showSyncRecommendation.value = false
-            }.onFailure { err -> repository.triggerSnackbar("Portfolio Data Error: ${err.message}") }
+            }.onFailure { err ->
+                repository.triggerSnackbar("Portfolio Data Error: ${err.message}")
+            }
             _isLoading.value = false
         }
     }
 
-    fun updateVisibleIndices(visible: List<String>) { viewModelScope.launch { repository.updateVisibleIndices(visible) } }
+    fun updateVisibleIndices(visible: List<String>) {
+        viewModelScope.launch {
+            repository.updateVisibleIndices(visible)
+        }
+    }
 
+    fun setAllIndicesVisible(visible: Set<String>) {
+        viewModelScope.launch {
+            repository.updateVisibleIndices(visible.toList())
+        }
+    }
+
+    /** Triggers a bulk update for a prioritized list of URLs for a category. */
     fun updateScraperUrls(category: ScraperCategory, urls: List<String>) {
         viewModelScope.launch {
+            com.example.data.util.AppLogger.i("ScraperConfig", "Updating URLs for ${category.name}: $urls")
             repository.updateScraperUrls(category, urls)
             repository.triggerSnackbar("Scraper URLs for ${category.displayName} updated")
         }
     }
 
+    /** Wipes all custom scraper overrides and restores app to factory default URLs. */
     fun resetAllScraperUrls() {
         viewModelScope.launch {
+            com.example.data.util.AppLogger.w("ScraperConfig", "Restoring all scrapers to factory defaults")
             repository.resetAllScraperUrls()
             repository.triggerSnackbar("All Scraper URLs restored to default")
         }
     }
 
+    /** Wipes custom scraper overrides for a specific category. */
     fun resetScraperUrls(category: ScraperCategory) {
         viewModelScope.launch {
+            com.example.data.util.AppLogger.w("ScraperConfig", "Restoring scraper for ${category.displayName} to default")
             repository.resetScraperUrls(category)
             repository.triggerSnackbar("${category.displayName} restored to default")
         }
     }
 
+    /**
+     * Exports the current scraper configuration (all categories and their URLs) to a CSV format.
+     */
     fun exportScraperConfigToCsv(): String {
         val profile = userProfile.value
         val currentScrapers = profile?.scraperUrls ?: emptyMap()
+        
         return buildString {
             append("Category,Priority,URL\n")
             ScraperCategory.values().forEach { category ->
                 val urls = currentScrapers[category] ?: defaultScrapers[category] ?: emptyList()
                 urls.forEachIndexed { index, url ->
+                    // Escape commas in URLs if any (rare but possible)
                     val safeUrl = if (url.contains(",")) "\"$url\"" else url
                     append("${category.name},${index + 1},$safeUrl\n")
                 }
@@ -526,27 +597,59 @@ class PortfolioViewModel(
         }
     }
 
+    /** 
+     * Tests a specific URL for its ability to provide data for a given category.
+     * Uses a robust OkHttp client to handle SSL issues and various content types.
+     */
     suspend fun testScraperUrl(category: ScraperCategory, url: String): kotlin.Result<String> {
+        com.example.data.util.AppLogger.i("ScraperConfig", "Testing URL for ${category.name}: $url")
         return withContext(Dispatchers.IO) {
             try {
                 val client = getUnsafeOkHttpClient()
-                val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Accept", "*/*").build()
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+                    .header("Accept", "*/*")
+                    .build()
+
                 val response = client.newCall(request).execute()
                 val body = response.body?.string() ?: ""
-                if (!response.isSuccessful) return@withContext kotlin.Result.failure(Exception("HTTP ${response.code}"))
+                
+                if (!response.isSuccessful) {
+                    return@withContext kotlin.Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
+                }
+
                 val contentType = response.header("Content-Type") ?: ""
+                
                 val success = when(category) {
-                    ScraperCategory.INDICES_UPDATE -> body.contains("ctl00_ContentPlaceHolder1_lblIndexValue") || body.contains("table")
+                    ScraperCategory.INDEX_UPDATE -> body.contains("ctl00_ContentPlaceHolder1_lblIndexValue") || body.contains("table")
                     ScraperCategory.PRIMARY_INDEX_STATUS -> body.contains("Index") || body.contains("Market") || body.contains("table")
                     ScraperCategory.LTP_UPDATE -> body.contains("table") && body.length > 500
                     ScraperCategory.SCRIP_SYNC -> body.contains("table") && body.length > 1000
-                    ScraperCategory.ISSUES_LISTING -> contentType.contains("application/json") || body.contains("tr") || body.contains("table")
+                    ScraperCategory.IPO_LISTING -> {
+                        if (contentType.contains("application/json")) {
+                            body.trim().startsWith("{") || body.trim().startsWith("[")
+                        } else {
+                            body.contains("tr") || body.contains("table")
+                        }
+                    }
                     ScraperCategory.IPO_RESULT -> body.contains("form") || body.contains("input") || contentType.contains("application/json")
                     ScraperCategory.DP_MASTER -> body.contains("table") && body.length > 500
-                    else -> response.code == 200
+                    ScraperCategory.MEROSHARE_WEB -> body.contains("mero") || body.contains("asba") || body.contains("login") || body.contains("form") || response.code == 200
+                    ScraperCategory.MEROSHARE_API -> body.contains("auth") || body.contains("Unauthorized") || body.contains("Access Denied") || response.code == 401 || response.code == 405 || response.code == 200
                 }
-                if (success) kotlin.Result.success(body.take(2000)) else kotlin.Result.failure(Exception("Validation failed"))
-            } catch (e: Exception) { kotlin.Result.failure(e) }
+                
+                if (success) {
+                    com.example.data.util.AppLogger.i("ScraperConfig", "Test Success for $url")
+                    kotlin.Result.success("Success: URL is reachable and returns valid data.")
+                } else {
+                    com.example.data.util.AppLogger.e("ScraperConfig", "Test Failed (Validation Error) for $url")
+                    kotlin.Result.failure(Exception("URL reachable but data validation failed for ${category.displayName}."))
+                }
+            } catch (e: Exception) {
+                com.example.data.util.AppLogger.e("ScraperConfig", "Test Failed (Network/SSL Error) for $url", e)
+                kotlin.Result.failure(e)
+            }
         }
     }
 
@@ -557,22 +660,27 @@ class PortfolioViewModel(
                 override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
                 override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
             })
+
             val sslContext = SSLContext.getInstance("SSL")
             sslContext.init(null, trustAllCerts, SecureRandom())
-            OkHttpClient.Builder().sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager).hostnameVerifier { _, _ -> true }.connectTimeout(15, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
-        } catch (e: Exception) { OkHttpClient.Builder().build() }
+
+            OkHttpClient.Builder()
+                .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+                .hostnameVerifier { _, _ -> true }
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build()
+        } catch (e: Exception) {
+            OkHttpClient.Builder().build()
+        }
     }
 }
 
-class PortfolioViewModelFactory(
-    private val repository: PortfolioRepository,
-    private val marketRepository: com.example.data.repository.MarketRepository? = null,
-    private val ipoRepository: com.example.data.repository.IpoRepository? = null
-) : ViewModelProvider.Factory {
+class PortfolioViewModelFactory(private val repository: PortfolioRepository) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PortfolioViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return PortfolioViewModel(repository, marketRepository, ipoRepository) as T
+            return PortfolioViewModel(repository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
