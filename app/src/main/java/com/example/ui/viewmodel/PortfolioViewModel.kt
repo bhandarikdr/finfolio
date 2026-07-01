@@ -3,8 +3,6 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.data.db.AppDatabase
-import com.example.data.db.ExternalLtp
 import com.example.data.db.TransactionRecord
 import com.example.data.model.FinancialEngines
 import com.example.data.model.ItemMetrics
@@ -14,19 +12,15 @@ import com.example.data.model.TypeMetrics
 import com.example.data.model.UserProfile
 import com.example.data.repository.PortfolioRepository
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jsoup.Jsoup
-import java.io.InputStream
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
@@ -136,9 +130,6 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
         }
     }
 
-    val allExternalLtps: StateFlow<List<ExternalLtp>> = repository.allExternalLtps
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     val distinctItems: StateFlow<List<String>> = combine(
         repository.distinctItems,
         repository.allScripSymbols
@@ -231,13 +222,11 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
     // Aggregated Metrics - Calculated twice to support independent dashboard and matrix filters
     val dashboardItemMetrics: StateFlow<List<ItemMetrics>> = combine(
         allHoldings,
-        allExternalLtps,
         dashboardScope,
         userProfile
-    ) { holdingsList, ltpList, scope, profile ->
+    ) { holdingsList, scope, profile ->
         val computedAll = FinancialEngines.computeItemMetricsFromHoldings(
             holdingsList, 
-            ltpList,
             commissionRate = profile?.commissionRate ?: 0.0038,
             flatFee = profile?.flatFee ?: 25.0,
             cgtRate = profile?.cgtRate ?: 0.075
@@ -250,13 +239,11 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
 
     val matrixItemMetrics: StateFlow<List<ItemMetrics>> = combine(
         allHoldings,
-        allExternalLtps,
         matrixScope,
         userProfile
-    ) { holdingsList, ltpList, scope, profile ->
+    ) { holdingsList, scope, profile ->
         val computedAll = FinancialEngines.computeItemMetricsFromHoldings(
             holdingsList, 
-            ltpList,
             commissionRate = profile?.commissionRate ?: 0.0038,
             flatFee = profile?.flatFee ?: 25.0,
             cgtRate = profile?.cgtRate ?: 0.075
@@ -622,11 +609,11 @@ class PortfolioViewModel(private val repository: PortfolioRepository) : ViewMode
                 val contentType = response.header("Content-Type") ?: ""
                 
                 val success = when(category) {
-                    ScraperCategory.INDEX_UPDATE -> body.contains("ctl00_ContentPlaceHolder1_lblIndexValue") || body.contains("table")
+                    ScraperCategory.INDICES_UPDATE -> body.contains("ctl00_ContentPlaceHolder1_lblIndexValue") || body.contains("table")
                     ScraperCategory.PRIMARY_INDEX_STATUS -> body.contains("Index") || body.contains("Market") || body.contains("table")
                     ScraperCategory.LTP_UPDATE -> body.contains("table") && body.length > 500
                     ScraperCategory.SCRIP_SYNC -> body.contains("table") && body.length > 1000
-                    ScraperCategory.IPO_LISTING -> {
+                    ScraperCategory.ISSUES_LISTING -> {
                         if (contentType.contains("application/json")) {
                             body.trim().startsWith("{") || body.trim().startsWith("[")
                         } else {

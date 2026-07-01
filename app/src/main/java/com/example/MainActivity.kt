@@ -830,6 +830,8 @@ fun GlobalMarketSearchDialog(
                                                 Spacer(Modifier.width(8.dp))
                                                 Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) { Text("Holding", fontSize = 8.sp) }
                                             }
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(s.sector, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                         }
                                         Text(s.name, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) 
                                         if (!hasLtp) {
@@ -1102,8 +1104,12 @@ fun IpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onNavi
                             text = { 
                                 Column {
                                     Text(ipo.companyName, fontWeight = FontWeight.Bold)
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (!ipo.scrip.isNullOrBlank()) Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                        if (!ipo.issueType.isNullOrBlank()) {
+                                            if (!ipo.scrip.isNullOrBlank()) Text(" • ", fontSize = 10.sp, color = Color.Gray)
+                                            Text(ipo.issueType, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                        }
                                         Spacer(Modifier.width(8.dp))
                                         Text("Allotment: ${displayDate(ipo.allotmentDate, dateFormat)}", fontSize = 10.sp)
                                     }
@@ -1240,8 +1246,12 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
                         text = { 
                             Column {
                                 Text(ipo.companyName, fontWeight = FontWeight.Bold)
-                                Row {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (!ipo.scrip.isNullOrBlank()) Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                    if (!ipo.issueType.isNullOrBlank()) {
+                                        if (!ipo.scrip.isNullOrBlank()) Text(" • ", fontSize = 10.sp, color = Color.Gray)
+                                        Text(ipo.issueType, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                     Text("Closes: ${ipo.closingDate ?: "N/A"}", fontSize = 10.sp)
                                 }
@@ -2692,8 +2702,18 @@ fun IpoMasterCard(ipo: IpoMaster, vm: BulkIpoViewModel, context: android.content
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(ipo.companyName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (!ipo.scrip.isNullOrBlank()) {
-                        Text(ipo.scrip, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!ipo.scrip.isNullOrBlank()) {
+                            Text(ipo.scrip, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                        if (!ipo.issueType.isNullOrBlank()) {
+                            if (!ipo.scrip.isNullOrBlank()) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("•", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(ipo.issueType, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.secondary)
+                        }
                     }
                 }
                 

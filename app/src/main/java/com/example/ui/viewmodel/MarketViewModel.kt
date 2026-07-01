@@ -55,7 +55,7 @@ class MarketViewModel(private val repository: MarketRepository, private val port
         (listOf(primaryMatch) + others).distinctBy { it.index.lowercase().trim() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val priceChanges: StateFlow<List<ScripPriceChange>> = portfolioRepository.allExternalLtps.map { list ->
+    val priceChanges: StateFlow<List<ScripPriceChange>> = repository.allScripMaster.map { list ->
         list.map { 
             ScripPriceChange(
                 symbol = it.symbol,

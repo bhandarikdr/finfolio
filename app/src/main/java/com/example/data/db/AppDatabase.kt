@@ -8,7 +8,6 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         TransactionRecord::class,
-        ExternalLtp::class,
         UserEntity::class,
         SectorMapping::class,
         ScripMaster::class,
@@ -21,7 +20,7 @@ import androidx.room.RoomDatabase
         DpMaster::class,
         IpoMemberActivity::class
     ],
-    version = 25,
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,11 +40,41 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "portfolio_database"
                 )
-                .addMigrations(MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
+                .addMigrations(MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)
                 .fallbackToDestructiveMigration(false)
                 .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_26_27 = object : androidx.room.migration.Migration(26, 27) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `ipo_master` ADD COLUMN `issueType` TEXT")
+            }
+        }
+
+        private val MIGRATION_25_26 = object : androidx.room.migration.Migration(25, 26) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // Update ScripMaster: add new fields
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `ltp` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `previousLtp` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `pointChange` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `changePercent` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `open` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `high` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `low` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `ScripMaster` ADD COLUMN `timestamp` INTEGER NOT NULL DEFAULT 0")
+
+                // Update Holdings: add new fields
+                database.execSQL("ALTER TABLE `Holdings` ADD COLUMN `ltp` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `Holdings` ADD COLUMN `prevLtp` REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE `Holdings` ADD COLUMN `source` TEXT NOT NULL DEFAULT 'Scraped'")
+                database.execSQL("ALTER TABLE `Holdings` ADD COLUMN `isInExternalSync` INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE `Holdings` ADD COLUMN `timestamp` INTEGER NOT NULL DEFAULT 0")
+
+                // Drop ExternalLtp table
+                database.execSQL("DROP TABLE IF EXISTS `ExternalLtp`")
             }
         }
 

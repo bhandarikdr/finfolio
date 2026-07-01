@@ -1,23 +1,18 @@
 package com.example.data.repository
 
 import android.content.Context
-import androidx.core.content.edit
-import com.example.data.db.ExternalLtp
 import com.example.data.db.IpoMasterDao
 import com.example.data.db.PortfolioDao
 import com.example.data.db.TransactionRecord
 import com.example.data.model.MarketStatus
 import com.example.data.model.ScraperCategory
 import com.example.data.model.UserProfile
-import com.example.data.util.NetworkUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONObject
@@ -28,7 +23,6 @@ import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.*
 
-import com.example.data.db.SectorMapping
 import com.example.data.db.UserEntity
 import com.example.data.model.DatabaseSnapshot
 import com.example.data.util.AppLogger
@@ -65,7 +59,7 @@ class PortfolioRepository(
         if (!entity?.scraperUrlsJson.isNullOrBlank()) {
             try {
                 val json = JSONObject(entity!!.scraperUrlsJson)
-                ScraperCategory.values().forEach { cat ->
+                ScraperCategory.entries.forEach { cat ->
                     if (json.has(cat.name)) {
                         val arr = json.getJSONArray(cat.name)
                         val list = mutableListOf<String>()
@@ -77,7 +71,7 @@ class PortfolioRepository(
         }
         
         // Fill defaults if missing
-        ScraperCategory.values().forEach { cat ->
+        ScraperCategory.entries.forEach { cat ->
             if (scraperMap[cat].isNullOrEmpty()) {
                 scraperMap[cat] = com.example.data.model.ScraperDefaults.defaultScrapersByCategory[cat] ?: emptyList()
             }
@@ -357,9 +351,9 @@ class PortfolioRepository(
     suspend fun getScraperUrl(key: String): String {
         val category = when(key) {
             "LTP_SOURCE_1" -> ScraperCategory.LTP_UPDATE
-            "INDEX_SOURCE_1", "INDEX_SOURCE_2" -> ScraperCategory.INDEX_UPDATE
+            "INDEX_SOURCE_1", "INDEX_SOURCE_2" -> ScraperCategory.INDICES_UPDATE
             "SCRIP_MASTER" -> ScraperCategory.SCRIP_SYNC
-            "IPO_PIPELINE", "IPO_LISTING_SOURCE" -> ScraperCategory.IPO_LISTING
+            "IPO_PIPELINE", "IPO_LISTING_SOURCE" -> ScraperCategory.ISSUES_LISTING
             "CDSC_RESULT_CHECK" -> ScraperCategory.IPO_RESULT
             else -> return ""
         }
@@ -368,7 +362,6 @@ class PortfolioRepository(
 
     val allTransactions: Flow<List<TransactionRecord>> = portfolioDao.getAllTransactions()
     val allHoldings: Flow<List<com.example.data.db.Holdings>> = portfolioDao.getAllHoldings()
-    val allExternalLtps: Flow<List<ExternalLtp>> = portfolioDao.getAllExternalLtps()
     val distinctItems: Flow<List<String>> = portfolioDao.getDistinctItems()
     val allScripSymbols: Flow<List<String>> = portfolioDao.getAllScripMaster().map { list -> list.map { it.symbol } }
     val recentItems: Flow<List<String>> = portfolioDao.getRecentItems()
@@ -418,6 +411,9 @@ class PortfolioRepository(
             return
         }
 
+        val existingHolding = portfolioDao.getHoldingsBySymbol(symbol.uppercase().trim())
+        val scripMaster = portfolioDao.getScripMasterBySymbol(symbol.uppercase().trim())
+
         val sector = transactions.firstOrNull()?.sector ?: "Other"
         var totalBuyAmt = 0.0
         var totalSaleAmt = 0.0
@@ -449,6 +445,11 @@ class PortfolioRepository(
             com.example.data.db.Holdings(
                 symbol = symbol.uppercase().trim(),
                 sector = sector,
+                ltp = existingHolding?.ltp ?: scripMaster?.ltp ?: 0.0,
+                prevLtp = existingHolding?.prevLtp ?: scripMaster?.previousLtp ?: 0.0,
+                source = existingHolding?.source ?: "Scraped",
+                isInExternalSync = existingHolding?.isInExternalSync ?: false,
+                timestamp = existingHolding?.timestamp ?: scripMaster?.timestamp ?: 0L,
                 totalBuyAmount = totalBuyAmt,
                 totalSaleAmount = totalSaleAmt,
                 returnsCash = totalReturnCash,
@@ -463,7 +464,7 @@ class PortfolioRepository(
     suspend fun flushAllData() {
         withContext(Dispatchers.IO) {
             portfolioDao.clearAllTransactions()
-            portfolioDao.clearAllExternalLtps()
+            portfolioDao.clearAllMarketData()
             portfolioDao.clearAllHoldings()
             // Kept: clearAllMarketIndices() - Per user request to preserve index data
             portfolioDao.clearAllSectorMappings()
@@ -630,23 +631,16 @@ class PortfolioRepository(
                             if (ltpIdx != -1 && ltpIdx < cols.size) {
                                 val ltpVal = cols[ltpIdx].replace(",", "").toDoubleOrNull() ?: 0.0
                                 if (ltpVal > 0) {
-                                    val existing = portfolioDao.getExternalLtpBySymbol(symbol)
-                                    val finalPrevLtp = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) {
-                                        cols[prevLtpIdx].replace(",", "").toDoubleOrNull() ?: existing?.ltp ?: ltpVal
-                                    } else {
-                                        if (existing != null && existing.ltp != ltpVal) existing.ltp else existing?.previousLtp ?: 0.0
-                                    }
-                                    val pointChg = Math.round((ltpVal - finalPrevLtp) * 100.0) / 100.0
-                                    val pctChg = if (finalPrevLtp > 0) Math.round((pointChg / finalPrevLtp * 100.0) * 100.0) / 100.0 else 0.0
-                                    portfolioDao.insertExternalLtp(ExternalLtp(
+                                    val existingH = portfolioDao.getHoldingsBySymbol(symbol)
+                                    val scripM = portfolioDao.getScripMasterBySymbol(symbol)
+                                    portfolioDao.updateHoldingPrice(
                                         symbol = symbol,
                                         ltp = ltpVal,
-                                        previousLtp = finalPrevLtp,
-                                        pointChange = pointChg,
-                                        changePercent = pctChg,
+                                        prev = existingH?.prevLtp ?: scripM?.previousLtp ?: 0.0,
                                         source = "CSV_Import",
-                                        timestamp = System.currentTimeMillis()
-                                    ))
+                                        sync = existingH?.isInExternalSync ?: false,
+                                        ts = System.currentTimeMillis()
+                                    )
                                 }
                             }
 
@@ -750,7 +744,6 @@ class PortfolioRepository(
 
                 if (scripIdx == -1 || ltpIdx == -1) return@withContext Result.failure(Exception("Required columns 'Scrip' and 'LTP' not found in CSV."))
 
-                val newLtpRecords = mutableListOf<ExternalLtp>()
                 val timestamp = System.currentTimeMillis()
                 val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                 val allTx = portfolioDao.getAllTransactionsSync()
@@ -764,21 +757,18 @@ class PortfolioRepository(
                         if (scrip.isEmpty() || garbageTerms.contains(scrip.lowercase())) continue
                         val ltpValue = cols[ltpIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
                         val importedQty = if (qtyIdx != -1 && qtyIdx < cols.size) cols[qtyIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0 else 0.0
-                        val existing = portfolioDao.getExternalLtpBySymbol(scrip)
-                        val finalPrevLtp = if (prevLtpIdx != -1 && prevLtpIdx < cols.size) cols[prevLtpIdx].replace("\"", "").replace(",", "").trim().toDoubleOrNull() ?: existing?.ltp ?: ltpValue else existing?.ltp ?: ltpValue
-                        val ptChg = ltpValue - finalPrevLtp
-                        val pctChg = if (finalPrevLtp > 0) (ptChg / finalPrevLtp) * 100.0 else 0.0
-
-                        newLtpRecords.add(ExternalLtp(
+                        
+                        // Update Holding Price directly
+                        val existingH = portfolioDao.getHoldingsBySymbol(scrip)
+                        val scripM = portfolioDao.getScripMasterBySymbol(scrip)
+                        portfolioDao.updateHoldingPrice(
                             symbol = scrip,
                             ltp = ltpValue,
-                            previousLtp = finalPrevLtp,
-                            pointChange = ptChg,
-                            changePercent = pctChg,
+                            prev = existingH?.prevLtp ?: scripM?.previousLtp ?: 0.0,
                             source = "PortfolioSync",
-                            timestamp = timestamp,
-                            isInExternalSync = true
-                        ))
+                            sync = true,
+                            ts = timestamp
+                        )
 
                         if (qtyIdx != -1) {
                             val scripTx = groupedTx[scrip] ?: emptyList()
@@ -795,32 +785,17 @@ class PortfolioRepository(
                     }
                 }
 
-                val csvScrips = newLtpRecords.map { it.symbol }.toSet()
-                for ((scrip, scripTx) in groupedTx) {
-                    if (scrip !in csvScrips) {
-                        val currentBalance = scripTx.filter { it.action == "Buy" || it.action == "Returns" }.sumOf { it.qty } - scripTx.filter { it.action == "Sale" }.sumOf { it.qty }
-                        if (currentBalance > 0.001) {
-                            val totalBuyAmount = scripTx.filter { it.action == "Buy" }.sumOf { it.amount }
-                            val totalBuyQty = scripTx.filter { it.action == "Buy" || it.action == "Returns" }.sumOf { it.qty }
-                            val avgCost = if (totalBuyQty > 0) totalBuyAmount / totalBuyQty else 0.0
-                            portfolioDao.insertTransaction(TransactionRecord(date = todayStr, item = scrip, sector = scripTx.firstOrNull()?.sector ?: "Other", action = "Sale", qty = currentBalance, amount = currentBalance * avgCost, isSystemAdjustment = true))
-                        }
-                    }
-                }
-
-                portfolioDao.deleteExternalLtpBySource("PortfolioSync")
                 portfolioDao.resetExternalSyncFlag()
-                portfolioDao.insertExternalLtps(newLtpRecords)
                 
-                // Recalculate holdings for all scrips involved in the import
-                val allAffectedScrips = (csvScrips + groupedTx.keys).distinct()
+                // Recalculate holdings for all scrips involved in the import (to update amounts, but ltp was already set above)
+                val allAffectedScrips = (lines.drop(1).mapNotNull { row -> 
+                    val cols = parseCsvRow(row, separator)
+                    if (cols.size > scripIdx) cols[scripIdx].uppercase().trim() else null 
+                } + groupedTx.keys).distinct()
+                
                 allAffectedScrips.forEach { recalculateHoldingsForScrip(it) }
 
-                for (rec in newLtpRecords) {
-                    val existingScraped = portfolioDao.getExternalLtpBySymbol(rec.symbol)
-                    if (existingScraped != null && existingScraped.source == "Scraped") portfolioDao.insertExternalLtp(existingScraped.copy(isInExternalSync = true))
-                }
-                Result.success(newLtpRecords.size)
+                Result.success(allAffectedScrips.size)
             } catch (e: Exception) { Result.failure(e) }
         }
     }
@@ -865,7 +840,7 @@ class PortfolioRepository(
 
                 val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-                val statusUrls = getScraperUrls(ScraperCategory.PRIMARY_INDEX_STATUS) + getScraperUrls(ScraperCategory.INDEX_UPDATE)
+                val statusUrls = getScraperUrls(ScraperCategory.PRIMARY_INDEX_STATUS) + getScraperUrls(ScraperCategory.INDICES_UPDATE)
                 val primaryName = portfolioDao.getUserProfileSync()?.primaryIndexName ?: "NEPSE Index"
 
                 for (url in statusUrls) {

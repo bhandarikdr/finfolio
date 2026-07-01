@@ -30,8 +30,8 @@ interface PortfolioDao {
     @Query("DELETE FROM Data")
     suspend fun clearAllTransactions()
 
-    @Query("DELETE FROM ExternalLtp")
-    suspend fun clearAllExternalLtps()
+    @Query("DELETE FROM ScripMaster")
+    suspend fun clearAllMarketData()
 
     @Query("DELETE FROM MarketIndices")
     suspend fun clearAllMarketIndices()
@@ -61,24 +61,21 @@ interface PortfolioDao {
     suspend fun updateSectorBySymbol(symbol: String, newSector: String)
 
 
-    // --- EXTERNAL LTP RECORDS ---
-    @Query("SELECT * FROM ExternalLtp")
-    fun getAllExternalLtps(): Flow<List<ExternalLtp>>
+    // --- MARKET DATA UPDATES (SCRIP MASTER & HOLDINGS) ---
+    @Query("UPDATE ScripMaster SET ltp = :ltp, previousLtp = :prev, pointChange = :chg, changePercent = :pct, timestamp = :ts WHERE symbol = :symbol")
+    suspend fun updateScripPrice(symbol: String, ltp: Double, prev: Double, chg: Double, pct: Double, ts: Long)
 
-    @Query("SELECT * FROM ExternalLtp WHERE symbol = :symbol LIMIT 1")
-    suspend fun getExternalLtpBySymbol(symbol: String): ExternalLtp?
+    @Query("UPDATE ScripMaster SET ltp = :ltp, previousLtp = :prev, pointChange = :chg, changePercent = :pct, open = :o, high = :h, low = :l, timestamp = :ts WHERE symbol = :symbol")
+    suspend fun updateScripPriceFull(symbol: String, ltp: Double, prev: Double, chg: Double, pct: Double, o: Double, h: Double, l: Double, ts: Long)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertExternalLtp(ltp: ExternalLtp)
+    @Query("UPDATE Holdings SET ltp = :ltp, prevLtp = :prev, source = :source, isInExternalSync = :sync, timestamp = :ts WHERE symbol = :symbol")
+    suspend fun updateHoldingPrice(symbol: String, ltp: Double, prev: Double, source: String, sync: Boolean, ts: Long)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertExternalLtps(ltps: List<ExternalLtp>)
-
-    @Query("DELETE FROM ExternalLtp WHERE source = :source")
-    suspend fun deleteExternalLtpBySource(source: String)
-
-    @Query("UPDATE ExternalLtp SET isInExternalSync = 0")
+    @Query("UPDATE Holdings SET isInExternalSync = 0")
     suspend fun resetExternalSyncFlag()
+
+    @Query("SELECT * FROM ScripMaster WHERE symbol = :symbol LIMIT 1")
+    suspend fun getScripMasterBySymbol(symbol: String): ScripMaster?
 
     // --- USER PROFILE ---
     @Query("SELECT * FROM UserProfile WHERE id = 0 LIMIT 1")
