@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class IpoMaster(
     @PrimaryKey val companyName: String,
     val shareType: String? = null,
+    val issueType: String? = null,
     val units: String? = null,
     val openingDate: String? = null,
     val closingDate: String? = null,

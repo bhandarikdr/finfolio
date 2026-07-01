@@ -55,7 +55,7 @@ class MarketViewModel(private val repository: MarketRepository, private val port
         (listOf(primaryMatch) + others).distinctBy { it.index.lowercase().trim() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val priceChanges: StateFlow<List<ScripPriceChange>> = portfolioRepository.allExternalLtps.map { list ->
+    val priceChanges: StateFlow<List<ScripPriceChange>> = repository.allScripMaster.map { list ->
         list.map { 
             ScripPriceChange(
                 symbol = it.symbol,
@@ -97,6 +97,10 @@ class MarketViewModel(private val repository: MarketRepository, private val port
                 // Ensure live status is refreshed along with generic indices
                 portfolioRepository.refreshLivePrices()
 
+                val scripResult = if (force || allScripMaster.value.isEmpty()) {
+                    repository.fetchMasterScrips()
+                } else false
+
                 val indexResult = repository.fetchMarketIndices(force)
                 val priceResult = repository.fetchPriceChanges(force)
                 
@@ -118,8 +122,13 @@ class MarketViewModel(private val repository: MarketRepository, private val port
                 checkDefaultIndices()
                 
                 if (force) {
-                    if (indexUpdates > 0 || priceUpdates > 0) {
-                        portfolioRepository.triggerSnackbar("Market data refreshed: $indexUpdates indices, $priceUpdates prices updated")
+                    if (scripResult || indexUpdates > 0 || priceUpdates > 0) {
+                        val msg = buildString {
+                            append("Market data refreshed: ")
+                            if (scripResult) append("Scrips synced, ")
+                            append("$indexUpdates indices, $priceUpdates prices updated")
+                        }
+                        portfolioRepository.triggerSnackbar(msg)
                     } else if (primaryFound || primaryName == "NEPSE Index") {
                         portfolioRepository.triggerSnackbar("Market data is already up to date")
                     }

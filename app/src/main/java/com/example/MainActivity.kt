@@ -146,7 +146,7 @@ class MainActivity : ComponentActivity() {
                 val ipoRepo = remember { IpoRepository(database.portfolioDao(), database.ipoMasterDao()) }
                 val msRepo = remember { MeroShareRepository(database.portfolioDao()) }
 
-                val portfolioVM: PortfolioViewModel = viewModel(factory = PortfolioViewModelFactory(repository))
+                val portfolioVM: PortfolioViewModel = viewModel(factory = PortfolioViewModelFactory(repository, marketRepo, ipoRepo))
                 val marketVM: MarketViewModel = viewModel(factory = MarketViewModelFactory(marketRepo, repository))
                 val ipoVM: BulkIpoViewModel = viewModel(factory = BulkIpoViewModelFactory(ipoRepo, msRepo, marketRepo))
 
@@ -260,11 +260,8 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
                 MarketPillBadge(primaryIndex.index, primaryIndex.value, primaryIndex.percentChange, marketStatus.status)
 
                 IconButton(onClick = {
-                viewModel.refreshLivePrices()
-                marketViewModel.refreshMarketData()
-                ipoViewModel.refreshAllCompanies()
-                Toast.makeText(context, "Refreshing all data...", Toast.LENGTH_SHORT).show()
-            }) { Icon(Icons.Default.Refresh, null) } }) },
+                    viewModel.triggerGlobalRefresh()
+                }) { Icon(Icons.Default.Refresh, null) } }) },
             bottomBar = { NavigationBar { tabs.forEachIndexed { i, tab -> NavigationBarItem(selected = pagerState.currentPage == i, onClick = { if (tab == NavigationTab.MORE) currentSubView = null; cs.launch { pagerState.scrollToPage(i) } }, label = { Text(tab.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }) }, icon = { Icon(when(tab){ NavigationTab.DASHBOARD -> Icons.Default.Dashboard; NavigationTab.MATRIX -> Icons.Default.TableChart; NavigationTab.DATA -> Icons.AutoMirrored.Filled.Input; NavigationTab.MORE -> Icons.Default.MoreHoriz }, null) }) } } }
         ) { inner ->
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().padding(inner), userScrollEnabled = true) { page ->
@@ -306,6 +303,45 @@ fun PortfolioAppContent(viewModel: PortfolioViewModel, marketViewModel: MarketVi
             }
         }
     }
+    val isScraping by viewModel.isScraping.collectAsStateWithLifecycle()
+    val scrapeStatus by viewModel.scrapeStatus.collectAsStateWithLifecycle()
+
+    if (isScraping) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable(enabled = false) {}, // Intercept clicks
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.padding(32.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "Scraping Data...",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = scrapeStatus,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+
     if (showReg) RegistrationDialog { n, e, b -> viewModel.registerUser(n, e, b); showReg = false }
 }
 
@@ -830,6 +866,8 @@ fun GlobalMarketSearchDialog(
                                                 Spacer(Modifier.width(8.dp))
                                                 Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) { Text("Holding", fontSize = 8.sp) }
                                             }
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(s.sector, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                         }
                                         Text(s.name, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) 
                                         if (!hasLtp) {
@@ -1102,8 +1140,12 @@ fun IpoCheckScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onNavi
                             text = { 
                                 Column {
                                     Text(ipo.companyName, fontWeight = FontWeight.Bold)
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (!ipo.scrip.isNullOrBlank()) Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                        if (!ipo.issueType.isNullOrBlank()) {
+                                            if (!ipo.scrip.isNullOrBlank()) Text(" • ", fontSize = 10.sp, color = Color.Gray)
+                                            Text(ipo.issueType, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                        }
                                         Spacer(Modifier.width(8.dp))
                                         Text("Allotment: ${displayDate(ipo.allotmentDate, dateFormat)}", fontSize = 10.sp)
                                     }
@@ -1240,8 +1282,12 @@ fun IpoApplyScreen(vm: BulkIpoViewModel, portfolioVM: PortfolioViewModel, onBack
                         text = { 
                             Column {
                                 Text(ipo.companyName, fontWeight = FontWeight.Bold)
-                                Row {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (!ipo.scrip.isNullOrBlank()) Text(ipo.scrip, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                    if (!ipo.issueType.isNullOrBlank()) {
+                                        if (!ipo.scrip.isNullOrBlank()) Text(" • ", fontSize = 10.sp, color = Color.Gray)
+                                        Text(ipo.issueType, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                     Text("Closes: ${ipo.closingDate ?: "N/A"}", fontSize = 10.sp)
                                 }
@@ -2692,8 +2738,18 @@ fun IpoMasterCard(ipo: IpoMaster, vm: BulkIpoViewModel, context: android.content
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(ipo.companyName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (!ipo.scrip.isNullOrBlank()) {
-                        Text(ipo.scrip, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!ipo.scrip.isNullOrBlank()) {
+                            Text(ipo.scrip, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                        if (!ipo.issueType.isNullOrBlank()) {
+                            if (!ipo.scrip.isNullOrBlank()) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("•", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(ipo.issueType, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.secondary)
+                        }
                     }
                 }
                 
@@ -4205,6 +4261,26 @@ fun ScraperSettingsScreen(vm: PortfolioViewModel, onBack: () -> Unit) {
                                     Icon(Icons.Default.Check, null, Modifier.size(14.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text("Apply", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                // Scrape Trigger Button (Only show if not in dirty state)
+                                val isScrapable = when(category) {
+                                    ScraperCategory.MEROSHARE_WEB, ScraperCategory.MEROSHARE_API, ScraperCategory.IPO_RESULT -> false
+                                    else -> true
+                                }
+                                
+                                if (isScrapable) {
+                                    IconButton(
+                                        onClick = { vm.triggerIndividualScrape(category) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Download, 
+                                            contentDescription = "Trigger Scrape",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                         }

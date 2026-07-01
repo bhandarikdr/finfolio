@@ -198,13 +198,14 @@ class IpoRepository(
         }
         
         try {
-            _syncLog.value = "STEP 1/2: Fetching from configured IPO listing sources..."
+            _syncLog.value = "STEP 1/2: Fetching from configured issues listing sources..."
             val listingResult = syncFromIpoListingSource()
             
-            // Add Dummy IPO for testing
+            // Add Dummy Issue for testing
             ipoMasterDao.insert(IpoMaster(
-                companyName = "FinFolio Test IPO",
+                companyName = "FinFolio Test Issue",
                 shareType = "Ordinary Shares",
+                issueType = "IPO",
                 units = "1000000",
                 openingDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now),
                 closingDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now + 86400000 * 3),
@@ -238,13 +239,24 @@ class IpoRepository(
     }
 
     private suspend fun syncFromIpoListingSource(): Result<Unit> {
-        AppLogger.i("IpoSync", "Starting IPO Listing Sync")
-        val urls = getScraperUrls(ScraperCategory.IPO_LISTING)
+        AppLogger.i("IpoSync", "Starting Issues Listing Sync")
+        val urls = getScraperUrls(ScraperCategory.ISSUES_LISTING)
         var hasAtLeastOneSuccess = false
         
         for (apiUrl in urls) {
             try {
                 AppLogger.d("IpoSync", "Requesting URL: $apiUrl")
+                
+                val typeFromUrl = when {
+                    apiUrl.contains("/ipo", ignoreCase = true) -> "IPO"
+                    apiUrl.contains("/fpo", ignoreCase = true) -> "FPO"
+                    apiUrl.contains("/auction", ignoreCase = true) -> "Auction"
+                    apiUrl.contains("/dividend", ignoreCase = true) -> "Dividend"
+                    apiUrl.contains("/bond", ignoreCase = true) -> "Bond"
+                    else -> "IPO"
+                }
+                val isNepaliPaisa = apiUrl.contains("nepalipaisa.com")
+
                 val conn = URL(apiUrl).openConnection() as HttpURLConnection
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
                 conn.connectTimeout = 15000
@@ -289,13 +301,14 @@ class IpoRepository(
                                     ?: (if (scrip.isNotBlank()) ipoMasterDao.getByScrip(scrip) else null)
                                 
                                 val status = getSafeString(obj, listOf("status", "Status", "ipoStatus", "currentStatus", "state"))
-                                val opening = cleanDate(getSafeString(obj, listOf("openingDateAD", "openingDate", "OpeningDate", "openingDateBS", "openDate", "OpenDate", "opening", "opening_date", "StartDate")))
-                                val closing = cleanDate(getSafeString(obj, listOf("closingDateAD", "closingDate", "ClosingDate", "closingDateBS", "closeDate", "CloseDate", "closing", "closing_date", "EndDate")))
-                                val allotment = cleanDate(getSafeString(obj, listOf("allotmentDateAD", "allotmentDate", "AllotmentDate", "allottedDate")))
+                                val opening = cleanDate(getSafeString(obj, listOf("openingDateAD", "openingDate", "OpeningDate", "openingDateBS", "openDate", "OpenDate", "opening", "opening_date", "StartDate")), skipBsConversion = isNepaliPaisa)
+                                val closing = cleanDate(getSafeString(obj, listOf("closingDateAD", "closingDate", "ClosingDate", "closingDateBS", "closeDate", "CloseDate", "closing", "closing_date", "EndDate")), skipBsConversion = isNepaliPaisa)
+                                val allotment = cleanDate(getSafeString(obj, listOf("allotmentDateAD", "allotmentDate", "AllotmentDate", "allottedDate")), skipBsConversion = isNepaliPaisa)
                                 
                                 newIpos.add(IpoMaster(
                                     companyName = existing?.companyName ?: name,
                                     shareType = getSafeString(obj, listOf("shareType", "ShareType", "type", "IssueType", "ipoType")),
+                                    issueType = typeFromUrl,
                                     units = getSafeString(obj, listOf("units", "Units", "quantity", "Quantity", "kitta", "totalKitta")),
                                     openingDate = if (!opening.isNullOrBlank()) opening else existing?.openingDate,
                                     closingDate = if (!closing.isNullOrBlank()) closing else existing?.closingDate,
@@ -352,12 +365,12 @@ class IpoRepository(
                                             ?: (if (symbol.isNotBlank()) ipoMasterDao.getByScrip(symbol) else null)
 
                                         val status = if (statusIdx != -1 && statusIdx < cells.size) cells[statusIdx].text().trim() else "Unknown"
-                                        val opening = cleanDate(if (openIdx != -1 && openIdx < cells.size) cells[openIdx].text().trim() else "")
-                                        val closing = cleanDate(if (closeIdx != -1 && closeIdx < cells.size) cells[closeIdx].text().trim() else "")
+                                        val opening = cleanDate(if (openIdx != -1 && openIdx < cells.size) cells[openIdx].text().trim() else "", skipBsConversion = isNepaliPaisa)
+                                        val closing = cleanDate(if (closeIdx != -1 && closeIdx < cells.size) cells[closeIdx].text().trim() else "", skipBsConversion = isNepaliPaisa)
                                         val allotment = if (headerRowIdx != -1) {
                                             val headerCells = table.select("tr").get(headerRowIdx).select("th, td")
                                             val allotIdx = headerCells.indexOfFirst { it.text().lowercase().contains("allotment") }
-                                            if (allotIdx != -1 && allotIdx < cells.size) cleanDate(cells[allotIdx].text().trim()) else null
+                                            if (allotIdx != -1 && allotIdx < cells.size) cleanDate(cells[allotIdx].text().trim(), skipBsConversion = isNepaliPaisa) else null
                                         } else null
 
                                         val type = if (typeIdx != -1 && typeIdx < cells.size) cells[typeIdx].text().trim() else ""
@@ -367,6 +380,7 @@ class IpoRepository(
                                         newIpos.add(IpoMaster(
                                             companyName = existing?.companyName ?: name,
                                             shareType = type,
+                                            issueType = typeFromUrl,
                                             units = qty,
                                             openingDate = if (!opening.isNullOrBlank()) opening else existing?.openingDate,
                                             closingDate = if (!closing.isNullOrBlank()) closing else existing?.closingDate,
@@ -517,19 +531,21 @@ class IpoRepository(
         return ""
     }
 
-    private fun cleanDate(dateStr: String?): String? {
+    private fun cleanDate(dateStr: String?, skipBsConversion: Boolean = false): String? {
         if (dateStr.isNullOrBlank() || dateStr == "null") return null
         
         val trimmed = dateStr.trim()
 
-        // Handle BS (Bikram Sambat) conversion if suffix present or year > 2070
-        val bsPart = trimmed.removeSuffix("BS").trim().replace(":", "-").replace("/", "-")
-        val yearMatch = Regex("""^(\d{4})""").find(bsPart)
-        val possibleBsYear = yearMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        
-        if (trimmed.endsWith("BS", ignoreCase = true) || possibleBsYear in 2070..2100) {
-            val converted = com.example.data.util.NepDateUtils.bsToAd(bsPart)
-            if (converted != null) return converted
+        if (!skipBsConversion) {
+            // Handle BS (Bikram Sambat) conversion if suffix present or year > 2070
+            val bsPart = trimmed.removeSuffix("BS").trim().replace(":", "-").replace("/", "-")
+            val yearMatch = Regex("""^(\d{4})""").find(bsPart)
+            val possibleBsYear = yearMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            
+            if (trimmed.endsWith("BS", ignoreCase = true) || possibleBsYear in 2070..2100) {
+                val converted = com.example.data.util.NepDateUtils.bsToAd(bsPart)
+                if (converted != null) return converted
+            }
         }
         
         // Handle ISO with Time: 2024-06-27T00:00:00
